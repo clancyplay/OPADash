@@ -1261,42 +1261,55 @@ function rpnlDataBounds() {
   return { from: Math.min.apply(null, times), to: Math.max.apply(null, times) };
 }
 
-function clampTimeRange(range) {
-  const bounds = rpnlDataBounds();
-  if (!range || !bounds) return range;
-  const span = Math.max(60, bounds.to - bounds.from);
-  let from = Math.max(bounds.from, Math.min(range.from, bounds.to - 60));
-  let to = Math.min(bounds.to, Math.max(range.to, bounds.from + 60));
-  if (to <= from) {
-    from = bounds.from;
-    to = bounds.to;
+// Map cumulative rPnL onto OHLC candle times so both charts have the same
+// bar count. LWC spaces bars by index, not calendar time — mismatched counts
+// make timestamps sit at different x positions even in the same window.
+function alignRpnlToBars(rpnlPts, bars) {
+  if (!bars.length) return rpnlPts;
+  if (!rpnlPts.length) return bars.map(b => ({ time: b.time, value: 0 }));
+  let i = 0;
+  let last = 0;
+  const firstT = rpnlPts[0].time;
+  const out = [];
+  for (const b of bars) {
+    while (i < rpnlPts.length && rpnlPts[i].time <= b.time) {
+      last = rpnlPts[i].value;
+      i++;
+    }
+    out.push({ time: b.time, value: b.time < firstT ? 0 : last });
   }
-  if (to - from < 60) {
-    from = Math.max(bounds.from, to - Math.min(span, 3600));
-  }
-  return { from, to };
+  return out;
 }
 
-function applyTimeRange(range, origin) {
-  if (!range || rpnlSyncing || !ohlcChart || !rpnlChart) return;
-  const clamped = clampTimeRange(range);
-  if (!clamped) return;
+function syncRpnlTimeScale(origin) {
+  if (rpnlSyncing || !ohlcChart || !rpnlChart) return;
+  const src = origin === 'ohlc' ? ohlcChart : rpnlChart;
+  const dst = origin === 'ohlc' ? rpnlChart : ohlcChart;
+  const logical = src.timeScale().getVisibleLogicalRange();
+  if (!logical) return;
   rpnlSyncing = true;
   try {
-    if (origin !== 'ohlc') ohlcChart.timeScale().setVisibleRange(clamped);
-    if (origin !== 'rpnl') rpnlChart.timeScale().setVisibleRange(clamped);
-  } catch (e) { /* range outside data */ }
+    let barSpacing, rightOffset;
+    try {
+      const opts = src.timeScale().options();
+      barSpacing = opts.barSpacing;
+      rightOffset = opts.rightOffset;
+    } catch (e) {}
+    if (barSpacing != null) {
+      dst.timeScale().applyOptions({ barSpacing, rightOffset });
+    }
+    dst.timeScale().setVisibleLogicalRange({ from: logical.from, to: logical.to });
+  } catch (e) { /* not ready */ }
   rpnlSyncing = false;
 }
 
-function onRpnlVisibleRange(chartId) {
-  return function () {
-    if (rpnlSyncing) return;
+function onRpnlLogicalRange(chartId) {
+  return function (range) {
+    if (rpnlSyncing || !range) return;
+    syncRpnlTimeScale(chartId);
     const src = chartId === 'ohlc' ? ohlcChart : rpnlChart;
-    const range = src.timeScale().getVisibleRange();
-    if (!range) return;
-    applyTimeRange(range, chartId);
-    maybeExtendRpnl(range);
+    const timeRange = src.timeScale().getVisibleRange();
+    if (timeRange) maybeExtendRpnl(timeRange);
   };
 }
 
@@ -1342,8 +1355,11 @@ function loadRpnlFresh() {
 }
 
 function fitRpnlView() {
-  const bounds = rpnlDataBounds();
-  if (bounds) applyTimeRange(bounds, null);
+  if (!ohlcChart || !rpnlChart) return;
+  rpnlSyncing = true;
+  try { ohlcChart.timeScale().fitContent(); } catch (e) {}
+  rpnlSyncing = false;
+  syncRpnlTimeScale('ohlc');
 }
 
 function toggleAutoY() {
@@ -1362,9 +1378,14 @@ function setRpnlView(v) {
   document.getElementById('viewBucket').style.cssText = v==='bucket' ? 'border-color:'+ac+';color:#fff'        : 'border-color:'+b2+';color:'+mu;
   const lab = document.getElementById('rpnlPaneLabel');
   if (lab) lab.textContent = v === 'cumul' ? 'Cumulative rPnL (₹)' : 'Per-bucket rPnL (₹)';
-  const saved = ohlcChart ? ohlcChart.timeScale().getVisibleRange() : null;
+  const saved = ohlcChart ? ohlcChart.timeScale().getVisibleLogicalRange() : null;
   if (rpnlPtsCache.length) applyRpnlData(rpnlPtsCache, true);
-  if (saved) applyTimeRange(saved, null);
+  if (saved) {
+    rpnlSyncing = true;
+    try { ohlcChart.timeScale().setVisibleLogicalRange(saved); } catch (e) {}
+    rpnlSyncing = false;
+    syncRpnlTimeScale('ohlc');
+  }
 }
 
 function showRpnlError(msg, detail) {
@@ -1386,7 +1407,7 @@ function rpnlChartBase(timeScaleVisible) {
     layout: { background: { color: '#0e1117' }, textColor: '#d1d4dc' },
     grid:   { vertLines: { color: '#1c2130' }, horzLines: { color: '#1c2130' } },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-    rightPriceScale: { borderColor: '#303647', minimumWidth: 76 },
+    rightPriceScale: { borderColor: '#303647', minimumWidth: 88, scaleMargins: { top: 0.08, bottom: 0.08 } },
     handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
     handleScale: { axisPressedMouseMove: { time: true, price: true }, mouseWheel: true, pinch: true },
     kineticScroll: { mouse: false, touch: true },
@@ -1525,8 +1546,8 @@ function initRpnl() {
   rpnlHistSeries.applyOptions({ visible: false });
   setRpnlView('cumul');
 
-  ohlcChart.timeScale().subscribeVisibleTimeRangeChange(onRpnlVisibleRange('ohlc'));
-  rpnlChart.timeScale().subscribeVisibleTimeRangeChange(onRpnlVisibleRange('rpnl'));
+  ohlcChart.timeScale().subscribeVisibleLogicalRangeChange(onRpnlLogicalRange('ohlc'));
+  rpnlChart.timeScale().subscribeVisibleLogicalRangeChange(onRpnlLogicalRange('rpnl'));
   ohlcChart.subscribeCrosshairMove((param) => syncCrosshair('ohlc', param));
   rpnlChart.subscribeCrosshairMove((param) => syncCrosshair('rpnl', param));
 
@@ -1535,11 +1556,8 @@ function initRpnl() {
 }
 
 function resizeRpnlCharts() {
-  if (!rpnlChart) return;
-  const saved = ohlcChart.timeScale().getVisibleRange();
-  rpnlChart.applyOptions({ width: document.getElementById('rpnlChart').clientWidth });
-  if (ohlcChart) ohlcChart.applyOptions({ width: document.getElementById('ohlcChart').clientWidth });
-  if (saved) requestAnimationFrame(() => applyTimeRange(saved, null));
+  if (!rpnlChart || !ohlcChart) return;
+  requestAnimationFrame(() => syncRpnlTimeScale('ohlc'));
 }
 
 function fillGaps(pts, bucketSecs) {
@@ -1589,10 +1607,15 @@ async function extendRpnl() {
   if (currentH >= 720) return;
 
   rpnlLoadingMore = true;
-  const visRange = ohlcChart.timeScale().getVisibleRange() || rpnlChart.timeScale().getVisibleRange();
+  const visLogical = ohlcChart.timeScale().getVisibleLogicalRange();
   rpnlCurrentHours = Math.min(currentH * 2, 720);
   await loadRpnl(true);
-  if (visRange) applyTimeRange(visRange, null);
+  if (visLogical) {
+    rpnlSyncing = true;
+    try { ohlcChart.timeScale().setVisibleLogicalRange(visLogical); } catch (e) {}
+    rpnlSyncing = false;
+    syncRpnlTimeScale('ohlc');
+  }
   rpnlLoadingMore = false;
 }
 
@@ -1604,8 +1627,8 @@ async function loadRpnl(keepRange) {
   const bucket = document.getElementById('rpnlBucket').value;
   if (!sym) return;
   hideRpnlError();
-  const savedRange = keepRange
-    ? (ohlcChart && ohlcChart.timeScale().getVisibleRange()) || (rpnlChart && rpnlChart.timeScale().getVisibleRange())
+  const savedLogical = keepRange && ohlcChart
+    ? ohlcChart.timeScale().getVisibleLogicalRange()
     : null;
   const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + sym + ' (' + hours + 'h, ' + bucket + 'm buckets)...';
   setLoading('rpnlStatus', loadingLabel);
@@ -1629,7 +1652,6 @@ async function loadRpnl(keepRange) {
     const pts = dedupeTimes((d.points || []).map(p => ({ time: p.time + IST_OFFSET, value: p.rpnl })));
     const bucketSecs = parseInt(bucket) * 60;
     const filled = fillGaps(pts, bucketSecs);
-    rpnlPtsCache = filled;
 
     let bars = [];
     if (ohlcSeries && cR.ok) {
@@ -1638,12 +1660,12 @@ async function loadRpnl(keepRange) {
         time: b.time + IST_OFFSET,
         open: b.open, high: b.high, low: b.low, close: b.close,
       })));
-      ohlcBarsCache = bars;
-      ohlcSeries.setData(bars);
-    } else {
-      ohlcBarsCache = [];
     }
-    applyRpnlData(filled, true);
+    ohlcBarsCache = bars;
+    if (ohlcSeries) ohlcSeries.setData(bars);
+
+    rpnlPtsCache = bars.length ? alignRpnlToBars(filled, bars) : filled;
+    applyRpnlData(rpnlPtsCache, true);
 
     if (ohlcSeries && fR.ok) {
       const fd = await fR.json();
@@ -1653,8 +1675,14 @@ async function loadRpnl(keepRange) {
       rpnlFillsCache = [];
     }
 
-    if (savedRange) applyTimeRange(savedRange, null);
-    else fitRpnlView();
+    if (savedLogical) {
+      rpnlSyncing = true;
+      try { ohlcChart.timeScale().setVisibleLogicalRange(savedLogical); } catch (e) {}
+      rpnlSyncing = false;
+      syncRpnlTimeScale('ohlc');
+    } else {
+      fitRpnlView();
+    }
 
     if (filled.length === 0 && !bars.length) {
       setStatus('rpnlStatus', '<span>No fills found for <b>' + d.contract + '</b> in the last ' + hours + 'h. Try a longer window.</span>');
