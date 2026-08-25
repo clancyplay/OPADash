@@ -1497,6 +1497,7 @@ class EventsDB:
                            COALESCE(SUM(rpnl), 0)    AS bucket_pnl
                     FROM fills
                     WHERE contract = $1 AND created_at >= $2 AND strategy = $4
+                      AND exchange = 'delta'
                     GROUP BY bucket
                     ORDER BY bucket
                     """,

@@ -144,8 +144,29 @@
 
   #markChart   { width: 100%; height: 60vh; }
   #spreadChart { width: 100%; height: 20vh; border-top: 1px solid var(--border); }
-  #rpnlChart   { width: 100%; height: 32vh; position: relative; }
-  #ohlcChart   { width: 100%; height: 38vh; position: relative; border-bottom: 1px solid var(--border); }
+  #rpnlChart   { width: 100%; height: 28vh; position: relative; }
+  #ohlcChart   { width: 100%; height: 42vh; position: relative; }
+  .rpnl-stack { display: flex; flex-direction: column; min-height: 0; }
+  .rpnl-pane { position: relative; }
+  .rpnl-pane-label {
+    position: absolute; top: 8px; right: 84px; z-index: 8;
+    font-size: 10px; letter-spacing: .4px; text-transform: uppercase;
+    color: var(--muted); pointer-events: none; font-weight: 600;
+  }
+  .rpnl-pills {
+    display: flex; gap: 8px; overflow-x: auto; padding: 8px 16px 10px;
+    border-bottom: 1px solid var(--border); scrollbar-width: thin;
+  }
+  .rpnl-pill {
+    flex: 0 0 auto; cursor: pointer; border: 1px solid var(--border2);
+    background: var(--surface); border-radius: 8px; padding: 7px 10px;
+    min-width: 128px; color: inherit; font-family: inherit; text-align: left;
+  }
+  .rpnl-pill:hover { border-color: var(--accent); }
+  .rpnl-pill.active { border-color: var(--accent); background: rgba(41,98,255,.12); }
+  .rpnl-pill .p-name { font-size: 11px; font-weight: 700; color: #fff; }
+  .rpnl-pill .p-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .rpnl-pill .p-meta { font-size: 10px; color: var(--muted); margin-top: 1px; }
   #posChart      { width: 100%; height: 68vh; position: relative; }
 
   .chart-legend {
@@ -433,8 +454,8 @@
 
     #markChart   { height: 44vh; }
     #spreadChart { height: 22vh; }
-    #rpnlChart, #posChart { height: 32vh; }
-    #ohlcChart { height: 36vh; }
+    #rpnlChart, #posChart { height: 28vh; }
+    #ohlcChart { height: 34vh; }
 
     .rpt-hero { grid-template-columns: 1fr; gap: 16px; }
     .rpt-hero .hero-bal { font-size: 32px; }
@@ -905,6 +926,7 @@
       <option value="60">1h</option>
     </select>
     <button class="btn" onclick="loadRpnlFresh()">Refresh</button>
+    <button class="btn" onclick="fitRpnlView()" title="Fit both charts to full window">Fit</button>
     <label><input type="checkbox" id="rpnlAuto" onchange="setupRpnlAuto()" /> Auto (10s)</label>
     <div style="margin-left:auto;display:flex;gap:4px;">
       <button class="btn" id="viewCumul"  onclick="setRpnlView('cumul')">Cumulative</button>
@@ -914,14 +936,18 @@
   </div>
   <div class="status-bar" id="rpnlStatus"><span class="spinner"></span><span>Loading...</span></div>
   <div class="error-panel" id="rpnlError"></div>
-  <div id="rpnlSummaryWrap" style="margin:10px 16px 0;overflow:auto;max-height:160px;"></div>
-  <div style="position:relative">
-    <div id="ohlcChart"></div>
-    <div class="chart-legend" id="ohlcLegend"></div>
-  </div>
-  <div style="position:relative">
-    <div id="rpnlChart"></div>
-    <div class="chart-legend" id="rpnlLegend"></div>
+  <div id="rpnlSummaryWrap" class="rpnl-pills"></div>
+  <div class="rpnl-stack">
+    <div class="rpnl-pane">
+      <div class="rpnl-pane-label">Delta price · fills</div>
+      <div id="ohlcChart"></div>
+      <div class="chart-legend" id="ohlcLegend"></div>
+    </div>
+    <div class="rpnl-pane">
+      <div class="rpnl-pane-label" id="rpnlPaneLabel">Cumulative rPnL (₹)</div>
+      <div id="rpnlChart"></div>
+      <div class="chart-legend" id="rpnlLegend"></div>
+    </div>
   </div>
 </div>
 
@@ -947,10 +973,7 @@ function showPage(name) {
   } else if (dataReady) { clearInterval(fxTimer); clearInterval(evTimer); clearInterval(pxTimer); clearInterval(lgTimer); }
   // Charts need a resize when their container becomes visible
   if (name === 'markprice' && markChart)  { requestAnimationFrame(resizeMpCharts); }
-  if (name === 'rpnl'      && rpnlChart)  { requestAnimationFrame(() => {
-    rpnlChart.applyOptions({ width: document.getElementById('rpnlChart').clientWidth });
-    if (ohlcChart) ohlcChart.applyOptions({ width: document.getElementById('ohlcChart').clientWidth });
-  }); }
+  if (name === 'rpnl'      && rpnlChart)  { requestAnimationFrame(resizeRpnlCharts); }
   if (name === 'position'  && posChart)   { requestAnimationFrame(() => posChart.applyOptions({ width: document.getElementById('posChart').clientWidth })); }
 }
 
@@ -1172,10 +1195,13 @@ let rpnlChart, rpnlSeries, rpnlHistSeries, rpnlTimer;
 let ohlcChart, ohlcSeries;
 let rpnlView         = 'cumul';
 let rpnlPtsCache     = [];
-let rpnlCurrentHours = null;  // null = use select value; set by extendRpnl
+let ohlcBarsCache    = [];
+let rpnlFillsCache   = [];
+let rpnlCurrentHours = null;
 let rpnlLoadingMore  = false;
-let rpnlPrevLength   = 0;
-let ohlcSyncing = false;
+let rpnlSyncing      = false;
+let rpnlXhSyncing    = false;
+let rpnlAutoY        = true;
 
 function inrFmt(n) {
   const v = Number(n) || 0;
@@ -1183,24 +1209,26 @@ function inrFmt(n) {
   return sign + '₹' + Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
+function inrFmtDec(n, d) {
+  const v = Number(n) || 0;
+  const sign = v < 0 ? '−' : '+';
+  return sign + '₹' + Math.abs(v).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
 function renderRpnlSummary(rows) {
   const wrap = document.getElementById('rpnlSummaryWrap');
   if (!wrap) return;
   if (!rows || !rows.length) { wrap.innerHTML = ''; return; }
   const cur = document.getElementById('rpnlSymbol').value;
-  wrap.innerHTML = '<table style="width:100%;font-size:12px;border-collapse:collapse;">' +
-    '<thead><tr style="color:var(--muted);text-align:left;">' +
-    '<th style="padding:4px 8px;">Contract</th><th style="padding:4px 8px;text-align:right;">rPnL</th>' +
-    '<th style="padding:4px 8px;text-align:right;">Fees</th><th style="padding:4px 8px;text-align:right;">Fills</th></tr></thead><tbody>' +
-    rows.map(r => {
-      const col = r.rpnl >= 0 ? 'var(--green)' : 'var(--red)';
-      const sel = r.contract === cur ? 'background:rgba(41,98,255,0.12);' : '';
-      return '<tr style="cursor:pointer;' + sel + '" onclick="pickRpnlContract(\'' + r.contract + '\')">' +
-        '<td style="padding:4px 8px;font-weight:600;">' + r.contract + '</td>' +
-        '<td style="padding:4px 8px;text-align:right;color:' + col + ';">' + inrFmt(r.rpnl) + '</td>' +
-        '<td style="padding:4px 8px;text-align:right;color:var(--muted);">' + inrFmt(r.fees) + '</td>' +
-        '<td style="padding:4px 8px;text-align:right;">' + r.fills + '</td></tr>';
-    }).join('') + '</tbody></table>';
+  wrap.innerHTML = rows.map(r => {
+    const col = r.rpnl >= 0 ? 'var(--green)' : 'var(--red)';
+    const active = r.contract === cur ? ' active' : '';
+    return '<button type="button" class="rpnl-pill' + active + '" onclick="pickRpnlContract(\'' + r.contract + '\')">' +
+      '<div class="p-name">' + r.contract + '</div>' +
+      '<div class="p-val" style="color:' + col + '">' + inrFmt(r.rpnl) + '</div>' +
+      '<div class="p-meta">' + r.fills + ' fills · fees ' + inrFmt(r.fees) + '</div>' +
+      '</button>';
+  }).join('');
 }
 
 function pickRpnlContract(c) {
@@ -1209,21 +1237,97 @@ function pickRpnlContract(c) {
   loadRpnlFresh();
 }
 
-function fillMarkersFromFills(fills) {
+function nearestByTime(arr, t) {
+  if (!arr || !arr.length) return null;
+  let lo = 0, hi = arr.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid].time < t) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo > 0 && Math.abs(arr[lo - 1].time - t) <= Math.abs(arr[lo].time - t)) return arr[lo - 1];
+  return arr[lo];
+}
+
+function rpnlDataBounds() {
+  const times = [];
+  if (ohlcBarsCache.length) {
+    times.push(ohlcBarsCache[0].time, ohlcBarsCache[ohlcBarsCache.length - 1].time);
+  }
+  if (rpnlPtsCache.length) {
+    times.push(rpnlPtsCache[0].time, rpnlPtsCache[rpnlPtsCache.length - 1].time);
+  }
+  if (!times.length) return null;
+  return { from: Math.min.apply(null, times), to: Math.max.apply(null, times) };
+}
+
+function clampTimeRange(range) {
+  const bounds = rpnlDataBounds();
+  if (!range || !bounds) return range;
+  const span = Math.max(60, bounds.to - bounds.from);
+  let from = Math.max(bounds.from, Math.min(range.from, bounds.to - 60));
+  let to = Math.min(bounds.to, Math.max(range.to, bounds.from + 60));
+  if (to <= from) {
+    from = bounds.from;
+    to = bounds.to;
+  }
+  if (to - from < 60) {
+    from = Math.max(bounds.from, to - Math.min(span, 3600));
+  }
+  return { from, to };
+}
+
+function applyTimeRange(range, origin) {
+  if (!range || rpnlSyncing || !ohlcChart || !rpnlChart) return;
+  const clamped = clampTimeRange(range);
+  if (!clamped) return;
+  rpnlSyncing = true;
+  try {
+    if (origin !== 'ohlc') ohlcChart.timeScale().setVisibleRange(clamped);
+    if (origin !== 'rpnl') rpnlChart.timeScale().setVisibleRange(clamped);
+  } catch (e) { /* range outside data */ }
+  rpnlSyncing = false;
+}
+
+function onRpnlVisibleRange(chartId) {
+  return function () {
+    if (rpnlSyncing) return;
+    const src = chartId === 'ohlc' ? ohlcChart : rpnlChart;
+    const range = src.timeScale().getVisibleRange();
+    if (!range) return;
+    applyTimeRange(range, chartId);
+    maybeExtendRpnl(range);
+  };
+}
+
+function maybeExtendRpnl(range) {
+  if (!range || rpnlLoadingMore) return;
+  const first = rpnlPtsCache[0] || ohlcBarsCache[0];
+  const bounds = rpnlDataBounds();
+  if (!first || !bounds) return;
+  // Full-fit / still showing latest point — do not auto-extend
+  if (range.to >= bounds.to - 120) return;
+  const pad = Math.max(60, ((range.to - range.from) * 0.05) || 0);
+  if (range.from <= first.time + pad) extendRpnl();
+}
+
+function fillMarkersFromFills(fills, bars) {
   let list = fills || [];
   if (list.length > 400) list = list.filter(f => Math.abs(f.rpnl) > 1e-9);
   const byT = new Map();
   for (const f of list) {
-    const t = f.time + IST_OFFSET;
+    const raw = f.time + IST_OFFSET;
+    const snap = bars && bars.length ? nearestByTime(bars, raw) : null;
+    const t = snap ? snap.time : raw;
     const prev = byT.get(t);
-    if (!prev || Math.abs(f.rpnl) >= Math.abs(prev.rpnl)) byT.set(t, f);
+    if (!prev || Math.abs(f.rpnl) >= Math.abs(prev.rpnl)) byT.set(t, Object.assign({}, f, { _t: t }));
   }
   return [...byT.values()].map(f => {
     const win = f.rpnl > 1e-6, lose = f.rpnl < -1e-6;
     const color = win ? '#26a69a' : (lose ? '#ef5350' : '#7f8598');
     const text = (win || lose) ? ((f.rpnl >= 0 ? '+' : '') + Math.round(f.rpnl)) : '';
     return {
-      time: f.time + IST_OFFSET,
+      time: f._t,
       position: f.side === 'buy' ? 'belowBar' : 'aboveBar',
       color,
       shape: f.side === 'buy' ? 'arrowUp' : 'arrowDown',
@@ -1234,10 +1338,13 @@ function fillMarkersFromFills(fills) {
 
 function loadRpnlFresh() {
   rpnlCurrentHours = null;
-  loadRpnl();
+  loadRpnl(false);
 }
 
-let rpnlAutoY = true;
+function fitRpnlView() {
+  const bounds = rpnlDataBounds();
+  if (bounds) applyTimeRange(bounds, null);
+}
 
 function toggleAutoY() {
   rpnlAutoY = !rpnlAutoY;
@@ -1253,7 +1360,11 @@ function setRpnlView(v) {
   const ac = 'var(--accent)', mu = 'var(--muted)', b2 = 'var(--border2)';
   document.getElementById('viewCumul') .style.cssText = v==='cumul'  ? 'border-color:'+ac+';color:#fff'        : 'border-color:'+b2+';color:'+mu;
   document.getElementById('viewBucket').style.cssText = v==='bucket' ? 'border-color:'+ac+';color:#fff'        : 'border-color:'+b2+';color:'+mu;
-  if (rpnlPtsCache.length) applyRpnlData(rpnlPtsCache);
+  const lab = document.getElementById('rpnlPaneLabel');
+  if (lab) lab.textContent = v === 'cumul' ? 'Cumulative rPnL (₹)' : 'Per-bucket rPnL (₹)';
+  const saved = ohlcChart ? ohlcChart.timeScale().getVisibleRange() : null;
+  if (rpnlPtsCache.length) applyRpnlData(rpnlPtsCache, true);
+  if (saved) applyTimeRange(saved, null);
 }
 
 function showRpnlError(msg, detail) {
@@ -1269,48 +1380,133 @@ function hideRpnlError() {
   document.getElementById('rpnlError').style.display = 'none';
 }
 
-function initRpnl() {
-  ohlcChart = LightweightCharts.createChart(document.getElementById('ohlcChart'), {
+function rpnlChartBase(timeScaleVisible) {
+  return {
     autoSize: true,
     layout: { background: { color: '#0e1117' }, textColor: '#d1d4dc' },
     grid:   { vertLines: { color: '#1c2130' }, horzLines: { color: '#1c2130' } },
-    timeScale: { timeVisible: true, secondsVisible: false },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-    rightPriceScale: { borderColor: '#303647' },
-  });
+    rightPriceScale: { borderColor: '#303647', minimumWidth: 76 },
+    handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+    handleScale: { axisPressedMouseMove: { time: true, price: true }, mouseWheel: true, pinch: true },
+    kineticScroll: { mouse: false, touch: true },
+    timeScale: {
+      visible: timeScaleVisible,
+      timeVisible: true,
+      secondsVisible: false,
+      borderColor: '#303647',
+      rightOffset: 6,
+      lockVisibleTimeRangeOnResize: true,
+    },
+  };
+}
+
+function fmtChartTime(unixIst) {
+  const t = new Date((unixIst - IST_OFFSET) * 1000);
+  return t.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
+    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function fillAtTime(t) {
+  if (!rpnlFillsCache.length) return null;
+  const raw = t - IST_OFFSET;
+  let best = null, bestD = 1e18;
+  for (const f of rpnlFillsCache) {
+    const d = Math.abs(f.time - raw);
+    if (d < bestD) { bestD = d; best = f; }
+  }
+  const candleSecs = ohlcBarsCache.length > 1 ? Math.max(30, ohlcBarsCache[1].time - ohlcBarsCache[0].time) : 300;
+  return best && bestD <= candleSecs ? best : null;
+}
+
+function paintOhlcLegend(time) {
+  const el = document.getElementById('ohlcLegend');
+  if (!time) { el.style.display = 'none'; return; }
+  const d = nearestByTime(ohlcBarsCache, time);
+  if (!d) { el.style.display = 'none'; return; }
+  const fill = fillAtTime(d.time);
+  let html =
+    '<div class="leg-time">' + fmtChartTime(d.time) + '</div>' +
+    '<div class="leg-row"><span class="leg-label">O</span><span class="leg-val">' + d.open + '</span></div>' +
+    '<div class="leg-row"><span class="leg-label">H</span><span class="leg-val">' + d.high + '</span></div>' +
+    '<div class="leg-row"><span class="leg-label">L</span><span class="leg-val">' + d.low + '</span></div>' +
+    '<div class="leg-row"><span class="leg-label">C</span><span class="leg-val">' + d.close + '</span></div>';
+  if (fill) {
+    const col = fill.rpnl >= 0 ? '#26a69a' : '#ef5350';
+    html += '<div class="leg-row"><span class="leg-label">' + (fill.side || '') + '</span>' +
+      '<span class="leg-val" style="color:' + col + '">' + inrFmtDec(fill.rpnl, 2) + '</span></div>';
+  }
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
+
+function paintRpnlLegend(time) {
+  const el = document.getElementById('rpnlLegend');
+  if (!time) { el.style.display = 'none'; return; }
+  const p = nearestByTime(rpnlPtsCache, time);
+  if (!p) { el.style.display = 'none'; return; }
+  let val = p.value;
+  if (rpnlView === 'bucket') {
+    const i = rpnlPtsCache.indexOf(p);
+    val = i <= 0 ? p.value : parseFloat((p.value - rpnlPtsCache[i - 1].value).toFixed(4));
+  }
+  const col = val >= 0 ? '#26a69a' : '#ef5350';
+  const label = rpnlView === 'cumul' ? 'Cumul rPnL' : 'Bucket rPnL';
+  el.innerHTML =
+    '<div class="leg-time">' + fmtChartTime(p.time) + '</div>' +
+    '<div class="leg-row"><span class="leg-label">' + label + '</span>' +
+    '<span class="leg-val" style="color:' + col + '">' + inrFmtDec(val, 2) + '</span></div>';
+  el.style.display = 'block';
+}
+
+function syncCrosshair(origin, param) {
+  if (rpnlXhSyncing) return;
+  if (!param || !param.time || !param.point || param.point.x < 0) {
+    paintOhlcLegend(null);
+    paintRpnlLegend(null);
+    rpnlXhSyncing = true;
+    try {
+      if (origin !== 'ohlc' && ohlcChart) ohlcChart.clearCrosshairPosition();
+      if (origin !== 'rpnl' && rpnlChart) rpnlChart.clearCrosshairPosition();
+    } catch (e) {}
+    rpnlXhSyncing = false;
+    return;
+  }
+  const t = param.time;
+  paintOhlcLegend(t);
+  paintRpnlLegend(t);
+  rpnlXhSyncing = true;
+  try {
+    if (origin !== 'ohlc' && ohlcSeries) {
+      const bar = nearestByTime(ohlcBarsCache, t);
+      if (bar) ohlcChart.setCrosshairPosition(bar.close, bar.time, ohlcSeries);
+    }
+    if (origin !== 'rpnl') {
+      const p = nearestByTime(rpnlPtsCache, t);
+      const series = rpnlView === 'cumul' ? rpnlSeries : rpnlHistSeries;
+      if (p && series) {
+        let price = p.value;
+        if (rpnlView === 'bucket') {
+          const i = rpnlPtsCache.indexOf(p);
+          price = i <= 0 ? p.value : p.value - rpnlPtsCache[i - 1].value;
+        }
+        rpnlChart.setCrosshairPosition(price, p.time, series);
+      }
+    }
+  } catch (e) {}
+  rpnlXhSyncing = false;
+}
+
+function initRpnl() {
+  ohlcChart = LightweightCharts.createChart(document.getElementById('ohlcChart'), rpnlChartBase(false));
   ohlcSeries = ohlcChart.addCandlestickSeries({
     upColor: '#26a69a', downColor: '#ef5350',
     borderUpColor: '#26a69a', borderDownColor: '#ef5350',
     wickUpColor: '#26a69a', wickDownColor: '#ef5350',
-  });
-  const ohlcLegend = document.getElementById('ohlcLegend');
-  ohlcChart.subscribeCrosshairMove((param) => {
-    if (!param.time || !param.point || param.point.x < 0) {
-      ohlcLegend.style.display = 'none';
-      return;
-    }
-    const d = param.seriesData.get(ohlcSeries);
-    if (!d) { ohlcLegend.style.display = 'none'; return; }
-    const t = new Date((param.time - IST_OFFSET) * 1000);
-    const tStr = t.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
-      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
-    ohlcLegend.innerHTML =
-      '<div class="leg-time">' + tStr + '</div>' +
-      '<div class="leg-row"><span class="leg-label">O</span><span class="leg-val">' + d.open + '</span></div>' +
-      '<div class="leg-row"><span class="leg-label">H</span><span class="leg-val">' + d.high + '</span></div>' +
-      '<div class="leg-row"><span class="leg-label">L</span><span class="leg-val">' + d.low + '</span></div>' +
-      '<div class="leg-row"><span class="leg-label">C</span><span class="leg-val">' + d.close + '</span></div>';
-    ohlcLegend.style.display = 'block';
+    lastValueVisible: true, priceLineVisible: true,
   });
 
-  rpnlChart = LightweightCharts.createChart(document.getElementById('rpnlChart'), {
-    autoSize: true,
-    layout: { background: { color: '#0e1117' }, textColor: '#d1d4dc' },
-    grid:   { vertLines: { color: '#1c2130' }, horzLines: { color: '#1c2130' } },
-    timeScale: { timeVisible: true, secondsVisible: false },
-    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-    rightPriceScale: { scaleMargins: { top: 0.1, bottom: 0.1 } },
-  });
+  rpnlChart = LightweightCharts.createChart(document.getElementById('rpnlChart'), rpnlChartBase(true));
   rpnlSeries = rpnlChart.addBaselineSeries({
     baseValue:        { type: 'price', price: 0 },
     topLineColor:     '#26a69a',
@@ -1327,60 +1523,23 @@ function initRpnl() {
     priceScaleId: 'right',
   });
   rpnlHistSeries.applyOptions({ visible: false });
-  // init toggle style
   setRpnlView('cumul');
 
-  // Auto-extend window when user drags to the left edge
-  rpnlChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-    if (!range || rpnlLoadingMore || !rpnlPtsCache.length) return;
-    if (range.from < 5) extendRpnl();
-    if (ohlcSyncing) return;
-    ohlcSyncing = true;
-    if (ohlcChart) ohlcChart.timeScale().setVisibleLogicalRange(range);
-    ohlcSyncing = false;
-  });
-  ohlcChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-    if (!range || ohlcSyncing || !rpnlChart) return;
-    ohlcSyncing = true;
-    rpnlChart.timeScale().setVisibleLogicalRange(range);
-    ohlcSyncing = false;
-  });
+  ohlcChart.timeScale().subscribeVisibleTimeRangeChange(onRpnlVisibleRange('ohlc'));
+  rpnlChart.timeScale().subscribeVisibleTimeRangeChange(onRpnlVisibleRange('rpnl'));
+  ohlcChart.subscribeCrosshairMove((param) => syncCrosshair('ohlc', param));
+  rpnlChart.subscribeCrosshairMove((param) => syncCrosshair('rpnl', param));
 
-  // Crosshair floating legend
-  const rpnlLegend = document.getElementById('rpnlLegend');
-  rpnlChart.subscribeCrosshairMove((param) => {
-    if (!param.time || !param.point || param.point.x < 0 || param.point.y < 0) {
-      rpnlLegend.style.display = 'none';
-      return;
-    }
-    const IST_OFFSET = 19800;
-    const t = new Date((param.time - IST_OFFSET) * 1000);
-    const tStr = t.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
-      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
-    let val = null;
-    if (rpnlView === 'cumul') {
-      const d = param.seriesData.get(rpnlSeries);
-      if (d) val = d.value;
-    } else {
-      const d = param.seriesData.get(rpnlHistSeries);
-      if (d) val = d.value;
-    }
-    if (val === null) { rpnlLegend.style.display = 'none'; return; }
-    const col = val >= 0 ? '#26a69a' : '#ef5350';
-    const sign = val >= 0 ? '+' : '';
-    const label = rpnlView === 'cumul' ? 'Cumul rPnL' : 'Bucket rPnL';
-    rpnlLegend.innerHTML =
-      '<div class="leg-time">' + tStr + '</div>' +
-      '<div class="leg-row"><span class="leg-label">' + label + '</span>' +
-      '<span class="leg-val" style="color:' + col + '">' + sign + '₹' + val.toFixed(4) + '</span></div>';
-    rpnlLegend.style.display = 'block';
-  });
+  window.addEventListener('resize', resizeRpnlCharts);
+  loadRpnl(false);
+}
 
-  window.addEventListener('resize', () => {
-    rpnlChart.applyOptions({ width: document.getElementById('rpnlChart').clientWidth });
-    if (ohlcChart) ohlcChart.applyOptions({ width: document.getElementById('ohlcChart').clientWidth });
-  });
-  loadRpnl();
+function resizeRpnlCharts() {
+  if (!rpnlChart) return;
+  const saved = ohlcChart.timeScale().getVisibleRange();
+  rpnlChart.applyOptions({ width: document.getElementById('rpnlChart').clientWidth });
+  if (ohlcChart) ohlcChart.applyOptions({ width: document.getElementById('ohlcChart').clientWidth });
+  if (saved) requestAnimationFrame(() => applyTimeRange(saved, null));
 }
 
 function fillGaps(pts, bucketSecs) {
@@ -1390,8 +1549,8 @@ function fillGaps(pts, bucketSecs) {
     out.push(pts[i]);
     if (i < pts.length - 1) {
       let t = pts[i].time + bucketSecs;
-      while (t < pts[i + 1].time - 1) {  // -1 to avoid floating-point overlap
-        out.push({ time: t, value: pts[i].value }); // carry forward: no new fills
+      while (t < pts[i + 1].time - 1) {
+        out.push({ time: t, value: pts[i].value });
         t += bucketSecs;
       }
     }
@@ -1399,7 +1558,13 @@ function fillGaps(pts, bucketSecs) {
   return out;
 }
 
-function applyRpnlData(pts) {
+function dedupeTimes(rows) {
+  const byT = new Map();
+  for (const r of rows) byT.set(r.time, r);
+  return [...byT.values()].sort((a, b) => a.time - b.time);
+}
+
+function applyRpnlData(pts, keepRange) {
   if (rpnlView === 'cumul') {
     rpnlSeries.applyOptions({ visible: true });
     rpnlHistSeries.applyOptions({ visible: false });
@@ -1413,8 +1578,7 @@ function applyRpnlData(pts) {
     });
     rpnlHistSeries.setData(bars);
   }
-  // only fitContent on full reloads, not when restoring position after extend
-  if (!rpnlLoadingMore) rpnlChart.timeScale().fitContent();
+  if (!keepRange) fitRpnlView();
 }
 
 async function extendRpnl() {
@@ -1422,27 +1586,17 @@ async function extendRpnl() {
   const currentH = rpnlCurrentHours !== null
     ? rpnlCurrentHours
     : parseInt(document.getElementById('rpnlHours').value);
-  if (currentH >= 720) return;  // already at max
+  if (currentH >= 720) return;
 
   rpnlLoadingMore = true;
-  const visRange   = rpnlChart.timeScale().getVisibleLogicalRange();
-  rpnlPrevLength   = rpnlPtsCache.length;
+  const visRange = ohlcChart.timeScale().getVisibleRange() || rpnlChart.timeScale().getVisibleRange();
   rpnlCurrentHours = Math.min(currentH * 2, 720);
-
-  await loadRpnl();
-
-  // Shift the viewport right so the user stays at the same position visually
-  if (visRange && rpnlPtsCache.length > rpnlPrevLength) {
-    const added = rpnlPtsCache.length - rpnlPrevLength;
-    rpnlChart.timeScale().setVisibleLogicalRange({
-      from: visRange.from + added,
-      to:   visRange.to  + added,
-    });
-  }
+  await loadRpnl(true);
+  if (visRange) applyTimeRange(visRange, null);
   rpnlLoadingMore = false;
 }
 
-async function loadRpnl() {
+async function loadRpnl(keepRange) {
   const sym    = document.getElementById('rpnlSymbol').value;
   const hours  = rpnlCurrentHours !== null
     ? rpnlCurrentHours
@@ -1450,9 +1604,11 @@ async function loadRpnl() {
   const bucket = document.getElementById('rpnlBucket').value;
   if (!sym) return;
   hideRpnlError();
-  const loadingLabel = rpnlLoadingMore ? 'Loading more data...' : 'Loading ' + sym + ' (' + hours + 'h, ' + bucket + 'm buckets)...';
+  const savedRange = keepRange
+    ? (ohlcChart && ohlcChart.timeScale().getVisibleRange()) || (rpnlChart && rpnlChart.timeScale().getVisibleRange())
+    : null;
+  const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + sym + ' (' + hours + 'h, ' + bucket + 'm buckets)...';
   setLoading('rpnlStatus', loadingLabel);
-  console.log('[rPnL] fetching', sym, hours + 'h', bucket + 'm', rpnlLoadingMore ? '(extend)' : '');
   try {
     const candleIvl = (document.getElementById('rpnlCandle') || {}).value || '5m';
     const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket;
@@ -1462,62 +1618,68 @@ async function loadRpnl() {
       fetch(withStrategy('/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + '&hours=' + hours)),
       fetch(withStrategy('/api/rpnl/summary')),
     ]);
-    console.log('[rPnL] HTTP', r.status, url);
     if (sR.ok) renderRpnlSummary(await sR.json());
     if (!r.ok) {
       const body = await r.json().catch(() => ({ detail: r.statusText }));
-      console.error('[rPnL] error body:', body);
       showRpnlError('HTTP ' + r.status, body.detail || r.statusText);
       setStatus('rpnlStatus', '<span>Error ' + r.status + ': ' + (body.detail || r.statusText) + '</span>', 'error');
       return;
     }
     const d   = await r.json();
-    const pts = (d.points || []).map(p => ({ time: p.time + IST_OFFSET, value: p.rpnl }));
-    console.log('[rPnL] received', pts.length, 'points for', d.contract);
+    const pts = dedupeTimes((d.points || []).map(p => ({ time: p.time + IST_OFFSET, value: p.rpnl })));
     const bucketSecs = parseInt(bucket) * 60;
     const filled = fillGaps(pts, bucketSecs);
     rpnlPtsCache = filled;
-    applyRpnlData(filled);
 
+    let bars = [];
     if (ohlcSeries && cR.ok) {
       const cd = await cR.json();
-      const bars = (cd.candles || []).map(b => ({
+      bars = dedupeTimes((cd.candles || []).map(b => ({
         time: b.time + IST_OFFSET,
         open: b.open, high: b.high, low: b.low, close: b.close,
-      }));
+      })));
+      ohlcBarsCache = bars;
       ohlcSeries.setData(bars);
-      if (!rpnlLoadingMore) ohlcChart.timeScale().fitContent();
+    } else {
+      ohlcBarsCache = [];
     }
+    applyRpnlData(filled, true);
+
     if (ohlcSeries && fR.ok) {
       const fd = await fR.json();
-      ohlcSeries.setMarkers(fillMarkersFromFills(fd.fills || []));
+      rpnlFillsCache = fd.fills || [];
+      ohlcSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, bars));
+    } else {
+      rpnlFillsCache = [];
     }
 
-    if (filled.length === 0) {
+    if (savedRange) applyTimeRange(savedRange, null);
+    else fitRpnlView();
+
+    if (filled.length === 0 && !bars.length) {
       setStatus('rpnlStatus', '<span>No fills found for <b>' + d.contract + '</b> in the last ' + hours + 'h. Try a longer window.</span>');
       return;
     }
 
-    const last    = pts.at(-1);
+    const last    = pts.length ? pts[pts.length - 1] : { value: 0 };
     const col     = last.value >= 0 ? '#26a69a' : '#ef5350';
-    const sign    = last.value >= 0 ? '+' : '';
     const winLabel = hours + 'h' + (rpnlCurrentHours && rpnlCurrentHours > parseInt(document.getElementById('rpnlHours').value) ? ' (extended)' : '');
     if (rpnlView === 'cumul') {
       setStatus('rpnlStatus',
         '<span style="color:' + col + ';font-weight:600;">' + d.contract + '</span>' +
-        ' &nbsp;|&nbsp; ' + winLabel + ' / ' + pts.length + ' buckets' +
-        ' &nbsp;|&nbsp; Cumul: <b style="color:' + col + '">' + sign + '₹' + last.value.toFixed(2) + '</b>' +
-        ' &nbsp;&mdash;&nbsp; ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}), 'ok');
+        ' &nbsp;|&nbsp; ' + winLabel + ' · ' + pts.length + ' buckets · ' + bars.length + ' candles' +
+        ' &nbsp;|&nbsp; Cumul: <b style="color:' + col + '">' + inrFmtDec(last.value, 2) + '</b>' +
+        ' &nbsp;&mdash;&nbsp; IST ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}), 'ok');
     } else {
       const bucketVals = pts.map((p, i) => i === 0 ? p.value : p.value - pts[i-1].value);
-      const maxV = Math.max(...bucketVals), minV = Math.min(...bucketVals);
-      const maxSign = maxV >= 0 ? '+' : '', minSign = minV >= 0 ? '+' : '';
+      const maxV = bucketVals.length ? Math.max.apply(null, bucketVals) : 0;
+      const minV = bucketVals.length ? Math.min.apply(null, bucketVals) : 0;
       setStatus('rpnlStatus',
         '<span style="color:' + col + ';font-weight:600;">' + d.contract + '</span>' +
         ' &nbsp;|&nbsp; ' + pts.length + ' buckets' +
-        ' &nbsp;|&nbsp; Best: <b style="color:#26a69a">' + maxSign + '₹' + maxV.toFixed(2) + '</b>' +
-        ' &nbsp;|&nbsp; Worst: <b style="color:#ef5350">' + minSign + '₹' + minV.toFixed(2) + '</b>' +
-        ' &nbsp;&mdash;&nbsp; ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}), 'ok');
+        ' &nbsp;|&nbsp; Best: <b style="color:#26a69a">' + inrFmtDec(maxV, 2) + '</b>' +
+        ' &nbsp;|&nbsp; Worst: <b style="color:#ef5350">' + inrFmtDec(minV, 2) + '</b>' +
+        ' &nbsp;&mdash;&nbsp; IST ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}), 'ok');
     }
   } catch(e) {
     console.error('[rPnL] fetch threw:', e);
@@ -1528,7 +1690,7 @@ async function loadRpnl() {
 
 function setupRpnlAuto() {
   clearInterval(rpnlTimer);
-  if (document.getElementById('rpnlAuto').checked) rpnlTimer = setInterval(loadRpnl, 10000);
+  if (document.getElementById('rpnlAuto').checked) rpnlTimer = setInterval(() => loadRpnl(true), 10000);
 }
 
 // Position Chart
