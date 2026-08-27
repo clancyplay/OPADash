@@ -925,6 +925,12 @@
       <option value="30">30m</option>
       <option value="60">1h</option>
     </select>
+    <label>Venue</label>
+    <select id="rpnlVenue" onchange="loadRpnlFresh()">
+      <option value="both">Δ + CoinDCX</option>
+      <option value="delta">Delta</option>
+      <option value="coindcx">CoinDCX</option>
+    </select>
     <button class="btn" onclick="loadRpnlFresh()">Refresh</button>
     <button class="btn" onclick="fitRpnlView()" title="Fit both charts to full window">Fit</button>
     <label><input type="checkbox" id="rpnlAuto" onchange="setupRpnlAuto()" /> Auto (10s)</label>
@@ -1107,13 +1113,19 @@ function rpnlAccountLabel(r) {
 function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 }
+function currentRpnlVenue() {
+  return (document.getElementById('rpnlVenue') || {}).value || 'both';
+}
 function updateRpnlPaneLabels() {
   const sel = currentRpnlSel();
+  const venue = currentRpnlVenue();
   const acct = sel.account ? ' · account ' + sel.account : '';
+  const venueLab = venue === 'coindcx' ? 'CoinDCX' : (venue === 'delta' ? 'Delta' : 'Δ + CoinDCX');
   const ohlc = document.getElementById('ohlcPaneLabel');
   const lab = document.getElementById('rpnlPaneLabel');
   if (ohlc) ohlc.textContent = 'Delta price · fills' + (sel.contract ? ' · ' + sel.contract : '') + acct;
   if (lab) lab.textContent = (rpnlView === 'cumul' ? 'Cumulative rPnL (₹)' : 'Per-bucket rPnL (₹)')
+    + ' · ' + venueLab
     + (sel.contract ? ' · ' + sel.contract : '') + acct;
 }
 
@@ -1223,10 +1235,11 @@ function setupMpAuto() {
 }
 
 // rPnL Chart
-let rpnlChart, rpnlSeries, rpnlHistSeries, rpnlTimer;
+let rpnlChart, rpnlSeries, rpnlHistSeries, rpnlHedgeSeries, rpnlTimer;
 let ohlcChart, ohlcSeries;
 let rpnlView         = 'cumul';
 let rpnlPtsCache     = [];
+let rpnlHedgeCache   = [];
 let ohlcBarsCache    = [];
 let rpnlFillsCache   = [];
 let rpnlCurrentHours = null;
@@ -1258,10 +1271,14 @@ function renderRpnlSummary(rows) {
     const active = key === cur ? ' active' : '';
     const acct = rpnlAccountLabel(r);
     const name = r.contract + (acct ? ' · ' + acct : '');
+    const hedge = Number(r.hedge_rpnl) || 0;
+    const hedgeBit = r.hedge_fills
+      ? ' · C ' + inrFmt(hedge) + ' (' + r.hedge_fills + ')'
+      : '';
     return '<button type="button" class="rpnl-pill' + active + '" onclick="pickRpnlContract(\'' + key.replace(/'/g, "\\'") + '\')">' +
       '<div class="p-name">' + escHtml(name) + '</div>' +
       '<div class="p-val" style="color:' + col + '">' + inrFmt(r.rpnl) + '</div>' +
-      '<div class="p-meta">' + r.fills + ' fills · fees ' + inrFmt(r.fees) + (acct ? ' · acct ' + escHtml(acct) : '') + '</div>' +
+      '<div class="p-meta">Δ ' + r.fills + ' fills · fees ' + inrFmt(r.fees) + hedgeBit + (acct ? ' · acct ' + escHtml(acct) : '') + '</div>' +
       '</button>';
   }).join('');
 }
@@ -1291,6 +1308,9 @@ function rpnlDataBounds() {
   }
   if (rpnlPtsCache.length) {
     times.push(rpnlPtsCache[0].time, rpnlPtsCache[rpnlPtsCache.length - 1].time);
+  }
+  if (rpnlHedgeCache.length) {
+    times.push(rpnlHedgeCache[0].time, rpnlHedgeCache[rpnlHedgeCache.length - 1].time);
   }
   if (!times.length) return null;
   return { from: Math.min.apply(null, times), to: Math.max.apply(null, times) };
@@ -1374,12 +1394,13 @@ function fillMarkersFromFills(fills, bars) {
     const win = f.rpnl > 1e-6, lose = f.rpnl < -1e-6;
     const color = win ? '#26a69a' : (lose ? '#ef5350' : '#7f8598');
     const text = (win || lose) ? ((f.rpnl >= 0 ? '+' : '') + Math.round(f.rpnl)) : '';
+    const hedge = (f.exchange || '') !== 'delta' && f.exchange;
     return {
       time: f._t,
       position: f.side === 'buy' ? 'belowBar' : 'aboveBar',
-      color,
-      shape: f.side === 'buy' ? 'arrowUp' : 'arrowDown',
-      text,
+      color: hedge ? '#ff9800' : color,
+      shape: hedge ? 'circle' : (f.side === 'buy' ? 'arrowUp' : 'arrowDown'),
+      text: hedge ? ('C' + text) : text,
     };
   }).sort((a, b) => a.time - b.time);
 }
@@ -1499,19 +1520,32 @@ function paintOhlcLegend(time) {
 function paintRpnlLegend(time) {
   const el = document.getElementById('rpnlLegend');
   if (!time) { el.style.display = 'none'; return; }
+  const venue = currentRpnlVenue();
   const p = nearestByTime(rpnlPtsCache, time);
-  if (!p) { el.style.display = 'none'; return; }
-  let val = p.value;
-  if (rpnlView === 'bucket') {
-    const i = rpnlPtsCache.indexOf(p);
-    val = i <= 0 ? p.value : parseFloat((p.value - rpnlPtsCache[i - 1].value).toFixed(4));
+  const h = nearestByTime(rpnlHedgeCache, time);
+  if (!p && !h) { el.style.display = 'none'; return; }
+  let html = '<div class="leg-time">' + fmtChartTime((p || h).time) + '</div>';
+  if (p && venue !== 'coindcx') {
+    let val = p.value;
+    if (rpnlView === 'bucket') {
+      const i = rpnlPtsCache.indexOf(p);
+      val = i <= 0 ? p.value : parseFloat((p.value - rpnlPtsCache[i - 1].value).toFixed(4));
+    }
+    const col = val >= 0 ? '#26a69a' : '#ef5350';
+    html += '<div class="leg-row"><span class="leg-label">Δ ' + (rpnlView === 'cumul' ? 'Cumul' : 'Bucket') + '</span>' +
+      '<span class="leg-val" style="color:' + col + '">' + inrFmtDec(val, 2) + '</span></div>';
   }
-  const col = val >= 0 ? '#26a69a' : '#ef5350';
-  const label = rpnlView === 'cumul' ? 'Cumul rPnL' : 'Bucket rPnL';
-  el.innerHTML =
-    '<div class="leg-time">' + fmtChartTime(p.time) + '</div>' +
-    '<div class="leg-row"><span class="leg-label">' + label + '</span>' +
-    '<span class="leg-val" style="color:' + col + '">' + inrFmtDec(val, 2) + '</span></div>';
+  if (h && venue !== 'delta') {
+    let val = h.value;
+    if (rpnlView === 'bucket') {
+      const i = rpnlHedgeCache.indexOf(h);
+      val = i <= 0 ? h.value : parseFloat((h.value - rpnlHedgeCache[i - 1].value).toFixed(4));
+    }
+    const col = val >= 0 ? '#ff9800' : '#ef5350';
+    html += '<div class="leg-row"><span class="leg-label">C CoinDCX</span>' +
+      '<span class="leg-val" style="color:' + col + '">' + inrFmtDec(val, 2) + '</span></div>';
+  }
+  el.innerHTML = html;
   el.style.display = 'block';
 }
 
@@ -1579,6 +1613,13 @@ function initRpnl() {
     priceScaleId: 'right',
   });
   rpnlHistSeries.applyOptions({ visible: false });
+  rpnlHedgeSeries = rpnlChart.addLineSeries({
+    color: '#ff9800',
+    lineWidth: 2,
+    title: 'CoinDCX rPnL',
+    priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+  });
+  rpnlHedgeSeries.applyOptions({ visible: false });
   setRpnlView('cumul');
 
   ohlcChart.timeScale().subscribeVisibleLogicalRangeChange(onRpnlLogicalRange('ohlc'));
@@ -1618,15 +1659,26 @@ function dedupeTimes(rows) {
 }
 
 function applyRpnlData(pts, keepRange) {
+  const venue = currentRpnlVenue();
+  const showDelta = venue !== 'coindcx';
+  const showHedge = venue !== 'delta' && rpnlHedgeCache.length > 0;
   if (rpnlView === 'cumul') {
-    rpnlSeries.applyOptions({ visible: true });
+    rpnlSeries.applyOptions({ visible: showDelta });
     rpnlHistSeries.applyOptions({ visible: false });
-    rpnlSeries.setData(pts);
+    if (showDelta) rpnlSeries.setData(pts);
+    else rpnlSeries.setData([]);
+    if (rpnlHedgeSeries) {
+      rpnlHedgeSeries.applyOptions({ visible: showHedge || venue === 'coindcx' });
+      const hpts = venue === 'coindcx' ? pts : rpnlHedgeCache;
+      rpnlHedgeSeries.setData(showHedge || venue === 'coindcx' ? hpts : []);
+    }
   } else {
     rpnlSeries.applyOptions({ visible: false });
     rpnlHistSeries.applyOptions({ visible: true });
-    const bars = pts.map((p, i) => {
-      const val = i === 0 ? p.value : parseFloat((p.value - pts[i-1].value).toFixed(4));
+    if (rpnlHedgeSeries) rpnlHedgeSeries.applyOptions({ visible: false });
+    const src = venue === 'coindcx' ? (rpnlHedgeCache.length ? rpnlHedgeCache : pts) : pts;
+    const bars = src.map((p, i) => {
+      const val = i === 0 ? p.value : parseFloat((p.value - src[i-1].value).toFixed(4));
       return { time: p.time, value: val, color: val >= 0 ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)' };
     });
     rpnlHistSeries.setData(bars);
@@ -1656,6 +1708,7 @@ async function extendRpnl() {
 
 async function loadRpnl(keepRange) {
   const picked = currentRpnlSel();
+  const venue  = currentRpnlVenue();
   const sym    = picked.contract;
   const hours  = rpnlCurrentHours !== null
     ? rpnlCurrentHours
@@ -1668,17 +1721,21 @@ async function loadRpnl(keepRange) {
     ? ohlcChart.timeScale().getVisibleLogicalRange()
     : null;
   const acctBit = '&account=' + encodeURIComponent(picked.account);
-  const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + (picked.account ? sym + ' · ' + picked.account : sym) + ' (' + hours + 'h, ' + bucket + 'm buckets)...';
+  const exchQ = venue === 'coindcx' ? 'coindcx' : 'delta';
+  const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + (picked.account ? sym + ' · ' + picked.account : sym) + ' (' + hours + 'h, ' + venue + ')...';
   setLoading('rpnlStatus', loadingLabel);
   try {
     const candleIvl = (document.getElementById('rpnlCandle') || {}).value || '5m';
-    const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket + acctBit;
-    const [r, cR, fR, sR] = await Promise.all([
+    const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket + acctBit + '&exchange=' + exchQ;
+    const fillUrl = '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + acctBit;
+    const reqs = [
       fetch(withStrategy(url)),
       fetch('/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + '&hours=' + hours),
-      fetch(withStrategy('/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + acctBit)),
+      fetch(withStrategy(fillUrl + '&exchange=' + exchQ)),
       fetch(withStrategy('/api/rpnl/summary')),
-    ]);
+    ];
+    if (venue === 'both') reqs.push(fetch(withStrategy(fillUrl + '&exchange=coindcx')));
+    const [r, cR, fR, sR, hFR] = await Promise.all(reqs);
     if (sR.ok) renderRpnlSummary(await sR.json());
     if (!r.ok) {
       const body = await r.json().catch(() => ({ detail: r.statusText }));
@@ -1688,8 +1745,10 @@ async function loadRpnl(keepRange) {
     }
     const d   = await r.json();
     const pts = dedupeTimes((d.points || []).map(p => ({ time: p.time + IST_OFFSET, value: p.rpnl })));
+    const hedgeRaw = dedupeTimes((d.hedge_points || []).map(p => ({ time: p.time + IST_OFFSET, value: p.rpnl })));
     const bucketSecs = parseInt(bucket) * 60;
     const filled = fillGaps(pts, bucketSecs);
+    const hedgeFilled = fillGaps(hedgeRaw, bucketSecs);
 
     let bars = [];
     if (ohlcSeries && cR.ok) {
@@ -1703,11 +1762,19 @@ async function loadRpnl(keepRange) {
     if (ohlcSeries) ohlcSeries.setData(bars);
 
     rpnlPtsCache = bars.length ? alignRpnlToBars(filled, bars) : filled;
+    rpnlHedgeCache = venue === 'coindcx'
+      ? rpnlPtsCache
+      : (bars.length ? alignRpnlToBars(hedgeFilled, bars) : hedgeFilled);
     applyRpnlData(rpnlPtsCache, true);
 
     if (ohlcSeries && fR.ok) {
       const fd = await fR.json();
-      rpnlFillsCache = fd.fills || [];
+      let fills = fd.fills || [];
+      if (venue === 'both' && hFR && hFR.ok) {
+        const hf = await hFR.json();
+        fills = fills.concat(hf.fills || []);
+      }
+      rpnlFillsCache = fills;
       ohlcSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, bars));
     } else {
       rpnlFillsCache = [];
@@ -1722,28 +1789,34 @@ async function loadRpnl(keepRange) {
       fitRpnlView();
     }
 
-    if (filled.length === 0 && !bars.length) {
+    if (filled.length === 0 && !hedgeRaw.length && !bars.length) {
       setStatus('rpnlStatus', '<span>No fills found for <b>' + d.contract + '</b> in the last ' + hours + 'h. Try a longer window.</span>');
       return;
     }
 
     const last    = pts.length ? pts[pts.length - 1] : { value: 0 };
+    const lastH   = (venue === 'coindcx' ? last : (hedgeRaw.length ? hedgeRaw[hedgeRaw.length - 1] : null));
     const col     = last.value >= 0 ? '#26a69a' : '#ef5350';
     const winLabel = hours + 'h' + (rpnlCurrentHours && rpnlCurrentHours > parseInt(document.getElementById('rpnlHours').value) ? ' (extended)' : '');
     const acctLab = (d.account || picked.account) ? (' · acct ' + (d.account || picked.account)) : '';
+    const hedgeLab = lastH && venue !== 'delta'
+      ? ' &nbsp;|&nbsp; C: <b style="color:#ff9800">' + inrFmtDec(lastH.value, 2) + '</b>'
+      : '';
     if (rpnlView === 'cumul') {
       setStatus('rpnlStatus',
         '<span style="color:' + col + ';font-weight:600;">' + d.contract + acctLab + '</span>' +
-        ' &nbsp;|&nbsp; ' + winLabel + ' · ' + pts.length + ' buckets · ' + bars.length + ' candles' +
-        ' &nbsp;|&nbsp; Cumul: <b style="color:' + col + '">' + inrFmtDec(last.value, 2) + '</b>' +
+        ' &nbsp;|&nbsp; ' + winLabel + ' · ' + venue +
+        (venue !== 'coindcx' ? ' &nbsp;|&nbsp; Δ: <b style="color:' + col + '">' + inrFmtDec(last.value, 2) + '</b>' : '') +
+        hedgeLab +
         ' &nbsp;&mdash;&nbsp; IST ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}), 'ok');
     } else {
-      const bucketVals = pts.map((p, i) => i === 0 ? p.value : p.value - pts[i-1].value);
+      const src = venue === 'coindcx' ? (hedgeRaw.length ? hedgeRaw : pts) : pts;
+      const bucketVals = src.map((p, i) => i === 0 ? p.value : p.value - src[i-1].value);
       const maxV = bucketVals.length ? Math.max.apply(null, bucketVals) : 0;
       const minV = bucketVals.length ? Math.min.apply(null, bucketVals) : 0;
       setStatus('rpnlStatus',
         '<span style="color:' + col + ';font-weight:600;">' + d.contract + acctLab + '</span>' +
-        ' &nbsp;|&nbsp; ' + pts.length + ' buckets' +
+        ' &nbsp;|&nbsp; ' + venue + ' · ' + src.length + ' buckets' +
         ' &nbsp;|&nbsp; Best: <b style="color:#26a69a">' + inrFmtDec(maxV, 2) + '</b>' +
         ' &nbsp;|&nbsp; Worst: <b style="color:#ef5350">' + inrFmtDec(minV, 2) + '</b>' +
         ' &nbsp;&mdash;&nbsp; IST ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}), 'ok');

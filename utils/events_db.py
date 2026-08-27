@@ -1425,15 +1425,18 @@ class EventsDB:
                     SELECT contract,
                            COALESCE(account, '') AS account,
                            COALESCE(MAX(details->>'account_name'), '') AS account_name,
-                           COUNT(*)::int AS fills,
-                           COALESCE(SUM(rpnl), 0)::float AS rpnl,
-                           COALESCE(SUM(fee), 0)::float AS fees,
+                           COUNT(*) FILTER (WHERE exchange = 'delta')::int AS fills,
+                           COUNT(*) FILTER (WHERE exchange <> 'delta')::int AS hedge_fills,
+                           COALESCE(SUM(rpnl) FILTER (WHERE exchange = 'delta'), 0)::float AS rpnl,
+                           COALESCE(SUM(rpnl) FILTER (WHERE exchange <> 'delta'), 0)::float AS hedge_rpnl,
+                           COALESCE(SUM(fee) FILTER (WHERE exchange = 'delta'), 0)::float AS fees,
+                           COALESCE(SUM(fee) FILTER (WHERE exchange <> 'delta'), 0)::float AS hedge_fees,
                            MIN(created_at) AS first_at,
                            MAX(created_at) AS last_at
                     FROM fills
-                    WHERE strategy = $1 AND exchange = 'delta'
+                    WHERE strategy = $1
                     GROUP BY contract, COALESCE(account, '')
-                    ORDER BY SUM(rpnl) DESC NULLS LAST
+                    ORDER BY SUM(rpnl) FILTER (WHERE exchange = 'delta') DESC NULLS LAST
                     """,
                     strategy,
                 )
@@ -1446,8 +1449,11 @@ class EventsDB:
                     "account": account,
                     "account_name": name,
                     "fills": r["fills"],
+                    "hedge_fills": r["hedge_fills"],
                     "rpnl": round(float(r["rpnl"] or 0) * self.usdinr_rate, 2),
+                    "hedge_rpnl": round(float(r["hedge_rpnl"] or 0), 2),
                     "fees": round(float(r["fees"] or 0) * self.usdinr_rate, 2),
+                    "hedge_fees": round(float(r["hedge_fees"] or 0), 2),
                     "first_at": int(r["first_at"].timestamp()) if r["first_at"] else None,
                     "last_at": int(r["last_at"].timestamp()) if r["last_at"] else None,
                 })
@@ -1456,28 +1462,42 @@ class EventsDB:
             self.logger.warning("events_db: get_contract_rpnl_summary failed — %s", e)
             return []
 
+    def _exchange_filter(self, exchange: str | None, start_idx: int) -> tuple[str, list]:
+        exch = (exchange or "delta").lower()
+        if exch in ("hedge", "coindcx"):
+            if exch == "hedge":
+                return " AND exchange <> 'delta'", []
+            return f" AND exchange = ${start_idx}", [exch]
+        return f" AND exchange = ${start_idx}", ["delta"]
+
+    def _rpnl_inr(self, value: float, exchange: str) -> float:
+        if (exchange or "delta").lower() in ("delta", "binance"):
+            return float(value or 0) * self.usdinr_rate
+        return float(value or 0)
+
     async def get_fill_markers(
         self, contract: str, since: "datetime", strategy: str = "opa3",
-        limit: int = 2000, account: str | None = None,
+        limit: int = 2000, account: str | None = None, exchange: str = "delta",
     ) -> list[dict]:
-        """Individual delta fills for OHLC overlay (time, price, side, rPnL ₹)."""
+        """Fills for OHLC overlay (time, price, side, rPnL ₹)."""
         if not self.pool:
             return []
         try:
-            acct_sql, acct_args = self._account_filter(account, 4)
+            exch_sql, exch_args = self._exchange_filter(exchange, 4)
+            acct_sql, acct_args = self._account_filter(account, 4 + len(exch_args))
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
                     f"""
                     SELECT created_at, side, price::float AS price,
                            quantity::float AS quantity, rpnl::float AS rpnl,
-                           COALESCE(account, '') AS account
+                           COALESCE(account, '') AS account, exchange
                     FROM fills
-                    WHERE contract = $1 AND strategy = $2 AND exchange = 'delta'
-                      AND created_at >= $3{acct_sql}
+                    WHERE contract = $1 AND strategy = $2
+                      AND created_at >= $3{exch_sql}{acct_sql}
                     ORDER BY created_at
-                    LIMIT ${4 + len(acct_args)}
+                    LIMIT ${4 + len(exch_args) + len(acct_args)}
                     """,
-                    contract, strategy, since, *acct_args, limit,
+                    contract, strategy, since, *exch_args, *acct_args, limit,
                 )
             return [
                 {
@@ -1485,8 +1505,9 @@ class EventsDB:
                     "side": r["side"],
                     "price": r["price"],
                     "quantity": r["quantity"],
-                    "rpnl": round(float(r["rpnl"] or 0) * self.usdinr_rate, 4),
+                    "rpnl": round(self._rpnl_inr(r["rpnl"] or 0, r["exchange"]), 4),
                     "account": r["account"] or "",
+                    "exchange": r["exchange"] or "",
                 }
                 for r in rows
             ]
@@ -1503,17 +1524,22 @@ class EventsDB:
 
     async def get_rpnl_timeseries(
         self, contract: str, since: "datetime", bucket_minutes: int = 5, strategy: str = "opa3",
-        account: str | None = None,
+        account: str | None = None, exchange: str = "delta",
     ) -> list[dict]:
         """Cumulative rPnL timeseries bucketed by `bucket_minutes` since a UTC datetime.
 
-        Returns list of {"time": unix_ts, "rpnl": cumulative_float}.
+        Returns list of {"time": unix_ts, "rpnl": cumulative_float} in ₹.
+        CoinDCX rpnl is already INR; Delta/Binance is converted with usdinr_rate.
         """
         if not self.pool:
             return []
         try:
             bucket_secs = bucket_minutes * 60
-            acct_sql, acct_args = self._account_filter(account, 5)
+            params: list = [contract, since, float(bucket_secs), strategy]
+            exch_sql, exch_args = self._exchange_filter(exchange, len(params) + 1)
+            params.extend(exch_args)
+            acct_sql, acct_args = self._account_filter(account, len(params) + 1)
+            params.extend(acct_args)
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
                     f"""
@@ -1523,16 +1549,17 @@ class EventsDB:
                            COALESCE(SUM(rpnl), 0)    AS bucket_pnl
                     FROM fills
                     WHERE contract = $1 AND created_at >= $2 AND strategy = $4
-                      AND exchange = 'delta'{acct_sql}
+                      {exch_sql}{acct_sql}
                     GROUP BY bucket
                     ORDER BY bucket
                     """,
-                    contract, since, float(bucket_secs), strategy, *acct_args,
+                    *params,
                 )
+            rate = 1.0 if (exchange or "delta").lower() in ("coindcx", "hedge") else self.usdinr_rate
             cumulative = 0.0
             result = []
             for row in rows:
-                cumulative += float(row["bucket_pnl"] or 0.0) * self.usdinr_rate
+                cumulative += float(row["bucket_pnl"] or 0.0) * rate
                 result.append({
                     "time": int(row["bucket"].timestamp()),
                     "rpnl": round(cumulative, 4),

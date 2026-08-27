@@ -319,9 +319,9 @@ async def rpnl_chart(
     bucket: int = Query(5, ge=1, le=60, description="Bucket size in minutes"),
     strategy: str = Query("opa3", description="strategy tag, e.g. opa3 | opa4"),
     account: str | None = Query(None, description="Delta account id; omit to merge all"),
+    exchange: str = Query("delta", description="delta | coindcx | hedge"),
 ) -> dict:
     """Cumulative rPnL timeseries for a contract, bucketed by `bucket` minutes."""
-    # Accept either a raw contract name or a short key from _SYMBOLS
     cfg = _SYMBOLS.get(symbol.upper())
     contract = cfg.delta_symbol if cfg else symbol.upper()
     if _db is None or not _db.pool:
@@ -329,13 +329,29 @@ async def rpnl_chart(
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     try:
         points = await _db.get_rpnl_timeseries(
-            contract, since, bucket_minutes=bucket, strategy=strategy, account=account,
+            contract, since, bucket_minutes=bucket, strategy=strategy,
+            account=account, exchange=exchange,
         )
+        hedge_points = []
+        if exchange == "delta":
+            hedge_points = await _db.get_rpnl_timeseries(
+                contract, since, bucket_minutes=bucket, strategy=strategy,
+                account=account, exchange="coindcx",
+            )
     except Exception as e:
         logger.error("webapp: rpnl query failed for %s: %s", contract, e)
         raise HTTPException(status_code=500, detail=f"query failed: {e}") from e
-    logger.info("webapp: rpnl %s account=%s %dh -> %d points", contract, account or "-", hours, len(points))
-    return {"contract": contract, "account": account or "", "points": points}
+    logger.info(
+        "webapp: rpnl %s account=%s exch=%s %dh -> %d points hedge=%d",
+        contract, account or "-", exchange, hours, len(points), len(hedge_points),
+    )
+    return {
+        "contract": contract,
+        "account": account or "",
+        "exchange": exchange,
+        "points": points,
+        "hedge_points": hedge_points,
+    }
 
 
 @app.get("/api/rpnl/summary")
@@ -354,15 +370,18 @@ async def rpnl_fills(
     hours: int = Query(24, ge=1, le=2160),
     strategy: str = Query("opa3"),
     account: str | None = Query(None),
+    exchange: str = Query("delta"),
 ) -> dict:
-    """Delta fills in the window — overlay on OHLC."""
+    """Fills in the window — overlay on OHLC."""
     cfg = _SYMBOLS.get(symbol.upper())
     contract = cfg.delta_symbol if cfg else symbol.upper()
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    fills = await _db.get_fill_markers(contract, since, strategy=strategy, account=account)
-    return {"contract": contract, "account": account or "", "fills": fills}
+    fills = await _db.get_fill_markers(
+        contract, since, strategy=strategy, account=account, exchange=exchange,
+    )
+    return {"contract": contract, "account": account or "", "exchange": exchange, "fills": fills}
 
 
 async def _fetch_delta_ohlc(symbol: str, resolution: str, lookback_secs: int) -> list[dict]:
