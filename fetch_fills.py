@@ -244,6 +244,7 @@ async def save_delta_db(cfg, rows):
                 "role": row.get("role"),
                 "fill_type": row.get("fill_type"),
                 "product_id": row.get("product_id"),
+                "account": row.get("raw", {}).get("user_id") if isinstance(row.get("raw"), dict) else None,
             },
             strategy=cfg["name"],
             created_at=_dt_delta(row.get("created_at")),

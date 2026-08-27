@@ -277,17 +277,36 @@ async def position_history(
 @app.get("/api/rpnl/symbols")
 async def rpnl_symbols(
     strategy: str = Query("opa3", description="strategy tag, e.g. opa3 | opa4"),
-) -> list[str]:
-    """Distinct contract names that have fills in the DB."""
+) -> list[dict]:
+    """Distinct contract+account pairs that have fills in the DB."""
     if _db is None or not _db.pool:
         return []
     try:
         async with _db.pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT DISTINCT contract FROM fills WHERE strategy = $1 ORDER BY contract",
+                """
+                SELECT contract,
+                       COALESCE(account, '') AS account,
+                       COALESCE(MAX(details->>'account_name'), '') AS account_name
+                FROM fills
+                WHERE strategy = $1
+                GROUP BY contract, COALESCE(account, '')
+                ORDER BY contract, account
+                """,
                 strategy,
             )
-        return [r["contract"] for r in rows]
+        out = []
+        for r in rows:
+            account = r["account"] or ""
+            name = r["account_name"] or account
+            label = r["contract"] if not account else f"{r['contract']} · {name}"
+            out.append({
+                "contract": r["contract"],
+                "account": account,
+                "account_name": name,
+                "label": label,
+            })
+        return out
     except Exception as e:
         logger.warning("webapp: rpnl_symbols failed: %s", e)
         return []
@@ -299,6 +318,7 @@ async def rpnl_chart(
     hours: int = Query(24, ge=1, le=2160, description="Lookback window in hours"),
     bucket: int = Query(5, ge=1, le=60, description="Bucket size in minutes"),
     strategy: str = Query("opa3", description="strategy tag, e.g. opa3 | opa4"),
+    account: str | None = Query(None, description="Delta account id; omit to merge all"),
 ) -> dict:
     """Cumulative rPnL timeseries for a contract, bucketed by `bucket` minutes."""
     # Accept either a raw contract name or a short key from _SYMBOLS
@@ -308,12 +328,14 @@ async def rpnl_chart(
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     try:
-        points = await _db.get_rpnl_timeseries(contract, since, bucket_minutes=bucket, strategy=strategy)
+        points = await _db.get_rpnl_timeseries(
+            contract, since, bucket_minutes=bucket, strategy=strategy, account=account,
+        )
     except Exception as e:
         logger.error("webapp: rpnl query failed for %s: %s", contract, e)
         raise HTTPException(status_code=500, detail=f"query failed: {e}") from e
-    logger.info("webapp: rpnl %s %dh -> %d points", contract, hours, len(points))
-    return {"contract": contract, "points": points}
+    logger.info("webapp: rpnl %s account=%s %dh -> %d points", contract, account or "-", hours, len(points))
+    return {"contract": contract, "account": account or "", "points": points}
 
 
 @app.get("/api/rpnl/summary")
@@ -331,6 +353,7 @@ async def rpnl_fills(
     symbol: str = Query(...),
     hours: int = Query(24, ge=1, le=2160),
     strategy: str = Query("opa3"),
+    account: str | None = Query(None),
 ) -> dict:
     """Delta fills in the window — overlay on OHLC."""
     cfg = _SYMBOLS.get(symbol.upper())
@@ -338,8 +361,8 @@ async def rpnl_fills(
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    fills = await _db.get_fill_markers(contract, since, strategy=strategy)
-    return {"contract": contract, "fills": fills}
+    fills = await _db.get_fill_markers(contract, since, strategy=strategy, account=account)
+    return {"contract": contract, "account": account or "", "fills": fills}
 
 
 async def _fetch_delta_ohlc(symbol: str, resolution: str, lookback_secs: int) -> list[dict]:
@@ -644,7 +667,8 @@ async def fills_list(
             f"""
             SELECT id, created_at, contract, exchange, order_id, side,
                    quantity::float AS quantity, price::float AS price,
-                   cost::float AS cost, fee::float AS fee, rpnl::float AS rpnl
+                   cost::float AS cost, fee::float AS fee, rpnl::float AS rpnl,
+                   COALESCE(account, '') AS account
             FROM fills WHERE {' AND '.join(wheres)}
             ORDER BY created_at DESC LIMIT ${len(params)}
             """,
@@ -666,6 +690,7 @@ async def fills_list(
             "cost":     (r["cost"] * _db.usdinr_rate) if (r["cost"] is not None and r["exchange"] in ("delta", "binance")) else r["cost"],
             "fee":      (r["fee"] * _db.usdinr_rate) if (r["fee"] is not None and r["exchange"] in ("delta", "binance")) else r["fee"],
             "rpnl":     (r["rpnl"] * _db.usdinr_rate) if (r["rpnl"] is not None and r["exchange"] in ("delta", "binance")) else r["rpnl"],
+            "account":  r["account"] or "",
         }
         for r in rows
     ]

@@ -88,6 +88,13 @@ class EventsDB:
                 ALTER TABLE fills ADD COLUMN IF NOT EXISTS fee NUMERIC(22, 8);
             """)
             await conn.execute("""
+                ALTER TABLE fills ADD COLUMN IF NOT EXISTS account VARCHAR(40);
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_fills_account
+                ON fills(strategy, account, contract);
+            """)
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS orders (
                     id              BIGSERIAL PRIMARY KEY,
                     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1408,7 +1415,7 @@ class EventsDB:
             return {"rpnl": 0.0, "fills_buy": 0, "fills_sell": 0, "volume": 0.0}
 
     async def get_contract_rpnl_summary(self, strategy: str = "opa3") -> list[dict]:
-        """Per-contract fill count + realized PnL (₹) for the dashboard table."""
+        """Per-contract+account fill count + realized PnL (₹) for the dashboard table."""
         if not self.pool:
             return []
         try:
@@ -1416,6 +1423,8 @@ class EventsDB:
                 rows = await conn.fetch(
                     """
                     SELECT contract,
+                           COALESCE(account, '') AS account,
+                           COALESCE(MAX(details->>'account_name'), '') AS account_name,
                            COUNT(*)::int AS fills,
                            COALESCE(SUM(rpnl), 0)::float AS rpnl,
                            COALESCE(SUM(fee), 0)::float AS fees,
@@ -1423,15 +1432,19 @@ class EventsDB:
                            MAX(created_at) AS last_at
                     FROM fills
                     WHERE strategy = $1 AND exchange = 'delta'
-                    GROUP BY contract
+                    GROUP BY contract, COALESCE(account, '')
                     ORDER BY SUM(rpnl) DESC NULLS LAST
                     """,
                     strategy,
                 )
             out = []
             for r in rows:
+                account = r["account"] or ""
+                name = r["account_name"] or account
                 out.append({
                     "contract": r["contract"],
+                    "account": account,
+                    "account_name": name,
                     "fills": r["fills"],
                     "rpnl": round(float(r["rpnl"] or 0) * self.usdinr_rate, 2),
                     "fees": round(float(r["fees"] or 0) * self.usdinr_rate, 2),
@@ -1444,24 +1457,27 @@ class EventsDB:
             return []
 
     async def get_fill_markers(
-        self, contract: str, since: "datetime", strategy: str = "opa3", limit: int = 2000
+        self, contract: str, since: "datetime", strategy: str = "opa3",
+        limit: int = 2000, account: str | None = None,
     ) -> list[dict]:
         """Individual delta fills for OHLC overlay (time, price, side, rPnL ₹)."""
         if not self.pool:
             return []
         try:
+            acct_sql, acct_args = self._account_filter(account, 4)
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
-                    """
+                    f"""
                     SELECT created_at, side, price::float AS price,
-                           quantity::float AS quantity, rpnl::float AS rpnl
+                           quantity::float AS quantity, rpnl::float AS rpnl,
+                           COALESCE(account, '') AS account
                     FROM fills
                     WHERE contract = $1 AND strategy = $2 AND exchange = 'delta'
-                      AND created_at >= $3
+                      AND created_at >= $3{acct_sql}
                     ORDER BY created_at
-                    LIMIT $4
+                    LIMIT ${4 + len(acct_args)}
                     """,
-                    contract, strategy, since, limit,
+                    contract, strategy, since, *acct_args, limit,
                 )
             return [
                 {
@@ -1470,6 +1486,7 @@ class EventsDB:
                     "price": r["price"],
                     "quantity": r["quantity"],
                     "rpnl": round(float(r["rpnl"] or 0) * self.usdinr_rate, 4),
+                    "account": r["account"] or "",
                 }
                 for r in rows
             ]
@@ -1477,8 +1494,16 @@ class EventsDB:
             self.logger.warning("events_db: get_fill_markers failed — %s", e)
             return []
 
+    def _account_filter(self, account: str | None, start_idx: int) -> tuple[str, list]:
+        if account is None:
+            return "", []
+        if account == "":
+            return f" AND (account IS NULL OR account = '')", []
+        return f" AND account = ${start_idx}", [account]
+
     async def get_rpnl_timeseries(
-        self, contract: str, since: "datetime", bucket_minutes: int = 5, strategy: str = "opa3"
+        self, contract: str, since: "datetime", bucket_minutes: int = 5, strategy: str = "opa3",
+        account: str | None = None,
     ) -> list[dict]:
         """Cumulative rPnL timeseries bucketed by `bucket_minutes` since a UTC datetime.
 
@@ -1488,20 +1513,21 @@ class EventsDB:
             return []
         try:
             bucket_secs = bucket_minutes * 60
+            acct_sql, acct_args = self._account_filter(account, 5)
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
-                    """
+                    f"""
                     SELECT to_timestamp(
                                floor(extract(epoch from created_at) / $3) * $3
                            )                          AS bucket,
                            COALESCE(SUM(rpnl), 0)    AS bucket_pnl
                     FROM fills
                     WHERE contract = $1 AND created_at >= $2 AND strategy = $4
-                      AND exchange = 'delta'
+                      AND exchange = 'delta'{acct_sql}
                     GROUP BY bucket
                     ORDER BY bucket
                     """,
-                    contract, since, float(bucket_secs), strategy,
+                    contract, since, float(bucket_secs), strategy, *acct_args,
                 )
             cumulative = 0.0
             result = []

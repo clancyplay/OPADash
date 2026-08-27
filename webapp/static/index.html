@@ -939,7 +939,7 @@
   <div id="rpnlSummaryWrap" class="rpnl-pills"></div>
   <div class="rpnl-stack">
     <div class="rpnl-pane">
-      <div class="rpnl-pane-label">Delta price · fills</div>
+      <div class="rpnl-pane-label" id="ohlcPaneLabel">Delta price · fills</div>
       <div id="ohlcChart"></div>
       <div class="chart-legend" id="ohlcLegend"></div>
     </div>
@@ -1072,17 +1072,49 @@ async function onStrategyChange(val) {
 async function fetchRpnlSymbols() {
   try {
     const r = await fetch(withStrategy('/api/rpnl/symbols'));
-    const contracts = await r.json();
+    const rows = await r.json();
     const sel = document.getElementById('rpnlSymbol');
-    if (contracts.length === 0) {
+    const list = (Array.isArray(rows) ? rows : []).map(c => typeof c === 'string'
+      ? { contract: c, account: '', account_name: '', label: c }
+      : c);
+    if (list.length === 0) {
       sel.innerHTML = '<option value="">No data in DB</option>';
     } else {
-      sel.innerHTML = contracts.map(c => '<option value="' + c + '">' + c + '</option>').join('');
+      sel.innerHTML = list.map(c =>
+        '<option value="' + rpnlOptionValue(c) + '">' + escHtml(c.label || c.contract) + '</option>'
+      ).join('');
     }
   } catch {
-    // fallback to hardcoded list
     fillSelect('rpnlSymbol', false);
   }
+}
+
+function rpnlOptionValue(r) {
+  return (r.contract || '') + '::' + (r.account || '');
+}
+function parseRpnlSel(v) {
+  v = v || '';
+  const i = v.indexOf('::');
+  if (i < 0) return { contract: v, account: '' };
+  return { contract: v.slice(0, i), account: v.slice(i + 2) };
+}
+function currentRpnlSel() {
+  return parseRpnlSel((document.getElementById('rpnlSymbol') || {}).value || '');
+}
+function rpnlAccountLabel(r) {
+  return r.account_name || r.account || '';
+}
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+}
+function updateRpnlPaneLabels() {
+  const sel = currentRpnlSel();
+  const acct = sel.account ? ' · account ' + sel.account : '';
+  const ohlc = document.getElementById('ohlcPaneLabel');
+  const lab = document.getElementById('rpnlPaneLabel');
+  if (ohlc) ohlc.textContent = 'Delta price · fills' + (sel.contract ? ' · ' + sel.contract : '') + acct;
+  if (lab) lab.textContent = (rpnlView === 'cumul' ? 'Cumulative rPnL (₹)' : 'Per-bucket rPnL (₹)')
+    + (sel.contract ? ' · ' + sel.contract : '') + acct;
 }
 
 // DB health badge
@@ -1222,11 +1254,14 @@ function renderRpnlSummary(rows) {
   const cur = document.getElementById('rpnlSymbol').value;
   wrap.innerHTML = rows.map(r => {
     const col = r.rpnl >= 0 ? 'var(--green)' : 'var(--red)';
-    const active = r.contract === cur ? ' active' : '';
-    return '<button type="button" class="rpnl-pill' + active + '" onclick="pickRpnlContract(\'' + r.contract + '\')">' +
-      '<div class="p-name">' + r.contract + '</div>' +
+    const key = rpnlOptionValue(r);
+    const active = key === cur ? ' active' : '';
+    const acct = rpnlAccountLabel(r);
+    const name = r.contract + (acct ? ' · ' + acct : '');
+    return '<button type="button" class="rpnl-pill' + active + '" onclick="pickRpnlContract(\'' + key.replace(/'/g, "\\'") + '\')">' +
+      '<div class="p-name">' + escHtml(name) + '</div>' +
       '<div class="p-val" style="color:' + col + '">' + inrFmt(r.rpnl) + '</div>' +
-      '<div class="p-meta">' + r.fills + ' fills · fees ' + inrFmt(r.fees) + '</div>' +
+      '<div class="p-meta">' + r.fills + ' fills · fees ' + inrFmt(r.fees) + (acct ? ' · acct ' + escHtml(acct) : '') + '</div>' +
       '</button>';
   }).join('');
 }
@@ -1377,7 +1412,7 @@ function setRpnlView(v) {
   document.getElementById('viewCumul') .style.cssText = v==='cumul'  ? 'border-color:'+ac+';color:#fff'        : 'border-color:'+b2+';color:'+mu;
   document.getElementById('viewBucket').style.cssText = v==='bucket' ? 'border-color:'+ac+';color:#fff'        : 'border-color:'+b2+';color:'+mu;
   const lab = document.getElementById('rpnlPaneLabel');
-  if (lab) lab.textContent = v === 'cumul' ? 'Cumulative rPnL (₹)' : 'Per-bucket rPnL (₹)';
+  if (lab) updateRpnlPaneLabels();
   const saved = ohlcChart ? ohlcChart.timeScale().getVisibleLogicalRange() : null;
   if (rpnlPtsCache.length) applyRpnlData(rpnlPtsCache, true);
   if (saved) {
@@ -1620,25 +1655,28 @@ async function extendRpnl() {
 }
 
 async function loadRpnl(keepRange) {
-  const sym    = document.getElementById('rpnlSymbol').value;
+  const picked = currentRpnlSel();
+  const sym    = picked.contract;
   const hours  = rpnlCurrentHours !== null
     ? rpnlCurrentHours
     : parseInt(document.getElementById('rpnlHours').value);
   const bucket = document.getElementById('rpnlBucket').value;
   if (!sym) return;
   hideRpnlError();
+  updateRpnlPaneLabels();
   const savedLogical = keepRange && ohlcChart
     ? ohlcChart.timeScale().getVisibleLogicalRange()
     : null;
-  const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + sym + ' (' + hours + 'h, ' + bucket + 'm buckets)...';
+  const acctBit = '&account=' + encodeURIComponent(picked.account);
+  const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + (picked.account ? sym + ' · ' + picked.account : sym) + ' (' + hours + 'h, ' + bucket + 'm buckets)...';
   setLoading('rpnlStatus', loadingLabel);
   try {
     const candleIvl = (document.getElementById('rpnlCandle') || {}).value || '5m';
-    const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket;
+    const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket + acctBit;
     const [r, cR, fR, sR] = await Promise.all([
       fetch(withStrategy(url)),
       fetch('/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + '&hours=' + hours),
-      fetch(withStrategy('/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + '&hours=' + hours)),
+      fetch(withStrategy('/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + acctBit)),
       fetch(withStrategy('/api/rpnl/summary')),
     ]);
     if (sR.ok) renderRpnlSummary(await sR.json());
@@ -1692,9 +1730,10 @@ async function loadRpnl(keepRange) {
     const last    = pts.length ? pts[pts.length - 1] : { value: 0 };
     const col     = last.value >= 0 ? '#26a69a' : '#ef5350';
     const winLabel = hours + 'h' + (rpnlCurrentHours && rpnlCurrentHours > parseInt(document.getElementById('rpnlHours').value) ? ' (extended)' : '');
+    const acctLab = (d.account || picked.account) ? (' · acct ' + (d.account || picked.account)) : '';
     if (rpnlView === 'cumul') {
       setStatus('rpnlStatus',
-        '<span style="color:' + col + ';font-weight:600;">' + d.contract + '</span>' +
+        '<span style="color:' + col + ';font-weight:600;">' + d.contract + acctLab + '</span>' +
         ' &nbsp;|&nbsp; ' + winLabel + ' · ' + pts.length + ' buckets · ' + bars.length + ' candles' +
         ' &nbsp;|&nbsp; Cumul: <b style="color:' + col + '">' + inrFmtDec(last.value, 2) + '</b>' +
         ' &nbsp;&mdash;&nbsp; IST ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}), 'ok');
@@ -1703,7 +1742,7 @@ async function loadRpnl(keepRange) {
       const maxV = bucketVals.length ? Math.max.apply(null, bucketVals) : 0;
       const minV = bucketVals.length ? Math.min.apply(null, bucketVals) : 0;
       setStatus('rpnlStatus',
-        '<span style="color:' + col + ';font-weight:600;">' + d.contract + '</span>' +
+        '<span style="color:' + col + ';font-weight:600;">' + d.contract + acctLab + '</span>' +
         ' &nbsp;|&nbsp; ' + pts.length + ' buckets' +
         ' &nbsp;|&nbsp; Best: <b style="color:#26a69a">' + inrFmtDec(maxV, 2) + '</b>' +
         ' &nbsp;|&nbsp; Worst: <b style="color:#ef5350">' + inrFmtDec(minV, 2) + '</b>' +
@@ -2402,7 +2441,8 @@ async function initData() {
   // contract selects share the fills-contract list
   try {
     const r = await fetch(withStrategy('/api/rpnl/symbols'));
-    const contracts = await r.json();
+    const rows = await r.json();
+    const contracts = [...new Set((Array.isArray(rows) ? rows : []).map(c => typeof c === 'string' ? c : c.contract).filter(Boolean))];
     document.getElementById('fxContract').innerHTML = contracts.map(c => '<option>' + c + '</option>').join('');
     document.getElementById('evContract').innerHTML = '<option value="">All</option>' + contracts.map(c => '<option>' + c + '</option>').join('');
     document.getElementById('pxContract').innerHTML = contracts.map(c => '<option>' + c + '</option>').join('');
@@ -2493,11 +2533,12 @@ function fillsTable(fills, tag) {
   const showExch = tag === 'h';
   return '<table class="dtable"><thead><tr>' +
     '<th>Time IST</th>' + (showExch ? '<th>Exch</th>' : '') +
-    '<th>Side</th><th>Qty</th><th>Units</th><th>Price</th><th>Fee</th><th>rPnL</th></tr></thead><tbody>' +
+    '<th>Acct</th><th>Side</th><th>Qty</th><th>Units</th><th>Price</th><th>Fee</th><th>rPnL</th></tr></thead><tbody>' +
     fills.map((f, i) =>
       '<tr class="clickable" id="fx' + tag + '-' + i + '" onclick="crossMatch(\'' + tag + '\',' + i + ')">' +
         '<td>' + fmtISTs(f.time) + '</td>' +
         (showExch ? '<td>' + esc(f.exchange) + '</td>' : '') +
+        '<td>' + esc(f.account || '—') + '</td>' +
         '<td class="side-' + f.side + '">' + f.side.toUpperCase() + '</td>' +
         '<td>' + f.quantity + '</td>' +
         '<td>' + (f.units ?? f.quantity) + '</td>' +
