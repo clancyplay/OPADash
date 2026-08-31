@@ -1497,30 +1497,44 @@ class EventsDB:
     async def get_fill_markers(
         self, contract: str, since: "datetime", strategy: str = "opa3",
         limit: int = 2000, account: str | None = None, exchange: str = "delta",
+        bucket_seconds: int = 300,
     ) -> list[dict]:
-        """Fills for OHLC overlay (time, price, side, rPnL ₹)."""
+        """One fill per candle-bucket per side (largest |rPnL|) for OHLC overlay."""
         if not self.pool:
             return []
         try:
-            exch_sql, exch_args = self._exchange_filter(exchange, 4)
-            # Hedge venues are not tagged with the Delta account id.
+            step = max(60, int(bucket_seconds or 300))
+            exch_sql, exch_args = self._exchange_filter(exchange, 5)
             if (exchange or "delta").lower() in ("coindcx", "hedge", "binance"):
                 acct_sql, acct_args = "", []
             else:
-                acct_sql, acct_args = self._account_filter(account, 4 + len(exch_args))
+                acct_sql, acct_args = self._account_filter(account, 5 + len(exch_args))
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
                     f"""
-                    SELECT created_at, side, price::float AS price,
-                           quantity::float AS quantity, rpnl::float AS rpnl,
-                           COALESCE(account, '') AS account, exchange
-                    FROM fills
-                    WHERE contract = $1 AND strategy = $2
-                      AND created_at >= $3{exch_sql}{acct_sql}
+                    WITH src AS (
+                      SELECT created_at, side, price::float AS price,
+                             quantity::float AS quantity, rpnl::float AS rpnl,
+                             COALESCE(account, '') AS account, exchange
+                      FROM fills
+                      WHERE contract = $1 AND strategy = $2
+                        AND created_at >= $3{exch_sql}{acct_sql}
+                    ),
+                    ranked AS (
+                      SELECT *,
+                        ROW_NUMBER() OVER (
+                          PARTITION BY (FLOOR(EXTRACT(EPOCH FROM created_at) / $4)::bigint), side
+                          ORDER BY ABS(COALESCE(rpnl, 0)) DESC, created_at
+                        ) AS rn
+                      FROM src
+                    )
+                    SELECT created_at, side, price, quantity, rpnl, account, exchange
+                    FROM ranked
+                    WHERE rn = 1 AND ABS(COALESCE(rpnl, 0)) > 1e-9
                     ORDER BY created_at
-                    LIMIT ${4 + len(exch_args) + len(acct_args)}
+                    LIMIT ${5 + len(exch_args) + len(acct_args)}
                     """,
-                    contract, strategy, since, *exch_args, *acct_args, limit,
+                    contract, strategy, since, step, *exch_args, *acct_args, limit,
                 )
             return [
                 {

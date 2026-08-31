@@ -373,6 +373,7 @@ async def rpnl_fills(
     strategy: str = Query("opa3"),
     account: str | None = Query(None),
     exchange: str = Query("delta"),
+    bucket: int = Query(5, ge=1, le=1440),
 ) -> dict:
     """Fills in the window — overlay on OHLC."""
     cfg = _SYMBOLS.get(symbol.upper())
@@ -382,6 +383,7 @@ async def rpnl_fills(
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     fills = await _db.get_fill_markers(
         contract, since, strategy=strategy, account=account, exchange=exchange,
+        bucket_seconds=max(60, int(bucket) * 60),
     )
     return {"contract": contract, "account": account or "", "exchange": exchange, "fills": fills}
 

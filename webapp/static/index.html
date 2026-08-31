@@ -1857,7 +1857,7 @@ async function loadRpnl(keepRange) {
   try {
     const candleIvl = (document.getElementById('rpnlCandle') || {}).value || '5m';
     const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket + acctBit + '&exchange=' + exchQ;
-    const fillUrl = '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + acctBit;
+    const fillUrl = '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket + acctBit;
     const reqs = [
       fetch(withStrategy(url)),
       fetch('/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + '&hours=' + hours),
@@ -1865,7 +1865,7 @@ async function loadRpnl(keepRange) {
       fetch(withStrategy('/api/rpnl/summary')),
     ];
     if (venue === 'both') reqs.push(fetch(withStrategy(
-      '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&exchange=hedge'
+      '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket + '&exchange=hedge'
     )));
     const [r, cR, fR, sR, hFR] = await Promise.all(reqs);
     if (sR.ok) renderRpnlSummary(await sR.json());
