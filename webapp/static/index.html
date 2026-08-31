@@ -153,6 +153,16 @@
     font-size: 10px; letter-spacing: .4px; text-transform: uppercase;
     color: var(--muted); pointer-events: none; font-weight: 600;
   }
+  .rpnl-key {
+    display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: center;
+    padding: 8px 16px; font-size: 12px; border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .rpnl-key .kdot { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+  .rpnl-key .kitem { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  .rpnl-key .kval { color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .rpnl-pill .p-split { display: flex; gap: 10px; margin-top: 4px; }
+  .rpnl-pill .p-split span { font-size: 11px; font-variant-numeric: tabular-nums; }
   .rpnl-pills {
     display: flex; gap: 8px; overflow-x: auto; padding: 8px 16px 10px;
     border-bottom: 1px solid var(--border); scrollbar-width: thin;
@@ -927,9 +937,9 @@
     </select>
     <label>Venue</label>
     <select id="rpnlVenue" onchange="loadRpnlFresh()">
-      <option value="both">Δ + CoinDCX</option>
-      <option value="delta">Delta</option>
-      <option value="coindcx">CoinDCX</option>
+      <option value="both">Δ + Hedge</option>
+      <option value="delta">Delta only</option>
+      <option value="coindcx">Hedge only</option>
     </select>
     <button class="btn" onclick="loadRpnlFresh()">Refresh</button>
     <button class="btn" onclick="fitRpnlView()" title="Fit both charts to full window">Fit</button>
@@ -943,9 +953,15 @@
   <div class="status-bar" id="rpnlStatus"><span class="spinner"></span><span>Loading...</span></div>
   <div class="error-panel" id="rpnlError"></div>
   <div id="rpnlSummaryWrap" class="rpnl-pills"></div>
+  <div class="rpnl-key" id="rpnlKey">
+    <span class="kitem"><span class="kdot" style="background:#26a69a"></span>Delta <span class="kval" id="rkDelta">—</span></span>
+    <span class="kitem"><span class="kdot" style="background:#ff9800"></span>Hedge (CoinDCX) <span class="kval" id="rkHedge">—</span></span>
+    <span class="kitem"><span class="kdot" style="background:#90caf9"></span>Net <span class="kval" id="rkNet">—</span></span>
+    <span class="kitem" style="margin-left:auto" id="rkContract">Select a contract</span>
+  </div>
   <div class="rpnl-stack">
     <div class="rpnl-pane">
-      <div class="rpnl-pane-label" id="ohlcPaneLabel">Delta price · fills</div>
+      <div class="rpnl-pane-label" id="ohlcPaneLabel">Price · Δ fills ▴▾ · hedge fills ●</div>
       <div id="ohlcChart"></div>
       <div class="chart-legend" id="ohlcLegend"></div>
     </div>
@@ -1119,14 +1135,12 @@ function currentRpnlVenue() {
 function updateRpnlPaneLabels() {
   const sel = currentRpnlSel();
   const venue = currentRpnlVenue();
-  const acct = sel.account ? ' · account ' + sel.account : '';
-  const venueLab = venue === 'coindcx' ? 'CoinDCX' : (venue === 'delta' ? 'Delta' : 'Δ + CoinDCX');
+  const venueLab = venue === 'coindcx' ? 'Hedge (CoinDCX)' : (venue === 'delta' ? 'Delta' : 'Delta + Hedge');
   const ohlc = document.getElementById('ohlcPaneLabel');
   const lab = document.getElementById('rpnlPaneLabel');
-  if (ohlc) ohlc.textContent = 'Delta price · fills' + (sel.contract ? ' · ' + sel.contract : '') + acct;
-  if (lab) lab.textContent = (rpnlView === 'cumul' ? 'Cumulative rPnL (₹)' : 'Per-bucket rPnL (₹)')
-    + ' · ' + venueLab
-    + (sel.contract ? ' · ' + sel.contract : '') + acct;
+  const cname = sel.contract || '';
+  if (ohlc) ohlc.textContent = (cname ? cname + ' · ' : '') + 'Delta price · Δ fills ▴▾ · hedge ●';
+  if (lab) lab.textContent = (rpnlView === 'cumul' ? 'Cumulative rPnL ₹' : 'Per-bucket rPnL ₹') + ' · ' + venueLab;
 }
 
 // DB health badge
@@ -1235,8 +1249,8 @@ function setupMpAuto() {
 }
 
 // rPnL Chart
-let rpnlChart, rpnlSeries, rpnlHistSeries, rpnlHedgeSeries, rpnlTimer;
-let ohlcChart, ohlcSeries;
+let rpnlChart, rpnlSeries, rpnlHistSeries, rpnlHedgeSeries, rpnlNetSeries, rpnlTimer;
+let ohlcChart, ohlcSeries, ohlcHedgeMarkerSeries;
 let rpnlView         = 'cumul';
 let rpnlPtsCache     = [];
 let rpnlHedgeCache   = [];
@@ -1266,19 +1280,21 @@ function renderRpnlSummary(rows) {
   if (!rows || !rows.length) { wrap.innerHTML = ''; return; }
   const cur = document.getElementById('rpnlSymbol').value;
   wrap.innerHTML = rows.map(r => {
-    const col = r.rpnl >= 0 ? 'var(--green)' : 'var(--red)';
     const key = rpnlOptionValue(r);
     const active = key === cur ? ' active' : '';
     const acct = rpnlAccountLabel(r);
     const name = r.contract + (acct ? ' · ' + acct : '');
     const hedge = Number(r.hedge_rpnl) || 0;
-    const hedgeBit = r.hedge_fills
-      ? ' · C ' + inrFmt(hedge) + ' (' + r.hedge_fills + ')'
-      : '';
+    const net = (Number(r.rpnl) || 0) + hedge;
+    const netCol = net >= 0 ? 'var(--green)' : 'var(--red)';
     return '<button type="button" class="rpnl-pill' + active + '" onclick="pickRpnlContract(\'' + key.replace(/'/g, "\\'") + '\')">' +
       '<div class="p-name">' + escHtml(name) + '</div>' +
-      '<div class="p-val" style="color:' + col + '">' + inrFmt(r.rpnl) + '</div>' +
-      '<div class="p-meta">Δ ' + r.fills + ' fills · fees ' + inrFmt(r.fees) + hedgeBit + (acct ? ' · acct ' + escHtml(acct) : '') + '</div>' +
+      '<div class="p-val" style="color:' + netCol + '">' + inrFmt(net) + ' <span style="font-size:10px;font-weight:600;color:var(--muted)">net</span></div>' +
+      '<div class="p-split">' +
+        '<span style="color:#26a69a">Δ ' + inrFmt(r.rpnl) + '</span>' +
+        '<span style="color:#ff9800">H ' + inrFmt(hedge) + '</span>' +
+      '</div>' +
+      '<div class="p-meta">Δ ' + (r.fills || 0) + ' fills' + (r.hedge_fills ? ' · H ' + r.hedge_fills : '') + (acct ? ' · ' + escHtml(acct) : '') + '</div>' +
       '</button>';
   }).join('');
 }
@@ -1342,6 +1358,12 @@ function syncRpnlTimeScale(origin) {
   const dst = origin === 'ohlc' ? rpnlChart : ohlcChart;
   const logical = src.timeScale().getVisibleLogicalRange();
   if (!logical) return;
+  try {
+    const dstLogical = dst.timeScale().getVisibleLogicalRange();
+    if (dstLogical &&
+        Math.abs(dstLogical.from - logical.from) < 0.08 &&
+        Math.abs(dstLogical.to - logical.to) < 0.08) return;
+  } catch (e) {}
   rpnlSyncing = true;
   try {
     let barSpacing, rightOffset;
@@ -1369,22 +1391,18 @@ function onRpnlLogicalRange(chartId) {
 }
 
 function maybeExtendRpnl(range) {
-  if (!range || rpnlLoadingMore) return;
-  const first = rpnlPtsCache[0] || ohlcBarsCache[0];
-  const bounds = rpnlDataBounds();
-  if (!first || !bounds) return;
-  // Full-fit / still showing latest point — do not auto-extend
-  if (range.to >= bounds.to - 120) return;
-  const pad = Math.max(60, ((range.to - range.from) * 0.05) || 0);
-  if (range.from <= first.time + pad) extendRpnl();
+  return;
 }
 
-function fillMarkersFromFills(fills, bars) {
-  let list = fills || [];
-  if (list.length > 400) list = list.filter(f => Math.abs(f.rpnl) > 1e-9);
+function fillMarkersFromFills(fills, bars, hedgeOnly) {
+  let list = (fills || []).filter(f => {
+    const hedge = (f.exchange || '') !== 'delta';
+    return hedgeOnly ? hedge : !hedge;
+  });
+  if (list.length > 300) list = list.filter(f => Math.abs(f.rpnl) > 1e-9);
   const byT = new Map();
   for (const f of list) {
-    const raw = f.time + IST_OFFSET;
+    const raw = f.time;
     const snap = bars && bars.length ? nearestByTime(bars, raw) : null;
     const t = snap ? snap.time : raw;
     const prev = byT.get(t);
@@ -1392,17 +1410,33 @@ function fillMarkersFromFills(fills, bars) {
   }
   return [...byT.values()].map(f => {
     const win = f.rpnl > 1e-6, lose = f.rpnl < -1e-6;
-    const color = win ? '#26a69a' : (lose ? '#ef5350' : '#7f8598');
+    const color = hedgeOnly ? '#ff9800' : (win ? '#26a69a' : (lose ? '#ef5350' : '#7f8598'));
     const text = (win || lose) ? ((f.rpnl >= 0 ? '+' : '') + Math.round(f.rpnl)) : '';
-    const hedge = (f.exchange || '') !== 'delta' && f.exchange;
     return {
       time: f._t,
       position: f.side === 'buy' ? 'belowBar' : 'aboveBar',
-      color: hedge ? '#ff9800' : color,
-      shape: hedge ? 'circle' : (f.side === 'buy' ? 'arrowUp' : 'arrowDown'),
-      text: hedge ? ('C' + text) : text,
+      color: color,
+      shape: hedgeOnly ? 'circle' : (f.side === 'buy' ? 'arrowUp' : 'arrowDown'),
+      text: hedgeOnly ? ('H ' + text) : ('Δ ' + text),
     };
   }).sort((a, b) => a.time - b.time);
+}
+
+function applyRpnlFillMarkers() {
+  const fills = rpnlFillsCache || [];
+  const snap = rpnlPtsCache.length ? rpnlPtsCache : ohlcBarsCache;
+  const venue = currentRpnlVenue();
+  const deltaMarks = venue === 'coindcx' ? [] : fillMarkersFromFills(fills, snap, false);
+  const hedgeMarks = venue === 'delta' ? [] : fillMarkersFromFills(fills, snap, true);
+  if (rpnlView === 'cumul') {
+    if (rpnlSeries) rpnlSeries.setMarkers(deltaMarks);
+    if (rpnlHistSeries) rpnlHistSeries.setMarkers([]);
+    if (rpnlHedgeSeries) rpnlHedgeSeries.setMarkers(hedgeMarks);
+  } else {
+    if (rpnlSeries) rpnlSeries.setMarkers([]);
+    if (rpnlHedgeSeries) rpnlHedgeSeries.setMarkers([]);
+    if (rpnlHistSeries) rpnlHistSeries.setMarkers(deltaMarks.length ? deltaMarks : hedgeMarks);
+  }
 }
 
 function loadRpnlFresh() {
@@ -1457,39 +1491,52 @@ function hideRpnlError() {
   document.getElementById('rpnlError').style.display = 'none';
 }
 
+function rpnlIstTick(time) {
+  const d = new Date((typeof time === 'number' ? time : 0) * 1000);
+  return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
+    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
 function rpnlChartBase(timeScaleVisible) {
   return {
     autoSize: true,
     layout: { background: { color: '#0e1117' }, textColor: '#d1d4dc' },
     grid:   { vertLines: { color: '#1c2130' }, horzLines: { color: '#1c2130' } },
-    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-    rightPriceScale: { borderColor: '#303647', minimumWidth: 88, scaleMargins: { top: 0.08, bottom: 0.08 } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Magnet },
+    rightPriceScale: { borderColor: '#303647', minimumWidth: 92, scaleMargins: { top: 0.12, bottom: 0.1 } },
     handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
     handleScale: { axisPressedMouseMove: { time: true, price: true }, mouseWheel: true, pinch: true },
     kineticScroll: { mouse: false, touch: true },
+    localization: {
+      timeFormatter: (t) => rpnlIstTick(t),
+    },
     timeScale: {
       visible: timeScaleVisible,
       timeVisible: true,
       secondsVisible: false,
       borderColor: '#303647',
-      rightOffset: 6,
+      rightOffset: 8,
+      barSpacing: 6,
+      minBarSpacing: 2,
       lockVisibleTimeRangeOnResize: true,
+      tickMarkFormatter: (time) => {
+        const d = new Date(time * 1000);
+        return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
+          hour: '2-digit', minute: '2-digit', hour12: false, day: '2-digit', month: 'short' });
+      },
     },
   };
 }
 
-function fmtChartTime(unixIst) {
-  const t = new Date((unixIst - IST_OFFSET) * 1000);
-  return t.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
-    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+function fmtChartTime(unix) {
+  return rpnlIstTick(unix);
 }
 
 function fillAtTime(t) {
   if (!rpnlFillsCache.length) return null;
-  const raw = t - IST_OFFSET;
   let best = null, bestD = 1e18;
   for (const f of rpnlFillsCache) {
-    const d = Math.abs(f.time - raw);
+    const d = Math.abs(f.time - t);
     if (d < bestD) { bestD = d; best = f; }
   }
   const candleSecs = ohlcBarsCache.length > 1 ? Math.max(30, ohlcBarsCache[1].time - ohlcBarsCache[0].time) : 300;
@@ -1510,7 +1557,8 @@ function paintOhlcLegend(time) {
     '<div class="leg-row"><span class="leg-label">C</span><span class="leg-val">' + d.close + '</span></div>';
   if (fill) {
     const col = fill.rpnl >= 0 ? '#26a69a' : '#ef5350';
-    html += '<div class="leg-row"><span class="leg-label">' + (fill.side || '') + '</span>' +
+    const ven = ((fill.exchange || '') !== 'delta') ? 'Hedge' : 'Delta';
+    html += '<div class="leg-row"><span class="leg-label">' + ven + ' ' + (fill.side || '') + '</span>' +
       '<span class="leg-val" style="color:' + col + '">' + inrFmtDec(fill.rpnl, 2) + '</span></div>';
   }
   el.innerHTML = html;
@@ -1542,8 +1590,13 @@ function paintRpnlLegend(time) {
       val = i <= 0 ? h.value : parseFloat((h.value - rpnlHedgeCache[i - 1].value).toFixed(4));
     }
     const col = val >= 0 ? '#ff9800' : '#ef5350';
-    html += '<div class="leg-row"><span class="leg-label">C CoinDCX</span>' +
+    html += '<div class="leg-row"><span class="leg-label">Hedge</span>' +
       '<span class="leg-val" style="color:' + col + '">' + inrFmtDec(val, 2) + '</span></div>';
+  }
+  if (p && h && venue === 'both') {
+    const net = (p.value || 0) + (h.value || 0);
+    html += '<div class="leg-row"><span class="leg-label">Net</span>' +
+      '<span class="leg-val" style="color:' + (net >= 0 ? '#90caf9' : '#ef5350') + '">' + inrFmtDec(net, 2) + '</span></div>';
   }
   el.innerHTML = html;
   el.style.display = 'block';
@@ -1596,30 +1649,61 @@ function initRpnl() {
     lastValueVisible: true, priceLineVisible: true,
   });
 
+  ohlcHedgeMarkerSeries = ohlcChart.addLineSeries({
+    color: 'rgba(0,0,0,0)',
+    lastValueVisible: false,
+    priceLineVisible: false,
+    crosshairMarkerVisible: false,
+  });
+
   rpnlChart = LightweightCharts.createChart(document.getElementById('rpnlChart'), rpnlChartBase(true));
-  rpnlSeries = rpnlChart.addBaselineSeries({
-    baseValue:        { type: 'price', price: 0 },
-    topLineColor:     '#26a69a',
-    topFillColor1:    'rgba(38,166,154,0.28)',
-    topFillColor2:    'rgba(38,166,154,0.05)',
-    bottomLineColor:  '#ef5350',
-    bottomFillColor1: 'rgba(239,83,80,0.05)',
-    bottomFillColor2: 'rgba(239,83,80,0.28)',
+  rpnlSeries = rpnlChart.addLineSeries({
+    color: '#26a69a',
     lineWidth: 2,
-    priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    title: 'Delta',
+    lastValueVisible: true,
+    priceLineVisible: true,
+    lineType: LightweightCharts.LineType.WithSteps,
+    priceFormat: { type: 'custom', minMove: 1, formatter: (p) => {
+      const n = Number(p) || 0;
+      const sign = n < 0 ? '−' : '';
+      return sign + '₹' + Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+    } },
   });
   rpnlHistSeries = rpnlChart.addHistogramSeries({
-    priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    priceFormat: { type: 'price', precision: 0, minMove: 1 },
     priceScaleId: 'right',
   });
   rpnlHistSeries.applyOptions({ visible: false });
   rpnlHedgeSeries = rpnlChart.addLineSeries({
     color: '#ff9800',
     lineWidth: 2,
-    title: 'CoinDCX rPnL',
-    priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    title: 'Hedge',
+    lastValueVisible: true,
+    priceLineVisible: true,
+    lineType: LightweightCharts.LineType.WithSteps,
+    priceFormat: { type: 'custom', minMove: 1, formatter: (p) => {
+      const n = Number(p) || 0;
+      const sign = n < 0 ? '−' : '';
+      return sign + '₹' + Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+    } },
+  });
+  rpnlNetSeries = rpnlChart.addLineSeries({
+    color: '#90caf9',
+    lineWidth: 2,
+    lineStyle: LightweightCharts.LineStyle.Dashed,
+    title: 'Net',
+    lastValueVisible: true,
+    priceLineVisible: false,
+    lineType: LightweightCharts.LineType.WithSteps,
+    priceFormat: { type: 'custom', minMove: 1, formatter: (p) => {
+      const n = Number(p) || 0;
+      const sign = n < 0 ? '−' : '';
+      return sign + '₹' + Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+    } },
   });
   rpnlHedgeSeries.applyOptions({ visible: false });
+  rpnlNetSeries.applyOptions({ visible: false });
   setRpnlView('cumul');
 
   ohlcChart.timeScale().subscribeVisibleLogicalRangeChange(onRpnlLogicalRange('ohlc'));
@@ -1636,16 +1720,36 @@ function resizeRpnlCharts() {
   requestAnimationFrame(() => syncRpnlTimeScale('ohlc'));
 }
 
+function barsAlignReady(pts, bucketSecs) {
+  return fillGaps(pts, bucketSecs);
+}
+
+function setRpnlKey(delta, hedge, contract, account) {
+  const net = (delta || 0) + (hedge || 0);
+  const elD = document.getElementById('rkDelta');
+  const elH = document.getElementById('rkHedge');
+  const elN = document.getElementById('rkNet');
+  const elC = document.getElementById('rkContract');
+  if (elD) { elD.textContent = inrFmtDec(delta || 0, 0); elD.style.color = (delta || 0) >= 0 ? '#26a69a' : '#ef5350'; }
+  if (elH) { elH.textContent = inrFmtDec(hedge || 0, 0); elH.style.color = '#ff9800'; }
+  if (elN) { elN.textContent = inrFmtDec(net, 0); elN.style.color = net >= 0 ? '#90caf9' : '#ef5350'; }
+  if (elC) elC.textContent = (contract || '') + (account ? ' · ' + account : '');
+}
+
 function fillGaps(pts, bucketSecs) {
   if (pts.length < 2) return pts;
+  const span = pts[pts.length - 1].time - pts[0].time;
+  if (span / bucketSecs > 4000) return pts;
   const out = [];
   for (let i = 0; i < pts.length; i++) {
     out.push(pts[i]);
     if (i < pts.length - 1) {
       let t = pts[i].time + bucketSecs;
-      while (t < pts[i + 1].time - 1) {
+      let n = 0;
+      while (t < pts[i + 1].time - 1 && n < 500) {
         out.push({ time: t, value: pts[i].value });
         t += bucketSecs;
+        n++;
       }
     }
   }
@@ -1658,31 +1762,57 @@ function dedupeTimes(rows) {
   return [...byT.values()].sort((a, b) => a.time - b.time);
 }
 
+function netFromCaches(deltaPts, hedgePts) {
+  const n = Math.max(deltaPts.length, hedgePts.length);
+  if (!n) return [];
+  const times = [];
+  const seen = new Set();
+  for (const p of deltaPts.concat(hedgePts)) {
+    if (!seen.has(p.time)) { seen.add(p.time); times.push(p.time); }
+  }
+  times.sort((a, b) => a - b);
+  const dMap = new Map(deltaPts.map(p => [p.time, p.value]));
+  const hMap = new Map(hedgePts.map(p => [p.time, p.value]));
+  let lastD = 0, lastH = 0;
+  return times.map(t => {
+    if (dMap.has(t)) lastD = dMap.get(t);
+    if (hMap.has(t)) lastH = hMap.get(t);
+    return { time: t, value: lastD + lastH };
+  });
+}
+
 function applyRpnlData(pts, keepRange) {
   const venue = currentRpnlVenue();
   const showDelta = venue !== 'coindcx';
-  const showHedge = venue !== 'delta' && rpnlHedgeCache.length > 0;
+  const hedgePts = venue === 'coindcx' ? pts : rpnlHedgeCache;
+  const showHedge = venue !== 'delta' && hedgePts.length > 0;
+  const netPts = (showDelta && showHedge) ? netFromCaches(pts, hedgePts) : [];
   if (rpnlView === 'cumul') {
     rpnlSeries.applyOptions({ visible: showDelta });
     rpnlHistSeries.applyOptions({ visible: false });
-    if (showDelta) rpnlSeries.setData(pts);
-    else rpnlSeries.setData([]);
+    rpnlSeries.setData(showDelta ? pts : []);
     if (rpnlHedgeSeries) {
-      rpnlHedgeSeries.applyOptions({ visible: showHedge || venue === 'coindcx' });
-      const hpts = venue === 'coindcx' ? pts : rpnlHedgeCache;
-      rpnlHedgeSeries.setData(showHedge || venue === 'coindcx' ? hpts : []);
+      rpnlHedgeSeries.applyOptions({ visible: showHedge });
+      rpnlHedgeSeries.setData(showHedge ? hedgePts : []);
+    }
+    if (rpnlNetSeries) {
+      rpnlNetSeries.applyOptions({ visible: netPts.length > 0 });
+      rpnlNetSeries.setData(netPts);
     }
   } else {
     rpnlSeries.applyOptions({ visible: false });
-    rpnlHistSeries.applyOptions({ visible: true });
     if (rpnlHedgeSeries) rpnlHedgeSeries.applyOptions({ visible: false });
-    const src = venue === 'coindcx' ? (rpnlHedgeCache.length ? rpnlHedgeCache : pts) : pts;
+    if (rpnlNetSeries) rpnlNetSeries.applyOptions({ visible: false });
+    rpnlHistSeries.applyOptions({ visible: true });
+    const src = venue === 'both' && netPts.length ? netPts
+      : (venue === 'coindcx' ? hedgePts : pts);
     const bars = src.map((p, i) => {
       const val = i === 0 ? p.value : parseFloat((p.value - src[i-1].value).toFixed(4));
       return { time: p.time, value: val, color: val >= 0 ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)' };
     });
     rpnlHistSeries.setData(bars);
   }
+  applyRpnlFillMarkers();
   if (!keepRange) fitRpnlView();
 }
 
@@ -1734,7 +1864,9 @@ async function loadRpnl(keepRange) {
       fetch(withStrategy(fillUrl + '&exchange=' + exchQ)),
       fetch(withStrategy('/api/rpnl/summary')),
     ];
-    if (venue === 'both') reqs.push(fetch(withStrategy(fillUrl + '&exchange=coindcx')));
+    if (venue === 'both') reqs.push(fetch(withStrategy(
+      '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&exchange=hedge'
+    )));
     const [r, cR, fR, sR, hFR] = await Promise.all(reqs);
     if (sR.ok) renderRpnlSummary(await sR.json());
     if (!r.ok) {
@@ -1744,22 +1876,25 @@ async function loadRpnl(keepRange) {
       return;
     }
     const d   = await r.json();
-    const pts = dedupeTimes((d.points || []).map(p => ({ time: p.time + IST_OFFSET, value: p.rpnl })));
-    const hedgeRaw = dedupeTimes((d.hedge_points || []).map(p => ({ time: p.time + IST_OFFSET, value: p.rpnl })));
+    const pts = dedupeTimes((d.points || []).map(p => ({ time: p.time, value: p.rpnl })));
+    const hedgeRaw = dedupeTimes((d.hedge_points || []).map(p => ({ time: p.time, value: p.rpnl })));
     const bucketSecs = parseInt(bucket) * 60;
-    const filled = fillGaps(pts, bucketSecs);
-    const hedgeFilled = fillGaps(hedgeRaw, bucketSecs);
+    const filled = barsAlignReady(pts, bucketSecs);
+    const hedgeFilled = barsAlignReady(hedgeRaw, bucketSecs);
 
     let bars = [];
     if (ohlcSeries && cR.ok) {
       const cd = await cR.json();
       bars = dedupeTimes((cd.candles || []).map(b => ({
-        time: b.time + IST_OFFSET,
+        time: b.time,
         open: b.open, high: b.high, low: b.low, close: b.close,
       })));
     }
     ohlcBarsCache = bars;
     if (ohlcSeries) ohlcSeries.setData(bars);
+    if (ohlcHedgeMarkerSeries) {
+      ohlcHedgeMarkerSeries.setData(bars.map(b => ({ time: b.time, value: b.close })));
+    }
 
     rpnlPtsCache = bars.length ? alignRpnlToBars(filled, bars) : filled;
     rpnlHedgeCache = venue === 'coindcx'
@@ -1775,9 +1910,14 @@ async function loadRpnl(keepRange) {
         fills = fills.concat(hf.fills || []);
       }
       rpnlFillsCache = fills;
-      ohlcSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, bars));
+      ohlcSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, bars, false));
+      if (ohlcHedgeMarkerSeries) {
+        ohlcHedgeMarkerSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, bars, true));
+      }
+      applyRpnlFillMarkers();
     } else {
       rpnlFillsCache = [];
+      applyRpnlFillMarkers();
     }
 
     if (savedLogical) {
@@ -1795,32 +1935,21 @@ async function loadRpnl(keepRange) {
     }
 
     const last    = pts.length ? pts[pts.length - 1] : { value: 0 };
-    const lastH   = (venue === 'coindcx' ? last : (hedgeRaw.length ? hedgeRaw[hedgeRaw.length - 1] : null));
-    const col     = last.value >= 0 ? '#26a69a' : '#ef5350';
-    const winLabel = hours + 'h' + (rpnlCurrentHours && rpnlCurrentHours > parseInt(document.getElementById('rpnlHours').value) ? ' (extended)' : '');
-    const acctLab = (d.account || picked.account) ? (' · acct ' + (d.account || picked.account)) : '';
-    const hedgeLab = lastH && venue !== 'delta'
-      ? ' &nbsp;|&nbsp; C: <b style="color:#ff9800">' + inrFmtDec(lastH.value, 2) + '</b>'
-      : '';
-    if (rpnlView === 'cumul') {
-      setStatus('rpnlStatus',
-        '<span style="color:' + col + ';font-weight:600;">' + d.contract + acctLab + '</span>' +
-        ' &nbsp;|&nbsp; ' + winLabel + ' · ' + venue +
-        (venue !== 'coindcx' ? ' &nbsp;|&nbsp; Δ: <b style="color:' + col + '">' + inrFmtDec(last.value, 2) + '</b>' : '') +
-        hedgeLab +
-        ' &nbsp;&mdash;&nbsp; IST ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}), 'ok');
-    } else {
-      const src = venue === 'coindcx' ? (hedgeRaw.length ? hedgeRaw : pts) : pts;
-      const bucketVals = src.map((p, i) => i === 0 ? p.value : p.value - src[i-1].value);
-      const maxV = bucketVals.length ? Math.max.apply(null, bucketVals) : 0;
-      const minV = bucketVals.length ? Math.min.apply(null, bucketVals) : 0;
-      setStatus('rpnlStatus',
-        '<span style="color:' + col + ';font-weight:600;">' + d.contract + acctLab + '</span>' +
-        ' &nbsp;|&nbsp; ' + venue + ' · ' + src.length + ' buckets' +
-        ' &nbsp;|&nbsp; Best: <b style="color:#26a69a">' + inrFmtDec(maxV, 2) + '</b>' +
-        ' &nbsp;|&nbsp; Worst: <b style="color:#ef5350">' + inrFmtDec(minV, 2) + '</b>' +
-        ' &nbsp;&mdash;&nbsp; IST ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}), 'ok');
-    }
+    const lastH   = (venue === 'coindcx' ? last : (hedgeRaw.length ? hedgeRaw[hedgeRaw.length - 1] : { value: 0 }));
+    const deltaV  = venue === 'coindcx' ? 0 : last.value;
+    const hedgeV  = lastH ? lastH.value : 0;
+    const netV    = deltaV + hedgeV;
+    const col     = netV >= 0 ? '#26a69a' : '#ef5350';
+    const winLabel = hours + 'h';
+    const acctLab = picked.account ? (' · ' + picked.account) : '';
+    setRpnlKey(deltaV, hedgeV, d.contract, picked.account);
+    setStatus('rpnlStatus',
+      '<span style="font-weight:600;color:#fff;">' + d.contract + acctLab + '</span>' +
+      ' · ' + winLabel +
+      ' · Δ <b style="color:#26a69a">' + inrFmtDec(deltaV, 0) + '</b>' +
+      ' · Hedge <b style="color:#ff9800">' + inrFmtDec(hedgeV, 0) + '</b>' +
+      ' · Net <b style="color:' + col + '">' + inrFmtDec(netV, 0) + '</b>' +
+      ' · IST ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}), 'ok');
   } catch(e) {
     console.error('[rPnL] fetch threw:', e);
     showRpnlError('Network or parse error', e.message);

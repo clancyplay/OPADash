@@ -1441,10 +1441,11 @@ class EventsDB:
                     strategy,
                 )
             out = []
+            hedge_only: dict[str, dict] = {}
             for r in rows:
                 account = r["account"] or ""
                 name = r["account_name"] or account
-                out.append({
+                item = {
                     "contract": r["contract"],
                     "account": account,
                     "account_name": name,
@@ -1456,7 +1457,25 @@ class EventsDB:
                     "hedge_fees": round(float(r["hedge_fees"] or 0), 2),
                     "first_at": int(r["first_at"].timestamp()) if r["first_at"] else None,
                     "last_at": int(r["last_at"].timestamp()) if r["last_at"] else None,
-                })
+                }
+                # CoinDCX/Binance fills are stored without a Delta account id — fold
+                # them onto the matching contract so the chart pills show both venues.
+                if item["fills"] == 0 and item["hedge_fills"] and not account:
+                    hedge_only[item["contract"]] = item
+                else:
+                    out.append(item)
+            used = set()
+            for item in out:
+                h = hedge_only.get(item["contract"])
+                if h and item["hedge_fills"] == 0:
+                    item["hedge_rpnl"] = h["hedge_rpnl"]
+                    item["hedge_fills"] = h["hedge_fills"]
+                    item["hedge_fees"] = h["hedge_fees"]
+                    used.add(item["contract"])
+            for contract, h in hedge_only.items():
+                if contract not in used and not any(m["contract"] == contract for m in out):
+                    h["account_name"] = "CoinDCX"
+                    out.append(h)
             return out
         except Exception as e:
             self.logger.warning("events_db: get_contract_rpnl_summary failed — %s", e)
@@ -1484,7 +1503,11 @@ class EventsDB:
             return []
         try:
             exch_sql, exch_args = self._exchange_filter(exchange, 4)
-            acct_sql, acct_args = self._account_filter(account, 4 + len(exch_args))
+            # Hedge venues are not tagged with the Delta account id.
+            if (exchange or "delta").lower() in ("coindcx", "hedge", "binance"):
+                acct_sql, acct_args = "", []
+            else:
+                acct_sql, acct_args = self._account_filter(account, 4 + len(exch_args))
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
                     f"""
@@ -1538,7 +1561,10 @@ class EventsDB:
             params: list = [contract, since, float(bucket_secs), strategy]
             exch_sql, exch_args = self._exchange_filter(exchange, len(params) + 1)
             params.extend(exch_args)
-            acct_sql, acct_args = self._account_filter(account, len(params) + 1)
+            if (exchange or "delta").lower() in ("coindcx", "hedge", "binance"):
+                acct_sql, acct_args = "", []
+            else:
+                acct_sql, acct_args = self._account_filter(account, len(params) + 1)
             params.extend(acct_args)
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
@@ -1546,24 +1572,27 @@ class EventsDB:
                     SELECT to_timestamp(
                                floor(extract(epoch from created_at) / $3) * $3
                            )                          AS bucket,
+                           exchange,
                            COALESCE(SUM(rpnl), 0)    AS bucket_pnl
                     FROM fills
                     WHERE contract = $1 AND created_at >= $2 AND strategy = $4
                       {exch_sql}{acct_sql}
-                    GROUP BY bucket
+                    GROUP BY bucket, exchange
                     ORDER BY bucket
                     """,
                     *params,
                 )
-            rate = 1.0 if (exchange or "delta").lower() in ("coindcx", "hedge") else self.usdinr_rate
+            by_time: dict[int, float] = {}
+            for row in rows:
+                t = int(row["bucket"].timestamp())
+                by_time[t] = by_time.get(t, 0.0) + self._rpnl_inr(
+                    float(row["bucket_pnl"] or 0.0), row["exchange"],
+                )
             cumulative = 0.0
             result = []
-            for row in rows:
-                cumulative += float(row["bucket_pnl"] or 0.0) * rate
-                result.append({
-                    "time": int(row["bucket"].timestamp()),
-                    "rpnl": round(cumulative, 4),
-                })
+            for t in sorted(by_time):
+                cumulative += by_time[t]
+                result.append({"time": t, "rpnl": round(cumulative, 4)})
             return result
         except Exception as e:
             self.logger.warning("events_db: get_rpnl_timeseries failed — %s", e)

@@ -334,9 +334,11 @@ async def rpnl_chart(
         )
         hedge_points = []
         if exchange == "delta":
+            # Always overlay hedge rPnL for this contract (CoinDCX/Binance are
+            # not stored with the Delta account id).
             hedge_points = await _db.get_rpnl_timeseries(
                 contract, since, bucket_minutes=bucket, strategy=strategy,
-                account=account, exchange="coindcx",
+                account=None, exchange="hedge",
             )
     except Exception as e:
         logger.error("webapp: rpnl query failed for %s: %s", contract, e)
