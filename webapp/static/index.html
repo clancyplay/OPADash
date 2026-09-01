@@ -1851,7 +1851,7 @@ async function loadRpnl(keepRange) {
     ? ohlcChart.timeScale().getVisibleLogicalRange()
     : null;
   const acctBit = '&account=' + encodeURIComponent(picked.account);
-  const exchQ = venue === 'coindcx' ? 'coindcx' : 'delta';
+  const exchQ = venue === 'coindcx' ? 'hedge' : 'delta';
   const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + (picked.account ? sym + ' · ' + picked.account : sym) + ' (' + hours + 'h, ' + venue + ')...';
   setLoading('rpnlStatus', loadingLabel);
   try {

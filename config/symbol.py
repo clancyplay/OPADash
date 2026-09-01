@@ -282,6 +282,22 @@ SYMBOL_BEAT = SymbolConfig(
     quote_venue = "delta",
 )
 
+SYMBOL_ZORA = SymbolConfig(
+    delta_symbol="ZORAUSD",
+    binance_symbol="ZORAUSDT",
+    quantity=150,
+    tick_size=0.00001,
+    quote_offset_ticks=0,
+    contract_value=100.0,
+    stop_loss_pct=0.15,
+    max_position=2000,
+    min_spread_pct=0.003,
+    hedge_ratio=0,
+    min_book_size=10.0,
+    quote_venue="binance",
+)
+
+
 # Symbols to trade — add/remove entries to enable/disable a symbol
 # ── Registry of all predefined symbols (keyed by delta_symbol) ─────────────────
 # Used by ACTIVE_SYMBOLS in .env to pick which ones to run without editing code.
@@ -297,6 +313,7 @@ _REGISTRY: dict[str, SymbolConfig] = {
         SYMBOL_ARIA,
         SYMBOL_SKL,
         SYMBOL_BEAT,
+        SYMBOL_ZORA,
     )
 }
 

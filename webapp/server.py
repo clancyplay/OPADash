@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from config.settings import Settings
 from config.symbol import SYMBOL_LAB, SYMBOL_MMT, SYMBOL_VELVET, SYMBOL_AIOT
 from config import symbol as _symbol_module
-from utils.events_db import EventsDB
+from utils.events_db import EventsDB, canon_contract, contract_aliases
 from utils.logger import start_db_log_forwarder
 
 logger = logging.getLogger("webapp")
@@ -295,18 +295,22 @@ async def rpnl_symbols(
                 """,
                 strategy,
             )
-        out = []
+        merged: dict[tuple[str, str], dict] = {}
         for r in rows:
             account = r["account"] or ""
             name = r["account_name"] or account
-            label = r["contract"] if not account else f"{r['contract']} · {name}"
-            out.append({
-                "contract": r["contract"],
+            contract = canon_contract(r["contract"])
+            key = (contract, account)
+            if key in merged:
+                continue
+            label = contract if not account else f"{contract} · {name}"
+            merged[key] = {
+                "contract": contract,
                 "account": account,
                 "account_name": name,
                 "label": label,
-            })
-        return out
+            }
+        return list(merged.values())
     except Exception as e:
         logger.warning("webapp: rpnl_symbols failed: %s", e)
         return []
@@ -675,8 +679,9 @@ async def fills_list(
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     wheres, params = ["created_at >= $1"], [since]
     if contract:
-        params.append(contract.upper())
-        wheres.append(f"contract = ${len(params)}")
+        aliases = contract_aliases(contract)
+        params.append(aliases)
+        wheres.append(f"UPPER(contract) = ANY(${len(params)}::text[])")
     if exchange == "hedge":
         wheres.append("exchange <> 'delta'")
     elif exchange:

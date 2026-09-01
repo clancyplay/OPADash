@@ -13,6 +13,32 @@ import asyncpg
 from utils.logger import get_logger
 
 
+def contract_aliases(contract: str) -> list[str]:
+    """ZORAUSD ↔ ZORAUSDT so Binance fills show on the Delta rPnL series."""
+    raw = (contract or "").strip()
+    if not raw:
+        return []
+    upper = raw.upper()
+    out = [upper]
+    if upper.endswith("USDT"):
+        out.append(upper[:-1])
+    elif upper.endswith("USD"):
+        out.append(upper + "T")
+    seen, aliases = set(), []
+    for name in out:
+        if name not in seen:
+            seen.add(name)
+            aliases.append(name)
+    return aliases
+
+
+def canon_contract(contract: str) -> str:
+    name = (contract or "").upper()
+    if name.endswith("USDT"):
+        return name[:-1]
+    return name
+
+
 class EventsDB:
     def __init__(self, database_url: str, usdinr_rate: float = 1.0) -> None:
         self.database_url = database_url
@@ -1426,11 +1452,15 @@ class EventsDB:
                            COALESCE(account, '') AS account,
                            COALESCE(MAX(details->>'account_name'), '') AS account_name,
                            COUNT(*) FILTER (WHERE exchange = 'delta')::int AS fills,
+                           COUNT(*) FILTER (WHERE exchange = 'binance')::int AS binance_fills,
+                           COUNT(*) FILTER (WHERE exchange = 'coindcx')::int AS cdcx_fills,
                            COUNT(*) FILTER (WHERE exchange <> 'delta')::int AS hedge_fills,
                            COALESCE(SUM(rpnl) FILTER (WHERE exchange = 'delta'), 0)::float AS rpnl,
-                           COALESCE(SUM(rpnl) FILTER (WHERE exchange <> 'delta'), 0)::float AS hedge_rpnl,
+                           COALESCE(SUM(rpnl) FILTER (WHERE exchange = 'binance'), 0)::float AS binance_rpnl,
+                           COALESCE(SUM(rpnl) FILTER (WHERE exchange = 'coindcx'), 0)::float AS cdcx_rpnl,
                            COALESCE(SUM(fee) FILTER (WHERE exchange = 'delta'), 0)::float AS fees,
-                           COALESCE(SUM(fee) FILTER (WHERE exchange <> 'delta'), 0)::float AS hedge_fees,
+                           COALESCE(SUM(fee) FILTER (WHERE exchange = 'binance'), 0)::float AS binance_fees,
+                           COALESCE(SUM(fee) FILTER (WHERE exchange = 'coindcx'), 0)::float AS cdcx_fees,
                            MIN(created_at) AS first_at,
                            MAX(created_at) AS last_at
                     FROM fills
@@ -1440,24 +1470,51 @@ class EventsDB:
                     """,
                     strategy,
                 )
-            out = []
-            hedge_only: dict[str, dict] = {}
+            grouped: dict[tuple[str, str], dict] = {}
             for r in rows:
                 account = r["account"] or ""
                 name = r["account_name"] or account
+                contract = canon_contract(r["contract"])
+                key = (contract, account)
+                binance_rpnl = float(r["binance_rpnl"] or 0)
+                cdcx_rpnl = float(r["cdcx_rpnl"] or 0)
                 item = {
-                    "contract": r["contract"],
+                    "contract": contract,
                     "account": account,
                     "account_name": name,
-                    "fills": r["fills"],
-                    "hedge_fills": r["hedge_fills"],
+                    "fills": int(r["fills"] or 0),
+                    "hedge_fills": int(r["hedge_fills"] or 0),
                     "rpnl": round(float(r["rpnl"] or 0) * self.usdinr_rate, 2),
-                    "hedge_rpnl": round(float(r["hedge_rpnl"] or 0), 2),
+                    "hedge_rpnl": round(binance_rpnl * self.usdinr_rate + cdcx_rpnl, 2),
                     "fees": round(float(r["fees"] or 0) * self.usdinr_rate, 2),
-                    "hedge_fees": round(float(r["hedge_fees"] or 0), 2),
+                    "hedge_fees": round(
+                        float(r["binance_fees"] or 0) * self.usdinr_rate
+                        + float(r["cdcx_fees"] or 0),
+                        2,
+                    ),
                     "first_at": int(r["first_at"].timestamp()) if r["first_at"] else None,
                     "last_at": int(r["last_at"].timestamp()) if r["last_at"] else None,
                 }
+                prev = grouped.get(key)
+                if prev is None:
+                    grouped[key] = item
+                    continue
+                prev["fills"] += item["fills"]
+                prev["hedge_fills"] += item["hedge_fills"]
+                prev["rpnl"] = round(prev["rpnl"] + item["rpnl"], 2)
+                prev["hedge_rpnl"] = round(prev["hedge_rpnl"] + item["hedge_rpnl"], 2)
+                prev["fees"] = round(prev["fees"] + item["fees"], 2)
+                prev["hedge_fees"] = round(prev["hedge_fees"] + item["hedge_fees"], 2)
+                if item["first_at"] and (not prev["first_at"] or item["first_at"] < prev["first_at"]):
+                    prev["first_at"] = item["first_at"]
+                if item["last_at"] and (not prev["last_at"] or item["last_at"] > prev["last_at"]):
+                    prev["last_at"] = item["last_at"]
+                if item["account_name"] and not prev["account_name"]:
+                    prev["account_name"] = item["account_name"]
+            out = []
+            hedge_only: dict[str, dict] = {}
+            for item in grouped.values():
+                account = item["account"]
                 # CoinDCX/Binance fills are stored without a Delta account id — fold
                 # them onto the matching contract so the chart pills show both venues.
                 if item["fills"] == 0 and item["hedge_fills"] and not account:
@@ -1483,7 +1540,7 @@ class EventsDB:
 
     def _exchange_filter(self, exchange: str | None, start_idx: int) -> tuple[str, list]:
         exch = (exchange or "delta").lower()
-        if exch in ("hedge", "coindcx"):
+        if exch in ("hedge", "coindcx", "binance"):
             if exch == "hedge":
                 return " AND exchange <> 'delta'", []
             return f" AND exchange = ${start_idx}", [exch]
@@ -1504,6 +1561,7 @@ class EventsDB:
             return []
         try:
             step = max(60, int(bucket_seconds or 300))
+            aliases = contract_aliases(contract)
             exch_sql, exch_args = self._exchange_filter(exchange, 5)
             if (exchange or "delta").lower() in ("coindcx", "hedge", "binance"):
                 acct_sql, acct_args = "", []
@@ -1517,7 +1575,7 @@ class EventsDB:
                              quantity::float AS quantity, rpnl::float AS rpnl,
                              COALESCE(account, '') AS account, exchange
                       FROM fills
-                      WHERE contract = $1 AND strategy = $2
+                      WHERE UPPER(contract) = ANY($1::text[]) AND strategy = $2
                         AND created_at >= $3{exch_sql}{acct_sql}
                     ),
                     ranked AS (
@@ -1534,7 +1592,7 @@ class EventsDB:
                     ORDER BY created_at
                     LIMIT ${5 + len(exch_args) + len(acct_args)}
                     """,
-                    contract, strategy, since, step, *exch_args, *acct_args, limit,
+                    aliases, strategy, since, step, *exch_args, *acct_args, limit,
                 )
             return [
                 {
@@ -1572,7 +1630,8 @@ class EventsDB:
             return []
         try:
             bucket_secs = bucket_minutes * 60
-            params: list = [contract, since, float(bucket_secs), strategy]
+            aliases = contract_aliases(contract)
+            params: list = [aliases, since, float(bucket_secs), strategy]
             exch_sql, exch_args = self._exchange_filter(exchange, len(params) + 1)
             params.extend(exch_args)
             if (exchange or "delta").lower() in ("coindcx", "hedge", "binance"):
@@ -1589,7 +1648,7 @@ class EventsDB:
                            exchange,
                            COALESCE(SUM(rpnl), 0)    AS bucket_pnl
                     FROM fills
-                    WHERE contract = $1 AND created_at >= $2 AND strategy = $4
+                    WHERE UPPER(contract) = ANY($1::text[]) AND created_at >= $2 AND strategy = $4
                       {exch_sql}{acct_sql}
                     GROUP BY bucket, exchange
                     ORDER BY bucket
