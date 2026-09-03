@@ -136,10 +136,142 @@ _CONTRACT_VALUE = {cfg.delta_symbol: float(cfg.contract_value) for cfg in _SYMBO
 
 # Extend with every SymbolConfig defined in config.symbol so rPnL for any
 # contract present in the DB (not just the dashboard's 4) converts correctly.
-from config.symbol import SymbolConfig as _SymbolConfig
-for _cfg in vars(_symbol_module).values():
-    if isinstance(_cfg, _SymbolConfig):
-        _CONTRACT_VALUE.setdefault(_cfg.delta_symbol, float(_cfg.contract_value))
+from config.symbol import SymbolConfig as _SymbolConfig, load_symbols as _load_symbols
+_ALL_CFGS: list[_SymbolConfig] = [
+    _cfg for _cfg in vars(_symbol_module).values() if isinstance(_cfg, _SymbolConfig)
+]
+try:
+    for _cfg in _load_symbols():
+        _ALL_CFGS.append(_cfg)
+except Exception:
+    pass
+# Last matching config wins (SYMBOLS_JSON overrides hardcoded).
+_by_delta: dict[str, _SymbolConfig] = {}
+for _cfg in _ALL_CFGS:
+    _by_delta[(_cfg.delta_symbol or "").upper()] = _cfg
+_ALL_CFGS = list(_by_delta.values())
+for _cfg in _ALL_CFGS:
+    _CONTRACT_VALUE.setdefault(_cfg.delta_symbol, float(_cfg.contract_value))
+
+
+_VENUE_LABEL = {"delta": "Delta", "binance": "Binance", "coindcx": "CoinDCX"}
+
+
+def _norm_quote_venue(raw: str | None) -> str:
+    v = (raw or "delta").strip().lower()
+    if v in ("b", "binance"):
+        return "binance"
+    if v in ("c", "coindcx"):
+        return "coindcx"
+    return "delta"
+
+
+def _hedge_venue_name(cfg: _SymbolConfig | None) -> str:
+    if cfg is None:
+        return ""
+    hv = (cfg.hedge_venue or "").strip().upper()
+    if hv == "B":
+        return "binance"
+    if hv == "C":
+        return "coindcx"
+    qv = _norm_quote_venue(cfg.quote_venue)
+    if qv == "delta":
+        return "coindcx"
+    return "delta"
+
+
+def _cfg_for_contract(name: str) -> _SymbolConfig | None:
+    u = (name or "").upper().strip()
+    if not u:
+        return None
+    canon = canon_contract(u)
+    for cfg in _ALL_CFGS:
+        names = {
+            (cfg.delta_symbol or "").upper(),
+            (cfg.binance_symbol or "").upper(),
+            (cfg.coindcx_symbol or "").upper(),
+            canon_contract(cfg.delta_symbol or ""),
+            canon_contract(cfg.binance_symbol or ""),
+        }
+        names.discard("")
+        if u in names or canon in names:
+            return cfg
+    return None
+
+
+def contract_meta(name: str) -> dict:
+    """Display names + quote/hedge venues for a fills contract."""
+    cfg = _cfg_for_contract(name)
+    raw = (name or "").upper()
+    if cfg is None:
+        return {
+            "contract": canon_contract(raw) or raw,
+            "quote_venue": "delta",
+            "quote_label": "Delta",
+            "quote_symbol": raw,
+            "hedge_venue": "coindcx",
+            "hedge_label": "CoinDCX",
+            "hedge_symbol": "",
+            "label": raw,
+        }
+    qv = _norm_quote_venue(cfg.quote_venue)
+    hv = _hedge_venue_name(cfg)
+    if qv == "binance":
+        quote_symbol = cfg.binance_symbol or cfg.delta_symbol
+    elif qv == "coindcx":
+        quote_symbol = cfg.coindcx_symbol or cfg.delta_symbol
+    else:
+        quote_symbol = cfg.delta_symbol
+    if hv == "binance":
+        hedge_symbol = cfg.binance_symbol
+    elif hv == "coindcx":
+        hedge_symbol = cfg.coindcx_symbol
+    else:
+        hedge_symbol = cfg.delta_symbol
+    qlab = _VENUE_LABEL.get(qv, qv)
+    hlab = _VENUE_LABEL.get(hv, hv)
+    return {
+        "contract": canon_contract(cfg.delta_symbol) or cfg.delta_symbol,
+        "quote_venue": qv,
+        "quote_label": qlab,
+        "quote_symbol": quote_symbol,
+        "hedge_venue": hv,
+        "hedge_label": hlab,
+        "hedge_symbol": hedge_symbol or "",
+        "label": f"{quote_symbol} · {qlab}",
+    }
+
+
+def _annotate_rpnl_row(row: dict) -> dict:
+    meta = contract_meta(row.get("contract") or "")
+    qv = meta["quote_venue"]
+    delta_rpnl = float(row.get("rpnl") or 0)
+    binance_rpnl = float(row.get("binance_rpnl") or 0)
+    cdcx_rpnl = float(row.get("cdcx_rpnl") or 0)
+    delta_fills = int(row.get("fills") or 0)
+    binance_fills = int(row.get("binance_fills") or 0)
+    cdcx_fills = int(row.get("cdcx_fills") or 0)
+    if qv == "binance":
+        quote_rpnl, quote_fills = binance_rpnl, binance_fills
+        hedge_rpnl = delta_rpnl + cdcx_rpnl
+        hedge_fills = delta_fills + cdcx_fills
+    elif qv == "coindcx":
+        quote_rpnl, quote_fills = cdcx_rpnl, cdcx_fills
+        hedge_rpnl = delta_rpnl + binance_rpnl
+        hedge_fills = delta_fills + binance_fills
+    else:
+        quote_rpnl, quote_fills = delta_rpnl, delta_fills
+        hedge_rpnl = binance_rpnl + cdcx_rpnl
+        hedge_fills = binance_fills + cdcx_fills
+    row = dict(row)
+    row.update(meta)
+    row["rpnl"] = round(quote_rpnl, 2)
+    row["fills"] = quote_fills
+    row["hedge_rpnl"] = round(hedge_rpnl, 2)
+    row["hedge_fills"] = hedge_fills
+    acct = row.get("account_name") or row.get("account") or ""
+    row["label"] = meta["label"] + (f" · {acct}" if acct else "")
+    return row
 
 # Delta candle resolution -> seconds per candle, used to size the start/end window
 _RESOLUTION_SECONDS = {
@@ -303,12 +435,17 @@ async def rpnl_symbols(
             key = (contract, account)
             if key in merged:
                 continue
-            label = contract if not account else f"{contract} · {name}"
+            meta = contract_meta(contract)
+            acct_bit = f" · {name}" if name else ""
             merged[key] = {
                 "contract": contract,
                 "account": account,
                 "account_name": name,
-                "label": label,
+                **{k: meta[k] for k in (
+                    "quote_venue", "quote_label", "quote_symbol",
+                    "hedge_venue", "hedge_label", "hedge_symbol",
+                )},
+                "label": meta["label"] + acct_bit,
             }
         return list(merged.values())
     except Exception as e:
@@ -328,33 +465,46 @@ async def rpnl_chart(
     """Cumulative rPnL timeseries for a contract, bucketed by `bucket` minutes."""
     cfg = _SYMBOLS.get(symbol.upper())
     contract = cfg.delta_symbol if cfg else symbol.upper()
+    meta = contract_meta(contract)
+    qv = meta["quote_venue"]
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     try:
-        points = await _db.get_rpnl_timeseries(
-            contract, since, bucket_minutes=bucket, strategy=strategy,
-            account=account, exchange=exchange,
-        )
-        hedge_points = []
-        if exchange == "delta":
-            # Always overlay hedge rPnL for this contract (CoinDCX/Binance are
-            # not stored with the Delta account id).
+        if exchange in ("coindcx", "hedge"):
+            points = await _db.get_rpnl_timeseries(
+                contract, since, bucket_minutes=bucket, strategy=strategy,
+                account=None, exchange="not_quote", quote_venue=qv,
+            )
+            hedge_points = []
+        elif exchange == "delta":
+            # UI "Delta only" = quote venue only (may be Binance when quote_venue=binance)
+            points = await _db.get_rpnl_timeseries(
+                contract, since, bucket_minutes=bucket, strategy=strategy,
+                account=account, exchange="quote", quote_venue=qv,
+            )
+            hedge_points = []
+        else:
+            points = await _db.get_rpnl_timeseries(
+                contract, since, bucket_minutes=bucket, strategy=strategy,
+                account=account, exchange="quote", quote_venue=qv,
+            )
             hedge_points = await _db.get_rpnl_timeseries(
                 contract, since, bucket_minutes=bucket, strategy=strategy,
-                account=None, exchange="hedge",
+                account=None, exchange="not_quote", quote_venue=qv,
             )
     except Exception as e:
         logger.error("webapp: rpnl query failed for %s: %s", contract, e)
         raise HTTPException(status_code=500, detail=f"query failed: {e}") from e
     logger.info(
-        "webapp: rpnl %s account=%s exch=%s %dh -> %d points hedge=%d",
-        contract, account or "-", exchange, hours, len(points), len(hedge_points),
+        "webapp: rpnl %s quote=%s account=%s exch=%s %dh -> %d points hedge=%d",
+        contract, qv, account or "-", exchange, hours, len(points), len(hedge_points),
     )
     return {
         "contract": contract,
         "account": account or "",
         "exchange": exchange,
+        **meta,
         "points": points,
         "hedge_points": hedge_points,
     }
@@ -367,7 +517,8 @@ async def rpnl_summary(
     """Per-contract realized PnL from fills (for the rPnL page table)."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
-    return await _db.get_contract_rpnl_summary(strategy=strategy)
+    rows = await _db.get_contract_rpnl_summary(strategy=strategy)
+    return [_annotate_rpnl_row(r) for r in rows]
 
 
 @app.get("/api/rpnl/fills")
@@ -382,14 +533,21 @@ async def rpnl_fills(
     """Fills in the window — overlay on OHLC."""
     cfg = _SYMBOLS.get(symbol.upper())
     contract = cfg.delta_symbol if cfg else symbol.upper()
+    meta = contract_meta(contract)
+    qv = meta["quote_venue"]
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    exch = exchange
+    if exchange == "delta":
+        exch = "quote"
+    elif exchange in ("hedge", "both"):
+        exch = "not_quote"
     fills = await _db.get_fill_markers(
-        contract, since, strategy=strategy, account=account, exchange=exchange,
-        bucket_seconds=max(60, int(bucket) * 60),
+        contract, since, strategy=strategy, account=account, exchange=exch,
+        bucket_seconds=max(60, int(bucket) * 60), quote_venue=qv,
     )
-    return {"contract": contract, "account": account or "", "exchange": exchange, "fills": fills}
+    return {"contract": contract, "account": account or "", "exchange": exchange, **meta, "fills": fills}
 
 
 async def _fetch_delta_ohlc(symbol: str, resolution: str, lookback_secs: int) -> list[dict]:
@@ -422,23 +580,76 @@ async def _fetch_delta_ohlc(symbol: str, resolution: str, lookback_secs: int) ->
     return sorted(by_t.values(), key=lambda p: p["time"])
 
 
+_BINANCE_INTERVAL = {
+    "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
+    "1h": "1h", "2h": "2h", "4h": "4h", "1d": "1d",
+}
+
+
+async def _fetch_binance_ohlc(symbol: str, interval: str, lookback_secs: int) -> list[dict]:
+    """USDT-M futures trade klines."""
+    end_ms = int(time.time() * 1000)
+    start_ms = (int(time.time()) - lookback_secs) * 1000
+    ivl = _BINANCE_INTERVAL.get(interval, "5m")
+    by_t: dict[int, dict] = {}
+    t0 = start_ms
+    async with httpx.AsyncClient(base_url=settings.binance_rest_url, timeout=20) as client:
+        while t0 < end_ms:
+            resp = await client.get(
+                "/fapi/v1/klines",
+                params={
+                    "symbol": symbol.upper(),
+                    "interval": ivl,
+                    "startTime": t0,
+                    "endTime": end_ms,
+                    "limit": 1500,
+                },
+            )
+            resp.raise_for_status()
+            rows = resp.json() or []
+            if not rows:
+                break
+            for row in rows:
+                ts = int(row[0] // 1000)
+                by_t[ts] = {
+                    "time": ts,
+                    "open": float(row[1]),
+                    "high": float(row[2]),
+                    "low": float(row[3]),
+                    "close": float(row[4]),
+                }
+            last_open = int(rows[-1][0])
+            nxt = last_open + 1
+            if nxt <= t0:
+                break
+            t0 = nxt
+            if len(rows) < 1500:
+                break
+    return sorted(by_t.values(), key=lambda p: p["time"])
+
+
 @app.get("/api/candles")
 async def candles(
     symbol: str = Query(..., description="Delta product symbol e.g. LABUSD"),
     interval: str = Query("5m"),
     hours: int = Query(24, ge=1, le=2160),
 ) -> dict:
-    """OHLC for a Delta contract — used under fill overlay on the rPnL page."""
-    cfg = _SYMBOLS.get(symbol.upper())
-    contract = cfg.delta_symbol if cfg else symbol.upper()
+    """OHLC for the quote venue — used under fill overlay on the rPnL page."""
+    cfg_dash = _SYMBOLS.get(symbol.upper())
+    contract = cfg_dash.delta_symbol if cfg_dash else symbol.upper()
+    meta = contract_meta(contract)
     if interval not in _RESOLUTION_SECONDS:
         raise HTTPException(status_code=400, detail=f"unknown interval '{interval}'")
     lookback = hours * 3600
+    qv = meta["quote_venue"]
     try:
-        bars = await _fetch_delta_ohlc(contract, interval, lookback)
+        if qv == "binance" and meta.get("quote_symbol"):
+            bars = await _fetch_binance_ohlc(meta["quote_symbol"], interval, lookback)
+        else:
+            bars = await _fetch_delta_ohlc(meta.get("quote_symbol") or contract, interval, lookback)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"delta candles failed: {exc}") from exc
-    return {"contract": contract, "interval": interval, "candles": bars}
+        raise HTTPException(status_code=502, detail=f"{qv} candles failed: {exc}") from exc
+    return {"contract": contract, "interval": interval, "venue": qv, **meta, "candles": bars}
 
 
 # ── Bot status & controls ─────────────────────────────────────────────────────

@@ -1483,8 +1483,12 @@ class EventsDB:
                     "account": account,
                     "account_name": name,
                     "fills": int(r["fills"] or 0),
+                    "binance_fills": int(r["binance_fills"] or 0),
+                    "cdcx_fills": int(r["cdcx_fills"] or 0),
                     "hedge_fills": int(r["hedge_fills"] or 0),
                     "rpnl": round(float(r["rpnl"] or 0) * self.usdinr_rate, 2),
+                    "binance_rpnl": round(binance_rpnl * self.usdinr_rate, 2),
+                    "cdcx_rpnl": round(cdcx_rpnl, 2),
                     "hedge_rpnl": round(binance_rpnl * self.usdinr_rate + cdcx_rpnl, 2),
                     "fees": round(float(r["fees"] or 0) * self.usdinr_rate, 2),
                     "hedge_fees": round(
@@ -1500,8 +1504,12 @@ class EventsDB:
                     grouped[key] = item
                     continue
                 prev["fills"] += item["fills"]
+                prev["binance_fills"] = prev.get("binance_fills", 0) + item["binance_fills"]
+                prev["cdcx_fills"] = prev.get("cdcx_fills", 0) + item["cdcx_fills"]
                 prev["hedge_fills"] += item["hedge_fills"]
                 prev["rpnl"] = round(prev["rpnl"] + item["rpnl"], 2)
+                prev["binance_rpnl"] = round(prev.get("binance_rpnl", 0) + item["binance_rpnl"], 2)
+                prev["cdcx_rpnl"] = round(prev.get("cdcx_rpnl", 0) + item["cdcx_rpnl"], 2)
                 prev["hedge_rpnl"] = round(prev["hedge_rpnl"] + item["hedge_rpnl"], 2)
                 prev["fees"] = round(prev["fees"] + item["fees"], 2)
                 prev["hedge_fees"] = round(prev["hedge_fees"] + item["hedge_fees"], 2)
@@ -1531,18 +1539,29 @@ class EventsDB:
                     used.add(item["contract"])
             for contract, h in hedge_only.items():
                 if contract not in used and not any(m["contract"] == contract for m in out):
-                    h["account_name"] = "CoinDCX"
+                    h["account_name"] = h.get("account_name") or ""
                     out.append(h)
             return out
         except Exception as e:
             self.logger.warning("events_db: get_contract_rpnl_summary failed — %s", e)
             return []
 
-    def _exchange_filter(self, exchange: str | None, start_idx: int) -> tuple[str, list]:
+    def _exchange_filter(
+        self, exchange: str | None, start_idx: int, quote_venue: str = "delta",
+    ) -> tuple[str, list]:
         exch = (exchange or "delta").lower()
-        if exch in ("hedge", "coindcx", "binance"):
-            if exch == "hedge":
-                return " AND exchange <> 'delta'", []
+        qv = (quote_venue or "delta").lower()
+        if qv in ("c",):
+            qv = "coindcx"
+        if qv not in ("delta", "binance", "coindcx"):
+            qv = "delta"
+        if exch == "quote":
+            return f" AND exchange = ${start_idx}", [qv]
+        if exch == "not_quote":
+            return f" AND exchange <> ${start_idx}", [qv]
+        if exch == "hedge":
+            return " AND exchange <> 'delta'", []
+        if exch in ("coindcx", "binance"):
             return f" AND exchange = ${start_idx}", [exch]
         return f" AND exchange = ${start_idx}", ["delta"]
 
@@ -1554,7 +1573,7 @@ class EventsDB:
     async def get_fill_markers(
         self, contract: str, since: "datetime", strategy: str = "opa3",
         limit: int = 2000, account: str | None = None, exchange: str = "delta",
-        bucket_seconds: int = 300,
+        bucket_seconds: int = 300, quote_venue: str = "delta",
     ) -> list[dict]:
         """One fill per candle-bucket per side (largest |rPnL|) for OHLC overlay."""
         if not self.pool:
@@ -1562,8 +1581,11 @@ class EventsDB:
         try:
             step = max(60, int(bucket_seconds or 300))
             aliases = contract_aliases(contract)
-            exch_sql, exch_args = self._exchange_filter(exchange, 5)
-            if (exchange or "delta").lower() in ("coindcx", "hedge", "binance"):
+            exch_sql, exch_args = self._exchange_filter(exchange, 5, quote_venue=quote_venue)
+            skip_acct = (exchange or "delta").lower() in ("coindcx", "hedge", "binance", "not_quote")
+            if (quote_venue or "delta").lower() == "binance" and (exchange or "").lower() == "quote":
+                skip_acct = True
+            if skip_acct:
                 acct_sql, acct_args = "", []
             else:
                 acct_sql, acct_args = self._account_filter(account, 5 + len(exch_args))
@@ -1619,7 +1641,7 @@ class EventsDB:
 
     async def get_rpnl_timeseries(
         self, contract: str, since: "datetime", bucket_minutes: int = 5, strategy: str = "opa3",
-        account: str | None = None, exchange: str = "delta",
+        account: str | None = None, exchange: str = "delta", quote_venue: str = "delta",
     ) -> list[dict]:
         """Cumulative rPnL timeseries bucketed by `bucket_minutes` since a UTC datetime.
 
@@ -1632,9 +1654,12 @@ class EventsDB:
             bucket_secs = bucket_minutes * 60
             aliases = contract_aliases(contract)
             params: list = [aliases, since, float(bucket_secs), strategy]
-            exch_sql, exch_args = self._exchange_filter(exchange, len(params) + 1)
+            exch_sql, exch_args = self._exchange_filter(exchange, len(params) + 1, quote_venue=quote_venue)
             params.extend(exch_args)
-            if (exchange or "delta").lower() in ("coindcx", "hedge", "binance"):
+            skip_acct = (exchange or "delta").lower() in ("coindcx", "hedge", "binance", "not_quote")
+            if (quote_venue or "delta").lower() == "binance" and (exchange or "").lower() == "quote":
+                skip_acct = True
+            if skip_acct:
                 acct_sql, acct_args = "", []
             else:
                 acct_sql, acct_args = self._account_filter(account, len(params) + 1)
