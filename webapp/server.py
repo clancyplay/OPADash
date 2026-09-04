@@ -173,20 +173,6 @@ def _norm_quote_venue(raw: str | None) -> str:
     return "delta"
 
 
-def _hedge_venue_name(cfg: _SymbolConfig | None) -> str:
-    if cfg is None:
-        return ""
-    hv = (cfg.hedge_venue or "").strip().upper()
-    if hv == "B":
-        return "binance"
-    if hv == "C":
-        return "coindcx"
-    qv = _norm_quote_venue(cfg.quote_venue)
-    if qv == "delta":
-        return "coindcx"
-    return "delta"
-
-
 def _cfg_for_contract(name: str) -> _SymbolConfig | None:
     u = (name or "").upper().strip()
     if not u:
@@ -206,103 +192,118 @@ def _cfg_for_contract(name: str) -> _SymbolConfig | None:
     return None
 
 
-def contract_meta(name: str) -> dict:
-    """Display names + quote/hedge venues for a fills contract."""
-    cfg = _cfg_for_contract(name)
-    raw = (name or "").upper()
-    if cfg is None:
-        return {
-            "contract": canon_contract(raw) or raw,
-            "quote_venue": "delta",
-            "quote_label": "Delta",
-            "quote_symbol": raw,
-            "hedge_venue": "coindcx",
-            "hedge_label": "CoinDCX",
-            "hedge_symbol": "",
-            "label": raw,
+def _base_asset(name: str) -> str:
+    """LISTAUSD / LISTAUSDT / LISTAUSDTM / B-LISTA_USDT -> LISTA."""
+    u = (name or "").upper().strip()
+    if u.startswith("B-") and "_" in u:
+        return u[2:].split("_", 1)[0]
+    for suffix in ("USDTM", "USDT", "USD"):
+        if u.endswith(suffix) and len(u) > len(suffix):
+            return u[: -len(suffix)]
+    return u
+
+
+def _venue_symbol(cfg: _SymbolConfig | None, venue: str, contract: str) -> str:
+    """Exchange-native symbol for a venue, from config when available."""
+    if cfg is not None:
+        by_venue = {
+            "delta": cfg.delta_symbol,
+            "binance": cfg.binance_symbol,
+            "coindcx": cfg.coindcx_symbol,
         }
-    qv = _norm_quote_venue(cfg.quote_venue)
-    hv = _hedge_venue_name(cfg)
-    if qv == "binance":
-        quote_symbol = cfg.binance_symbol or cfg.delta_symbol
-    elif qv == "coindcx":
-        quote_symbol = cfg.coindcx_symbol or cfg.delta_symbol
-    else:
-        quote_symbol = cfg.delta_symbol
-    if hv == "binance":
-        hedge_symbol = cfg.binance_symbol
-    elif hv == "coindcx":
-        hedge_symbol = cfg.coindcx_symbol
-    else:
-        hedge_symbol = cfg.delta_symbol
-    qlab = _VENUE_LABEL.get(qv, qv)
-    hlab = _VENUE_LABEL.get(hv, hv)
+        named = by_venue.get(venue)
+        if named:
+            return named
+    base = _base_asset(contract)
+    if not base:
+        return (contract or "").upper()
+    if venue == "binance":
+        return f"{base}USDT"
+    if venue == "kucoin":
+        return f"{base}USDTM"
+    if venue == "coindcx":
+        return f"B-{base}_USDT"
+    return (contract or "").upper()
+
+
+def venue_meta(contract: str, counts: dict[str, int] | None = None) -> dict:
+    """Which exchange quotes this contract and which (if any) hedges it.
+
+    `counts` is fills-per-exchange from the DB. Driving every caller off the
+    same counts keeps the pills, the dropdown and the chart in agreement, and
+    means a contract that was never hedged reports no hedge at all.
+    """
+    counts = {v: n for v, n in (counts or {}).items() if n}
+    cfg = _cfg_for_contract(contract)
+    quote = ""
+    if cfg is not None:
+        cfg_quote = _norm_quote_venue(cfg.quote_venue)
+        # Config states the intent; the data wins if that venue never traded.
+        if not counts or counts.get(cfg_quote):
+            quote = cfg_quote
+    if not quote:
+        quote = max(counts, key=lambda v: counts[v]) if counts else "delta"
+    hedges = {v: n for v, n in counts.items() if v != quote}
+    hedge = max(hedges, key=lambda v: hedges[v]) if hedges else ""
+    quote_symbol = _venue_symbol(cfg, quote, contract)
     return {
-        "contract": canon_contract(cfg.delta_symbol) or cfg.delta_symbol,
-        "quote_venue": qv,
-        "quote_label": qlab,
+        "contract": canon_contract(contract) or (contract or "").upper(),
+        "quote_venue": quote,
+        "quote_label": _VENUE_LABEL.get(quote, quote.title()),
         "quote_symbol": quote_symbol,
-        "hedge_venue": hv,
-        "hedge_label": hlab,
-        "hedge_symbol": hedge_symbol or "",
-        "label": f"{quote_symbol} · {qlab}",
+        "hedge_venue": hedge,
+        "hedge_label": _VENUE_LABEL.get(hedge, hedge.title()) if hedge else "",
+        "hedge_symbol": _venue_symbol(cfg, hedge, contract) if hedge else "",
+        "has_hedge": bool(hedge),
+        "venue_fills": counts,
+        "label": f"{quote_symbol} · {_VENUE_LABEL.get(quote, quote.title())}",
     }
 
 
-def _row_contract_meta(name: str, exchange: str | None) -> dict:
-    """Use the fill venue for dynamic symbols that have no dashboard config."""
-    meta = contract_meta(name)
-    if _cfg_for_contract(name) is not None:
-        return meta
-    venue = _norm_quote_venue(exchange)
-    label = _VENUE_LABEL.get(venue, venue.title())
-    meta.update({
-        "quote_venue": venue,
-        "quote_label": label,
-        "quote_symbol": (name or "").upper(),
-        "hedge_venue": "",
-        "hedge_label": "Hedge",
-        "hedge_symbol": "",
-        "label": f"{(name or '').upper()} · {label}",
-    })
-    return meta
+async def resolve_venues(
+    contract: str, strategy: str = "opa3", account: str | None = None,
+) -> dict:
+    """`venue_meta` with the fill counts read from the DB."""
+    counts: dict[str, int] = {}
+    if _db is not None and _db.pool:
+        counts = await _db.get_contract_venue_stats(
+            contract, strategy=strategy, account=account,
+        )
+    return venue_meta(contract, counts)
+
+
+def _venue_side(exchange: str | None) -> str:
+    """Normalise the UI's venue filter. Legacy names kept working."""
+    e = (exchange or "both").strip().lower()
+    if e in ("quote", "delta"):
+        return "quote"
+    if e in ("hedge", "coindcx", "binance", "kucoin", "not_quote"):
+        return "hedge"
+    return "both"
 
 
 def _annotate_rpnl_row(row: dict) -> dict:
-    meta = _row_contract_meta(
-        row.get("contract") or "", row.get("primary_exchange")
-    )
+    """Split a summary row into quote-venue vs hedge-venue rPnL."""
+    counts = {
+        "delta": int(row.get("fills") or 0),
+        "binance": int(row.get("binance_fills") or 0),
+        "kucoin": int(row.get("kucoin_fills") or 0),
+        "coindcx": int(row.get("cdcx_fills") or 0),
+    }
+    rpnls = {
+        "delta": float(row.get("rpnl") or 0),
+        "binance": float(row.get("binance_rpnl") or 0),
+        "kucoin": float(row.get("kucoin_rpnl") or 0),
+        "coindcx": float(row.get("cdcx_rpnl") or 0),
+    }
+    meta = venue_meta(row.get("contract") or "", counts)
     qv = meta["quote_venue"]
-    delta_rpnl = float(row.get("rpnl") or 0)
-    binance_rpnl = float(row.get("binance_rpnl") or 0)
-    kucoin_rpnl = float(row.get("kucoin_rpnl") or 0)
-    cdcx_rpnl = float(row.get("cdcx_rpnl") or 0)
-    delta_fills = int(row.get("fills") or 0)
-    binance_fills = int(row.get("binance_fills") or 0)
-    kucoin_fills = int(row.get("kucoin_fills") or 0)
-    cdcx_fills = int(row.get("cdcx_fills") or 0)
-    if qv == "binance":
-        quote_rpnl, quote_fills = binance_rpnl, binance_fills
-        hedge_rpnl = delta_rpnl + kucoin_rpnl + cdcx_rpnl
-        hedge_fills = delta_fills + kucoin_fills + cdcx_fills
-    elif qv == "kucoin":
-        quote_rpnl, quote_fills = kucoin_rpnl, kucoin_fills
-        hedge_rpnl = delta_rpnl + binance_rpnl + cdcx_rpnl
-        hedge_fills = delta_fills + binance_fills + cdcx_fills
-    elif qv == "coindcx":
-        quote_rpnl, quote_fills = cdcx_rpnl, cdcx_fills
-        hedge_rpnl = delta_rpnl + binance_rpnl + kucoin_rpnl
-        hedge_fills = delta_fills + binance_fills + kucoin_fills
-    else:
-        quote_rpnl, quote_fills = delta_rpnl, delta_fills
-        hedge_rpnl = binance_rpnl + kucoin_rpnl + cdcx_rpnl
-        hedge_fills = binance_fills + kucoin_fills + cdcx_fills
     row = dict(row)
     row.update(meta)
-    row["rpnl"] = round(quote_rpnl, 2)
-    row["fills"] = quote_fills
-    row["hedge_rpnl"] = round(hedge_rpnl, 2)
-    row["hedge_fills"] = hedge_fills
+    row["rpnl"] = round(rpnls.get(qv, 0.0), 2)
+    row["fills"] = counts.get(qv, 0)
+    row["hedge_rpnl"] = round(sum(v for k, v in rpnls.items() if k != qv), 2)
+    row["hedge_fills"] = sum(n for k, n in counts.items() if k != qv)
     acct = row.get("account_name") or row.get("account") or ""
     row["label"] = meta["label"] + (f" · {acct}" if acct else "")
     return row
@@ -454,35 +455,44 @@ async def rpnl_symbols(
                 SELECT contract,
                        COALESCE(account, '') AS account,
                        COALESCE(MAX(details->>'account_name'), '') AS account_name,
-                       MODE() WITHIN GROUP (ORDER BY LOWER(exchange)) AS primary_exchange
+                       LOWER(exchange) AS exchange,
+                       COUNT(*)::int AS n
                 FROM fills
                 WHERE strategy = $1
-                GROUP BY contract, COALESCE(account, '')
+                GROUP BY contract, COALESCE(account, ''), LOWER(exchange)
                 ORDER BY contract, account
                 """,
                 strategy,
             )
+        # Keyed on the account id, exactly like /api/rpnl/summary, so every pill
+        # has one matching dropdown entry and the account filter resolves.
         merged: dict[tuple[str, str], dict] = {}
         for r in rows:
             account = r["account"] or ""
-            name = r["account_name"] or account
             contract = canon_contract(r["contract"])
-            key = (contract, account)
-            if key in merged:
-                continue
-            meta = _row_contract_meta(contract, r["primary_exchange"])
-            acct_bit = f" · {name}" if name else ""
-            merged[key] = {
+            entry = merged.setdefault((contract, account), {
                 "contract": contract,
                 "account": account,
-                "account_name": name,
+                "account_name": r["account_name"] or account,
+                "counts": {},
+            })
+            if not entry["account_name"]:
+                entry["account_name"] = r["account_name"] or account
+            venue = (r["exchange"] or "delta").lower()
+            entry["counts"][venue] = entry["counts"].get(venue, 0) + int(r["n"] or 0)
+        out = []
+        for entry in merged.values():
+            meta = venue_meta(entry["contract"], entry.pop("counts"))
+            name = entry["account_name"]
+            out.append({
+                **entry,
                 **{k: meta[k] for k in (
                     "quote_venue", "quote_label", "quote_symbol",
-                    "hedge_venue", "hedge_label", "hedge_symbol",
+                    "hedge_venue", "hedge_label", "hedge_symbol", "has_hedge",
                 )},
-                "label": meta["label"] + acct_bit,
-            }
-        return list(merged.values())
+                "label": meta["label"] + (f" · {name}" if name else ""),
+            })
+        return out
     except Exception as e:
         logger.warning("webapp: rpnl_symbols failed: %s", e)
         return []
@@ -495,35 +505,27 @@ async def rpnl_chart(
     bucket: int = Query(5, ge=1, le=60, description="Bucket size in minutes"),
     strategy: str = Query("opa3", description="strategy tag, e.g. opa3 | opa4"),
     account: str | None = Query(None, description="Delta account id; omit to merge all"),
-    exchange: str = Query("delta", description="delta | coindcx | hedge"),
+    exchange: str = Query("both", description="quote | hedge | both"),
 ) -> dict:
     """Cumulative rPnL timeseries for a contract, bucketed by `bucket` minutes."""
     cfg = _SYMBOLS.get(symbol.upper())
     contract = cfg.delta_symbol if cfg else symbol.upper()
-    meta = contract_meta(contract)
-    qv = meta["quote_venue"]
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
+    meta = await resolve_venues(contract, strategy=strategy, account=account)
+    qv = meta["quote_venue"]
+    want = _venue_side(exchange)
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     try:
-        if exchange in ("coindcx", "hedge"):
-            points = await _db.get_rpnl_timeseries(
-                contract, since, bucket_minutes=bucket, strategy=strategy,
-                account=None, exchange="not_quote", quote_venue=qv,
-            )
-            hedge_points = []
-        elif exchange == "delta":
-            # UI "Delta only" = quote venue only (may be Binance when quote_venue=binance)
+        points: list[dict] = []
+        hedge_points: list[dict] = []
+        if want in ("quote", "both"):
             points = await _db.get_rpnl_timeseries(
                 contract, since, bucket_minutes=bucket, strategy=strategy,
                 account=account, exchange="quote", quote_venue=qv,
             )
-            hedge_points = []
-        else:
-            points = await _db.get_rpnl_timeseries(
-                contract, since, bucket_minutes=bucket, strategy=strategy,
-                account=account, exchange="quote", quote_venue=qv,
-            )
+        # Never draw a hedge series for a contract that was never hedged.
+        if want in ("hedge", "both") and meta["has_hedge"]:
             hedge_points = await _db.get_rpnl_timeseries(
                 contract, since, bucket_minutes=bucket, strategy=strategy,
                 account=None, exchange="not_quote", quote_venue=qv,
@@ -562,27 +564,31 @@ async def rpnl_fills(
     hours: int = Query(24, ge=1, le=2160),
     strategy: str = Query("opa3"),
     account: str | None = Query(None),
-    exchange: str = Query("delta"),
+    exchange: str = Query("quote", description="quote | hedge"),
     bucket: int = Query(5, ge=1, le=1440),
 ) -> dict:
-    """Fills in the window — overlay on OHLC."""
+    """Fills in the window — overlay on OHLC. One side per request."""
     cfg = _SYMBOLS.get(symbol.upper())
     contract = cfg.delta_symbol if cfg else symbol.upper()
-    meta = contract_meta(contract)
-    qv = meta["quote_venue"]
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
+    meta = await resolve_venues(contract, strategy=strategy, account=account)
+    side = _venue_side(exchange)
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    exch = exchange
-    if exchange == "delta":
-        exch = "quote"
-    elif exchange in ("hedge", "both"):
-        exch = "not_quote"
-    fills = await _db.get_fill_markers(
-        contract, since, strategy=strategy, account=account, exchange=exch,
-        bucket_seconds=max(60, int(bucket) * 60), quote_venue=qv,
-    )
-    return {"contract": contract, "account": account or "", "exchange": exchange, **meta, "fills": fills}
+    fills: list[dict] = []
+    if side != "hedge" or meta["has_hedge"]:
+        fills = await _db.get_fill_markers(
+            contract, since, strategy=strategy, account=account,
+            exchange="not_quote" if side == "hedge" else "quote",
+            bucket_seconds=max(60, int(bucket) * 60), quote_venue=meta["quote_venue"],
+        )
+    return {
+        "contract": contract,
+        "account": account or "",
+        "exchange": side,
+        **meta,
+        "fills": fills,
+    }
 
 
 async def _fetch_delta_ohlc(symbol: str, resolution: str, lookback_secs: int) -> list[dict]:
@@ -663,28 +669,108 @@ async def _fetch_binance_ohlc(symbol: str, interval: str, lookback_secs: int) ->
     return sorted(by_t.values(), key=lambda p: p["time"])
 
 
+_KUCOIN_GRANULARITY = {
+    "1m": 1, "3m": 5, "5m": 5, "15m": 15, "30m": 30,
+    "1h": 60, "2h": 120, "4h": 240, "1d": 1440,
+}
+_kucoin_symbols_cache: dict[str, tuple[float, dict[str, str]]] = {}
+
+
+async def _kucoin_symbol_map() -> dict[str, str]:
+    """base asset -> KuCoin futures symbol (e.g. 2U2 -> 2U2USDTM), cached 1h."""
+    cached = _kucoin_symbols_cache.get("map")
+    if cached and time.time() - cached[0] < 3600:
+        return cached[1]
+    out: dict[str, str] = {}
+    try:
+        async with httpx.AsyncClient(base_url=settings.kucoin_rest_url, timeout=20) as client:
+            resp = await client.get("/api/v1/contracts/active")
+            resp.raise_for_status()
+            for c in resp.json().get("data") or []:
+                sym = (c.get("symbol") or "").upper()
+                base = (c.get("baseCurrency") or "").upper()
+                quote = (c.get("quoteCurrency") or "").upper()
+                if sym and base and quote == "USDT":
+                    out.setdefault(base, sym)
+    except Exception as exc:
+        logger.warning("webapp: kucoin contract list failed: %s", exc)
+        return cached[1] if cached else {}
+    _kucoin_symbols_cache["map"] = (time.time(), out)
+    return out
+
+
+async def _fetch_kucoin_ohlc(symbol: str, interval: str, lookback_secs: int) -> list[dict]:
+    """KuCoin USDT-M futures klines: [time_ms, open, high, low, close, vol]."""
+    gran = _KUCOIN_GRANULARITY.get(interval, 5)
+    end_ms = int(time.time() * 1000)
+    start_ms = (int(time.time()) - lookback_secs) * 1000
+    step_ms = gran * 60 * 1000 * 190  # KuCoin returns at most 200 candles per call
+    by_t: dict[int, dict] = {}
+    async with httpx.AsyncClient(base_url=settings.kucoin_rest_url, timeout=20) as client:
+        t0 = start_ms
+        for _ in range(60):  # bound the walk for very long windows
+            if t0 >= end_ms:
+                break
+            t1 = min(t0 + step_ms, end_ms)
+            resp = await client.get(
+                "/api/v1/kline/query",
+                params={"symbol": symbol.upper(), "granularity": gran, "from": t0, "to": t1},
+            )
+            resp.raise_for_status()
+            for row in resp.json().get("data") or []:
+                ts = int(row[0]) // 1000
+                by_t[ts] = {
+                    "time": ts,
+                    "open": float(row[1]),
+                    "high": float(row[2]),
+                    "low": float(row[3]),
+                    "close": float(row[4]),
+                }
+            if t1 >= end_ms:
+                break
+            t0 = t1
+    return sorted(by_t.values(), key=lambda p: p["time"])
+
+
 @app.get("/api/candles")
 async def candles(
-    symbol: str = Query(..., description="Delta product symbol e.g. LABUSD"),
+    symbol: str = Query(..., description="Contract name e.g. LABUSD"),
     interval: str = Query("5m"),
     hours: int = Query(24, ge=1, le=2160),
+    strategy: str = Query("opa3"),
+    account: str | None = Query(None),
 ) -> dict:
-    """OHLC for the quote venue — used under fill overlay on the rPnL page."""
+    """OHLC for the quote venue — used under the fill overlay on the rPnL page."""
     cfg_dash = _SYMBOLS.get(symbol.upper())
     contract = cfg_dash.delta_symbol if cfg_dash else symbol.upper()
-    meta = contract_meta(contract)
     if interval not in _RESOLUTION_SECONDS:
         raise HTTPException(status_code=400, detail=f"unknown interval '{interval}'")
+    meta = await resolve_venues(contract, strategy=strategy, account=account)
     lookback = hours * 3600
     qv = meta["quote_venue"]
+    quote_symbol = meta.get("quote_symbol") or contract
     try:
-        if qv == "binance" and meta.get("quote_symbol"):
-            bars = await _fetch_binance_ohlc(meta["quote_symbol"], interval, lookback)
+        if qv == "binance":
+            bars = await _fetch_binance_ohlc(quote_symbol, interval, lookback)
+        elif qv == "kucoin":
+            resolved = (await _kucoin_symbol_map()).get(_base_asset(contract)) or quote_symbol
+            quote_symbol = resolved
+            bars = await _fetch_kucoin_ohlc(resolved, interval, lookback)
         else:
-            bars = await _fetch_delta_ohlc(meta.get("quote_symbol") or contract, interval, lookback)
+            bars = await _fetch_delta_ohlc(quote_symbol, interval, lookback)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"{qv} candles failed: {exc}") from exc
-    return {"contract": contract, "interval": interval, "venue": qv, **meta, "candles": bars}
+        logger.warning("webapp: %s candles failed for %s: %s", qv, quote_symbol, exc)
+        raise HTTPException(
+            status_code=502, detail=f"{meta['quote_label']} candles failed for {quote_symbol}: {exc}"
+        ) from exc
+    return {
+        "contract": contract,
+        "interval": interval,
+        "venue": qv,
+        **meta,
+        "quote_symbol": quote_symbol,
+        "candles": bars,
+    }
 
 
 # ── Bot status & controls ─────────────────────────────────────────────────────

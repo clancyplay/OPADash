@@ -39,6 +39,7 @@ class Settings:
     usdinr_rate: float
     delta_rest_url: str
     binance_rest_url: str
+    kucoin_rest_url: str
     report_interval_seconds: float
 
     @classmethod
@@ -49,5 +50,6 @@ class Settings:
             usdinr_rate=float(os.getenv("USDINR_RATE", "87")),
             delta_rest_url=os.getenv("DELTA_REST_URL", "https://api.india.delta.exchange"),
             binance_rest_url=os.getenv("BINANCE_REST_URL", "https://fapi.binance.com"),
+            kucoin_rest_url=os.getenv("KUCOIN_REST_URL", "https://api-futures.kucoin.com"),
             report_interval_seconds=float(os.getenv("REPORT_INTERVAL_SECONDS", "300")),
         )

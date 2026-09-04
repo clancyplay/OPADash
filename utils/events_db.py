@@ -1464,7 +1464,6 @@ class EventsDB:
                            COALESCE(SUM(fee) FILTER (WHERE exchange = 'binance'), 0)::float AS binance_fees,
                            COALESCE(SUM(fee) FILTER (WHERE exchange = 'kucoin'), 0)::float AS kucoin_fees,
                            COALESCE(SUM(fee) FILTER (WHERE exchange = 'coindcx'), 0)::float AS cdcx_fees,
-                           MODE() WITHIN GROUP (ORDER BY LOWER(exchange)) AS primary_exchange,
                            MIN(created_at) AS first_at,
                            MAX(created_at) AS last_at
                     FROM fills
@@ -1479,13 +1478,13 @@ class EventsDB:
                 account = r["account"] or ""
                 name = r["account_name"] or account
                 contract = canon_contract(r["contract"])
-                key = (contract, account)
+                key = (contract, name)
                 binance_rpnl = float(r["binance_rpnl"] or 0)
                 kucoin_rpnl = float(r["kucoin_rpnl"] or 0)
                 cdcx_rpnl = float(r["cdcx_rpnl"] or 0)
                 item = {
                     "contract": contract,
-                    "account": account,
+                    "account": name or account,
                     "account_name": name,
                     "fills": int(r["fills"] or 0),
                     "binance_fills": int(r["binance_fills"] or 0),
@@ -1507,7 +1506,6 @@ class EventsDB:
                         + float(r["cdcx_fees"] or 0),
                         2,
                     ),
-                    "primary_exchange": (r["primary_exchange"] or "delta").lower(),
                     "first_at": int(r["first_at"].timestamp()) if r["first_at"] else None,
                     "last_at": int(r["last_at"].timestamp()) if r["last_at"] else None,
                 }
@@ -1544,12 +1542,15 @@ class EventsDB:
                 else:
                     out.append(item)
             used = set()
+            merge_fields = (
+                "binance_fills", "kucoin_fills", "cdcx_fills", "hedge_fills",
+                "binance_rpnl", "kucoin_rpnl", "cdcx_rpnl", "hedge_rpnl", "hedge_fees",
+            )
             for item in out:
                 h = hedge_only.get(item["contract"])
                 if h and item["hedge_fills"] == 0:
-                    item["hedge_rpnl"] = h["hedge_rpnl"]
-                    item["hedge_fills"] = h["hedge_fills"]
-                    item["hedge_fees"] = h["hedge_fees"]
+                    for field in merge_fields:
+                        item[field] = h.get(field, 0)
                     used.add(item["contract"])
             for contract, h in hedge_only.items():
                 if contract not in used and not any(m["contract"] == contract for m in out):
@@ -1584,6 +1585,41 @@ class EventsDB:
             return float(value or 0) * self.usdinr_rate
         return float(value or 0)
 
+    def _skip_account_filter(self, exchange: str | None) -> bool:
+        """Hedge-side fills are logged without the quote venue's account id."""
+        return (exchange or "").lower() in (
+            "not_quote", "hedge", "coindcx", "binance", "kucoin",
+        )
+
+    async def get_contract_venue_stats(
+        self, contract: str, strategy: str = "opa3", account: str | None = None,
+        since: "datetime | None" = None,
+    ) -> dict[str, int]:
+        """Fill count per exchange for a contract, so the venue can be read from
+        the data instead of guessed from config. Account-scoped when given."""
+        if not self.pool:
+            return {}
+        try:
+            aliases = contract_aliases(contract)
+            params: list = [aliases, strategy]
+            sql = (
+                "SELECT LOWER(exchange) AS exchange, COUNT(*)::int AS n FROM fills "
+                "WHERE UPPER(contract) = ANY($1::text[]) AND strategy = $2"
+            )
+            if since is not None:
+                params.append(since)
+                sql += f" AND created_at >= ${len(params)}"
+            if account:
+                params.append(account)
+                sql += f" AND (account = ${len(params)} OR account IS NULL OR account = '')"
+            sql += " GROUP BY LOWER(exchange)"
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(sql, *params)
+            return {(r["exchange"] or "delta"): int(r["n"] or 0) for r in rows if r["n"]}
+        except Exception as e:
+            self.logger.warning("events_db: get_contract_venue_stats failed — %s", e)
+            return {}
+
     async def get_fill_markers(
         self, contract: str, since: "datetime", strategy: str = "opa3",
         limit: int = 2000, account: str | None = None, exchange: str = "delta",
@@ -1596,14 +1632,7 @@ class EventsDB:
             step = max(60, int(bucket_seconds or 300))
             aliases = contract_aliases(contract)
             exch_sql, exch_args = self._exchange_filter(exchange, 5, quote_venue=quote_venue)
-            skip_acct = (exchange or "delta").lower() in (
-                "coindcx", "hedge", "binance", "kucoin", "not_quote",
-            )
-            if (quote_venue or "delta").lower() in ("binance", "kucoin") and (
-                exchange or ""
-            ).lower() == "quote":
-                skip_acct = True
-            if skip_acct:
+            if self._skip_account_filter(exchange):
                 acct_sql, acct_args = "", []
             else:
                 acct_sql, acct_args = self._account_filter(account, 5 + len(exch_args))
@@ -1674,14 +1703,7 @@ class EventsDB:
             params: list = [aliases, since, float(bucket_secs), strategy]
             exch_sql, exch_args = self._exchange_filter(exchange, len(params) + 1, quote_venue=quote_venue)
             params.extend(exch_args)
-            skip_acct = (exchange or "delta").lower() in (
-                "coindcx", "hedge", "binance", "kucoin", "not_quote",
-            )
-            if (quote_venue or "delta").lower() in ("binance", "kucoin") and (
-                exchange or ""
-            ).lower() == "quote":
-                skip_acct = True
-            if skip_acct:
+            if self._skip_account_filter(exchange):
                 acct_sql, acct_args = "", []
             else:
                 acct_sql, acct_args = self._account_filter(account, len(params) + 1)

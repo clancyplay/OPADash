@@ -944,10 +944,10 @@
       <option value="60">1h</option>
     </select>
     <label>Venue</label>
-    <select id="rpnlVenue" onchange="loadRpnlFresh()">
+    <select id="rpnlVenue" onchange="onRpnlVenueChange()">
       <option value="both">Quote + Hedge</option>
-      <option value="delta">Quote only</option>
-      <option value="coindcx">Hedge only</option>
+      <option value="quote">Quote only</option>
+      <option value="hedge">Hedge only</option>
     </select>
     <button class="btn" onclick="loadRpnlFresh()">Refresh</button>
     <button class="btn" onclick="fitRpnlView()" title="Fit both charts to full window">Fit</button>
@@ -963,8 +963,8 @@
   <div id="rpnlSummaryWrap" class="rpnl-pills"></div>
   <div class="rpnl-key" id="rpnlKey">
     <span class="kitem"><span class="kdot" style="background:#26a69a"></span><span id="rkDeltaLab">Quote</span> <span class="kval" id="rkDelta">—</span></span>
-    <span class="kitem"><span class="kdot" style="background:#ff9800"></span><span id="rkHedgeLab">Hedge</span> <span class="kval" id="rkHedge">—</span></span>
-    <span class="kitem"><span class="kdot" style="background:#90caf9"></span>Net <span class="kval" id="rkNet">—</span></span>
+    <span class="kitem" id="rkHedgeItem"><span class="kdot" style="background:#ff9800"></span><span id="rkHedgeLab">Hedge</span> <span class="kval" id="rkHedge">—</span></span>
+    <span class="kitem" id="rkNetItem"><span class="kdot" style="background:#90caf9"></span>Net <span class="kval" id="rkNet">—</span></span>
     <span class="kitem" style="margin-left:auto" id="rkContract">Select a contract</span>
   </div>
   <div class="rpnl-stack">
@@ -1137,8 +1137,22 @@ function rpnlAccountLabel(r) {
 function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 }
+// The user's pick is kept separately from the <select>, so switching to an
+// unhedged contract can show 'quote' without losing the preference.
+let rpnlVenuePref = 'both';
+function onRpnlVenueChange() {
+  const sel = document.getElementById('rpnlVenue');
+  rpnlVenuePref = (sel && sel.value) || 'both';
+  loadRpnlFresh();
+}
+// What we ask the server for — always the raw preference, since whether a
+// contract has a hedge is only known from the response.
+function rpnlVenueParam() {
+  return rpnlVenuePref;
+}
+// What we draw: 'both' | 'quote' | 'hedge', collapsed for unhedged contracts.
 function currentRpnlVenue() {
-  return (document.getElementById('rpnlVenue') || {}).value || 'both';
+  return rpnlMeta.has_hedge ? rpnlVenuePref : 'quote';
 }
 function updateRpnlPaneLabels() {
   const sel = currentRpnlSel();
@@ -1146,10 +1160,11 @@ function updateRpnlPaneLabels() {
   const qlab = rpnlMeta.quote_label || 'Delta';
   const hlab = rpnlMeta.hedge_label || 'Hedge';
   const qsym = rpnlMeta.quote_symbol || sel.contract || '';
-  const venueLab = venue === 'coindcx' ? hlab : (venue === 'delta' ? qlab : qlab + ' + ' + hlab);
+  const venueLab = venue === 'hedge' ? hlab : (venue === 'quote' ? qlab : qlab + ' + ' + hlab);
   const ohlc = document.getElementById('ohlcPaneLabel');
   const lab = document.getElementById('rpnlPaneLabel');
-  if (ohlc) ohlc.textContent = (qsym ? qsym + ' · ' : '') + qlab + ' price · quote ▴▾ · hedge ●';
+  if (ohlc) ohlc.textContent = (qsym ? qsym + ' · ' : '') + qlab + ' price · fills ▴▾'
+    + (rpnlMeta.has_hedge ? ' · ' + hlab + ' ●' : '');
   if (lab) lab.textContent = (rpnlView === 'cumul' ? 'Cumulative rPnL ₹' : 'Per-bucket rPnL ₹') + ' · ' + venueLab;
 }
 
@@ -1270,7 +1285,10 @@ let rpnlCurrentHours = null;
 let rpnlLoadingMore  = false;
 let rpnlSyncing      = false;
 let rpnlXhSyncing    = false;
-let rpnlMeta = { quote_venue: 'delta', quote_label: 'Delta', quote_symbol: '', hedge_label: 'Hedge', hedge_symbol: '' };
+let rpnlMeta = {
+  quote_venue: 'delta', quote_label: 'Delta', quote_symbol: '',
+  hedge_venue: '', hedge_label: '', hedge_symbol: '', has_hedge: false,
+};
 
 function rpnlVenueClass(v) {
   v = (v || 'delta').toLowerCase();
@@ -1297,6 +1315,13 @@ function renderRpnlSummary(rows) {
   if (!wrap) return;
   if (!rows || !rows.length) { wrap.innerHTML = ''; return; }
   const cur = document.getElementById('rpnlSymbol').value;
+  // Two rows can share a contract + account name but sit on different account
+  // ids — show the id so they are distinguishable instead of looking cloned.
+  const nameCount = {};
+  rows.forEach(r => {
+    const n = (r.quote_symbol || r.contract) + '|' + rpnlAccountLabel(r);
+    nameCount[n] = (nameCount[n] || 0) + 1;
+  });
   wrap.innerHTML = rows.map(r => {
     const key = rpnlOptionValue(r);
     const active = key === cur ? ' active' : '';
@@ -1305,20 +1330,26 @@ function renderRpnlSummary(rows) {
     const qlab = r.quote_label || 'Delta';
     const qsym = r.quote_symbol || r.contract;
     const hlab = r.hedge_label || 'Hedge';
-    const name = qsym + (acct ? ' · ' + acct : '');
-    const hedge = Number(r.hedge_rpnl) || 0;
-    const net = (Number(r.rpnl) || 0) + hedge;
-    const netCol = net >= 0 ? 'var(--green)' : 'var(--red)';
+    const dupe = nameCount[qsym + '|' + acct] > 1 && r.account && r.account !== acct;
+    const name = qsym + (acct ? ' · ' + acct : '') + (dupe ? ' #' + r.account : '');
+    const hedged = !!r.has_hedge && !!r.hedge_fills;
+    const quote = Number(r.rpnl) || 0;
+    const hedge = hedged ? (Number(r.hedge_rpnl) || 0) : 0;
+    const main = quote + hedge;
+    const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
     return '<button type="button" class="rpnl-pill' + active + '" onclick="pickRpnlContract(\'' + key.replace(/'/g, "\\'") + '\')">' +
       '<div class="p-name">' + escHtml(name) +
         '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
-      '<div class="p-val" style="color:' + netCol + '">' + inrFmt(net) + ' <span style="font-size:10px;font-weight:600;color:var(--muted)">net</span></div>' +
-      '<div class="p-split">' +
-        '<span style="color:#26a69a">' + escHtml(qlab) + ' ' + inrFmt(r.rpnl) + '</span>' +
-        '<span style="color:#ff9800">' + escHtml(hlab) + ' ' + inrFmt(hedge) + '</span>' +
-      '</div>' +
+      '<div class="p-val" style="color:' + mainCol + '">' + inrFmt(main) +
+        (hedged ? ' <span style="font-size:10px;font-weight:600;color:var(--muted)">net</span>' : '') + '</div>' +
+      (hedged
+        ? '<div class="p-split">' +
+            '<span style="color:#26a69a">' + escHtml(qlab) + ' ' + inrFmt(quote) + '</span>' +
+            '<span style="color:#ff9800">' + escHtml(hlab) + ' ' + inrFmt(hedge) + '</span>' +
+          '</div>'
+        : '') +
       '<div class="p-meta">' + escHtml(qlab) + ' ' + (r.fills || 0) + ' fills' +
-        (r.hedge_fills ? ' · ' + escHtml(hlab) + ' ' + r.hedge_fills : '') + '</div>' +
+        (hedged ? ' · ' + escHtml(hlab) + ' ' + r.hedge_fills : ' · no hedge') + '</div>' +
       '</button>';
   }).join('');
 }
@@ -1434,16 +1465,25 @@ function fillMarkersFromFills(fills, bars, hedgeOnly) {
     const prev = byT.get(t);
     if (!prev || Math.abs(f.rpnl) >= Math.abs(prev.rpnl)) byT.set(t, Object.assign({}, f, { _t: t }));
   }
-  return [...byT.values()].map(f => {
+  // Labelling every fill turns the chart into a wall of text — only the
+  // biggest moves get a number, the rest stay as plain markers.
+  const marks = [...byT.values()];
+  const labelled = new Set(
+    marks.slice()
+      .sort((a, b) => Math.abs(b.rpnl) - Math.abs(a.rpnl))
+      .slice(0, 25)
+      .map(f => f._t)
+  );
+  return marks.map(f => {
     const win = f.rpnl > 1e-6, lose = f.rpnl < -1e-6;
-    const color = hedgeOnly ? '#ff9800' : (win ? '#26a69a' : (lose ? '#ef5350' : '#7f8598'));
-    const text = (win || lose) ? ((f.rpnl >= 0 ? '+' : '') + Math.round(f.rpnl)) : '';
+    const show = labelled.has(f._t) && (win || lose);
     return {
       time: f._t,
       position: f.side === 'buy' ? 'belowBar' : 'aboveBar',
-      color: color,
+      color: hedgeOnly ? '#ff9800' : (win ? '#26a69a' : (lose ? '#ef5350' : '#7f8598')),
       shape: hedgeOnly ? 'circle' : (f.side === 'buy' ? 'arrowUp' : 'arrowDown'),
-      text: hedgeOnly ? ((rpnlMeta.hedge_label || 'H').slice(0, 1) + ' ' + text) : ((rpnlMeta.quote_label || 'Q').slice(0, 1) + ' ' + text),
+      size: show ? 1 : 0.6,
+      text: show ? ((f.rpnl >= 0 ? '+' : '−') + Math.abs(Math.round(f.rpnl))) : '',
     };
   }).sort((a, b) => a.time - b.time);
 }
@@ -1452,8 +1492,9 @@ function applyRpnlFillMarkers() {
   const fills = rpnlFillsCache || [];
   const snap = rpnlPtsCache.length ? rpnlPtsCache : ohlcBarsCache;
   const venue = currentRpnlVenue();
-  const deltaMarks = venue === 'coindcx' ? [] : fillMarkersFromFills(fills, snap, false);
-  const hedgeMarks = venue === 'delta' ? [] : fillMarkersFromFills(fills, snap, true);
+  const deltaMarks = venue === 'hedge' ? [] : fillMarkersFromFills(fills, snap, false);
+  const hedgeMarks = (venue === 'quote' || !rpnlMeta.has_hedge)
+    ? [] : fillMarkersFromFills(fills, snap, true);
   if (rpnlView === 'cumul') {
     if (rpnlSeries) rpnlSeries.setMarkers(deltaMarks);
     if (rpnlHistSeries) rpnlHistSeries.setMarkers([]);
@@ -1602,7 +1643,7 @@ function paintRpnlLegend(time) {
   const h = nearestByTime(rpnlHedgeCache, time);
   if (!p && !h) { el.style.display = 'none'; return; }
   let html = '<div class="leg-time">' + fmtChartTime((p || h).time) + '</div>';
-  if (p && venue !== 'coindcx') {
+  if (p && venue !== 'hedge') {
     let val = p.value;
     if (rpnlView === 'bucket') {
       const i = rpnlPtsCache.indexOf(p);
@@ -1612,7 +1653,7 @@ function paintRpnlLegend(time) {
     html += '<div class="leg-row"><span class="leg-label">' + (rpnlMeta.quote_label || 'Quote') + ' ' + (rpnlView === 'cumul' ? 'Cumul' : 'Bucket') + '</span>' +
       '<span class="leg-val" style="color:' + col + '">' + inrFmtDec(val, 2) + '</span></div>';
   }
-  if (h && venue !== 'delta') {
+  if (h && venue !== 'quote' && rpnlMeta.has_hedge) {
     let val = h.value;
     if (rpnlView === 'bucket') {
       const i = rpnlHedgeCache.indexOf(h);
@@ -1753,6 +1794,25 @@ function barsAlignReady(pts, bucketSecs) {
   return fillGaps(pts, bucketSecs);
 }
 
+// Hedge-only view and hedge legend make no sense for an unhedged contract.
+function syncRpnlVenueControl() {
+  const sel = document.getElementById('rpnlVenue');
+  if (!sel) return;
+  const hedged = !!rpnlMeta.has_hedge;
+  const hlab = rpnlMeta.hedge_label || 'Hedge';
+  [...sel.options].forEach(o => {
+    if (o.value === 'both')  { o.textContent = 'Quote + ' + hlab; o.disabled = !hedged; }
+    if (o.value === 'quote') { o.textContent = (rpnlMeta.quote_label || 'Quote') + ' only'; }
+    if (o.value === 'hedge') { o.textContent = hlab + ' only'; o.disabled = !hedged; }
+  });
+  sel.value = hedged ? rpnlVenuePref : 'quote';
+  sel.title = hedged ? '' : 'This contract has no hedge fills';
+  const wrapH = document.getElementById('rkHedgeItem');
+  const wrapN = document.getElementById('rkNetItem');
+  if (wrapH) wrapH.style.display = hedged ? '' : 'none';
+  if (wrapN) wrapN.style.display = hedged ? '' : 'none';
+}
+
 function setRpnlKey(delta, hedge, contract, account) {
   const net = (delta || 0) + (hedge || 0);
   const elD = document.getElementById('rkDelta');
@@ -1816,9 +1876,9 @@ function netFromCaches(deltaPts, hedgePts) {
 
 function applyRpnlData(pts, keepRange) {
   const venue = currentRpnlVenue();
-  const showDelta = venue !== 'coindcx';
-  const hedgePts = venue === 'coindcx' ? pts : rpnlHedgeCache;
-  const showHedge = venue !== 'delta' && hedgePts.length > 0;
+  const showDelta = venue !== 'hedge';
+  const hedgePts = rpnlHedgeCache;
+  const showHedge = venue !== 'quote' && rpnlMeta.has_hedge && hedgePts.length > 0;
   const netPts = (showDelta && showHedge) ? netFromCaches(pts, hedgePts) : [];
   if (rpnlView === 'cumul') {
     rpnlSeries.applyOptions({ visible: showDelta });
@@ -1838,7 +1898,7 @@ function applyRpnlData(pts, keepRange) {
     if (rpnlNetSeries) rpnlNetSeries.applyOptions({ visible: false });
     rpnlHistSeries.applyOptions({ visible: true });
     const src = venue === 'both' && netPts.length ? netPts
-      : (venue === 'coindcx' ? hedgePts : pts);
+      : (venue === 'hedge' ? hedgePts : pts);
     const bars = src.map((p, i) => {
       const val = i === 0 ? p.value : parseFloat((p.value - src[i-1].value).toFixed(4));
       return { time: p.time, value: val, color: val >= 0 ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)' };
@@ -1871,7 +1931,7 @@ async function extendRpnl() {
 
 async function loadRpnl(keepRange) {
   const picked = currentRpnlSel();
-  const venue  = currentRpnlVenue();
+  const venue  = rpnlVenueParam();
   const sym    = picked.contract;
   const hours  = rpnlCurrentHours !== null
     ? rpnlCurrentHours
@@ -1884,22 +1944,20 @@ async function loadRpnl(keepRange) {
     ? ohlcChart.timeScale().getVisibleLogicalRange()
     : null;
   const acctBit = '&account=' + encodeURIComponent(picked.account);
-  const exchQ = venue === 'coindcx' ? 'hedge' : (venue === 'delta' ? 'delta' : 'both');
-  const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + (picked.account ? sym + ' · ' + picked.account : sym) + ' (' + hours + 'h, ' + venue + ')...';
+  const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + (picked.account ? sym + ' · ' + picked.account : sym) + ' (' + hours + 'h)...';
   setLoading('rpnlStatus', loadingLabel);
   try {
     const candleIvl = (document.getElementById('rpnlCandle') || {}).value || '5m';
-    const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket + acctBit + '&exchange=' + exchQ;
+    const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket + acctBit + '&exchange=' + venue;
     const fillUrl = '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket + acctBit;
+    // Quote and hedge fills are separate requests so each side keeps its own venue.
     const reqs = [
       fetch(withStrategy(url)),
-      fetch('/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + '&hours=' + hours),
-      fetch(withStrategy(fillUrl + '&exchange=' + exchQ)),
+      fetch(withStrategy('/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + '&hours=' + hours + acctBit)),
+      fetch(withStrategy(fillUrl + '&exchange=quote')),
       fetch(withStrategy('/api/rpnl/summary')),
+      venue === 'quote' ? null : fetch(withStrategy(fillUrl + '&exchange=hedge')),
     ];
-    if (venue === 'both') reqs.push(fetch(withStrategy(
-      '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket + '&exchange=hedge'
-    )));
     const [r, cR, fR, sR, hFR] = await Promise.all(reqs);
     if (sR.ok) renderRpnlSummary(await sR.json());
     if (!r.ok) {
@@ -1913,12 +1971,14 @@ async function loadRpnl(keepRange) {
       quote_venue: d.quote_venue || 'delta',
       quote_label: d.quote_label || 'Delta',
       quote_symbol: d.quote_symbol || d.contract || '',
-      hedge_venue: d.hedge_venue || 'coindcx',
-      hedge_label: d.hedge_label || 'Hedge',
+      hedge_venue: d.hedge_venue || '',
+      hedge_label: d.hedge_label || '',
       hedge_symbol: d.hedge_symbol || '',
+      has_hedge: !!d.has_hedge,
     };
     if (rpnlSeries) rpnlSeries.applyOptions({ title: rpnlMeta.quote_label });
-    if (rpnlHedgeSeries) rpnlHedgeSeries.applyOptions({ title: rpnlMeta.hedge_label });
+    if (rpnlHedgeSeries) rpnlHedgeSeries.applyOptions({ title: rpnlMeta.hedge_label || 'Hedge' });
+    syncRpnlVenueControl();
     updateRpnlPaneLabels();
     const pts = dedupeTimes((d.points || []).map(p => ({ time: p.time, value: p.rpnl })));
     const hedgeRaw = dedupeTimes((d.hedge_points || []).map(p => ({ time: p.time, value: p.rpnl })));
@@ -1941,15 +2001,15 @@ async function loadRpnl(keepRange) {
     }
 
     rpnlPtsCache = bars.length ? alignRpnlToBars(filled, bars) : filled;
-    rpnlHedgeCache = venue === 'coindcx'
-      ? rpnlPtsCache
-      : (bars.length ? alignRpnlToBars(hedgeFilled, bars) : hedgeFilled);
+    rpnlHedgeCache = hedgeFilled.length && bars.length
+      ? alignRpnlToBars(hedgeFilled, bars)
+      : hedgeFilled;
     applyRpnlData(rpnlPtsCache, true);
 
     if (ohlcSeries && fR.ok) {
       const fd = await fR.json();
       let fills = fd.fills || [];
-      if (venue === 'both' && hFR && hFR.ok) {
+      if (hFR && hFR.ok) {
         const hf = await hFR.json();
         fills = fills.concat(hf.fills || []);
       }
@@ -1978,22 +2038,21 @@ async function loadRpnl(keepRange) {
       return;
     }
 
-    const last    = pts.length ? pts[pts.length - 1] : { value: 0 };
-    const lastH   = (venue === 'coindcx' ? last : (hedgeRaw.length ? hedgeRaw[hedgeRaw.length - 1] : { value: 0 }));
-    const deltaV  = venue === 'coindcx' ? 0 : last.value;
-    const hedgeV  = lastH ? lastH.value : 0;
-    const netV    = deltaV + hedgeV;
+    const quoteV  = pts.length ? pts[pts.length - 1].value : 0;
+    const hedgeV  = rpnlMeta.has_hedge && hedgeRaw.length ? hedgeRaw[hedgeRaw.length - 1].value : 0;
+    const netV    = quoteV + hedgeV;
     const col     = netV >= 0 ? '#26a69a' : '#ef5350';
-    const winLabel = hours + 'h';
     const acctLab = picked.account ? (' · ' + picked.account) : '';
-    setRpnlKey(deltaV, hedgeV, d.quote_symbol || d.contract, picked.account);
+    setRpnlKey(quoteV, hedgeV, d.quote_symbol || d.contract, picked.account);
     setStatus('rpnlStatus',
       '<span style="font-weight:600;color:#fff;">' + (d.quote_symbol || d.contract) +
       ' · ' + (d.quote_label || '') + acctLab + '</span>' +
-      ' · ' + winLabel +
-      ' · ' + (d.quote_label || 'Quote') + ' <b style="color:#26a69a">' + inrFmtDec(deltaV, 0) + '</b>' +
-      ' · ' + (d.hedge_label || 'Hedge') + ' <b style="color:#ff9800">' + inrFmtDec(hedgeV, 0) + '</b>' +
-      ' · Net <b style="color:' + col + '">' + inrFmtDec(netV, 0) + '</b>' +
+      ' · ' + hours + 'h' +
+      ' · ' + (d.quote_label || 'Quote') + ' <b style="color:#26a69a">' + inrFmtDec(quoteV, 0) + '</b>' +
+      (rpnlMeta.has_hedge
+        ? ' · ' + rpnlMeta.hedge_label + ' <b style="color:#ff9800">' + inrFmtDec(hedgeV, 0) + '</b>' +
+          ' · Net <b style="color:' + col + '">' + inrFmtDec(netV, 0) + '</b>'
+        : ' · <span style="color:var(--muted)">no hedge</span>') +
       ' · IST ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}), 'ok');
   } catch(e) {
     console.error('[rPnL] fetch threw:', e);
