@@ -1106,7 +1106,7 @@ async function fetchRpnlSymbols() {
     const rows = await r.json();
     const sel = document.getElementById('rpnlSymbol');
     const list = (Array.isArray(rows) ? rows : []).map(c => typeof c === 'string'
-      ? { contract: c, account: '', account_name: '', label: c }
+      ? { contract: c, account: '', label: c }
       : c);
     if (list.length === 0) {
       sel.innerHTML = '<option value="">No data in DB</option>';
@@ -1135,7 +1135,7 @@ function currentRpnlSel() {
   return parseRpnlSel((document.getElementById('rpnlSymbol') || {}).value || '');
 }
 function rpnlAccountLabel(r) {
-  return r.account_name || r.account || '';
+  return r.account || '';
 }
 function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');

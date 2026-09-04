@@ -30,7 +30,6 @@ def canon_contract(contract: str) -> str:
 GROUPS_SQL = """
 SELECT contract,
        COALESCE(account, '')                            AS account,
-       COALESCE(MAX(details->>'account_name'), '')      AS account_name,
        strategy,
        STRING_AGG(DISTINCT LOWER(exchange), ',')        AS exchanges,
        COUNT(*)::int                                    AS fills,
@@ -112,24 +111,24 @@ async def report(conn: asyncpg.Connection, contract: str | None, strategy: str |
         print("no fills matched")
         return
 
-    print(f"\n{'contract':<14} {'account':<14} {'name':<10} {'strategy':<8} "
+    print(f"\n{'contract':<14} {'account':<14} {'strategy':<8} "
           f"{'exchanges':<18} {'fills':>7} {'rpnl':>12}  window")
     print("-" * 118)
     by_label: dict[tuple[str, str, str], list] = {}
     for r in rows:
-        label = (canon_contract(r["contract"]), r["account_name"], r["strategy"])
+        label = (canon_contract(r["contract"]), r["account"], r["strategy"])
         by_label.setdefault(label, []).append(r)
         print(
-            f"{r['contract']:<14} {r['account'] or '-':<14} {r['account_name'] or '-':<10} "
+            f"{r['contract']:<14} {r['account'] or '-':<14} "
             f"{r['strategy']:<8} {r['exchanges'] or '-':<18} {r['fills']:>7} "
             f"{r['rpnl']:>12.4f}  {r['first_at']:%Y-%m-%d %H:%M} -> {r['last_at']:%Y-%m-%d %H:%M}"
         )
 
     clashes = {k: v for k, v in by_label.items() if len(v) > 1}
     if clashes:
-        print("\nDuplicate pills — same contract + account name, different account id:")
+        print("\nDuplicate pills — same contract + account, different rows:")
         for (contract_name, name, strat), group in clashes.items():
-            print(f"\n  {contract_name} · {name or '(no name)'} · {strat}")
+            print(f"\n  {contract_name} · {name or '(no account)'} · {strat}")
             for r in group:
                 print(
                     f"    account={r['account'] or '(empty)':<14} fills={r['fills']:<7} "
@@ -142,7 +141,7 @@ async def report(conn: asyncpg.Connection, contract: str | None, strategy: str |
                     f"--account '{r['account']}' --strategy {r['strategy']} --yes"
                 )
     else:
-        print("\nNo duplicate contract+account-name pills.")
+        print("\nNo duplicate contract+account pills.")
 
     dupes = await conn.fetch(EXACT_DUPES_SQL.format(where=where), *args)
     if dupes:

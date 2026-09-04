@@ -1462,7 +1462,6 @@ class EventsDB:
                     """
                     SELECT contract,
                            COALESCE(account::text, '') AS account,
-                           COALESCE(MAX(details->>'account_name'), '') AS account_name,
                            LOWER(exchange) AS exchange,
                            COUNT(*)::int AS n,
                            COALESCE(SUM(rpnl), 0)::float AS rpnl,
@@ -1484,15 +1483,12 @@ class EventsDB:
                 item = grouped.setdefault((contract, account), {
                     "contract": contract,
                     "account": account,
-                    "account_name": r["account_name"] or account,
                     "venue_fills": {},
                     "venue_rpnl": {},
                     "venue_fees": {},
                     "first_at": None,
                     "last_at": None,
                 })
-                if not item["account_name"]:
-                    item["account_name"] = r["account_name"] or account
                 venue = (r["exchange"] or "delta").lower()
                 item["venue_fills"][venue] = item["venue_fills"].get(venue, 0) + int(r["n"] or 0)
                 item["venue_rpnl"][venue] = round(

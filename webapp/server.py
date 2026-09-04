@@ -297,7 +297,7 @@ def _annotate_rpnl_row(row: dict) -> dict:
     row["fills"] = counts.get(qv, 0)
     row["hedge_rpnl"] = round(sum(v for k, v in rpnls.items() if k != qv), 2)
     row["hedge_fills"] = sum(n for k, n in counts.items() if k != qv)
-    acct = row.get("account_name") or row.get("account") or ""
+    acct = row.get("account") or ""
     row["label"] = meta["label"] + (f" · {acct}" if acct else "")
     return row
 
@@ -447,7 +447,6 @@ async def rpnl_symbols(
                 """
                 SELECT contract,
                        COALESCE(account::text, '') AS account,
-                       COALESCE(MAX(details->>'account_name'), '') AS account_name,
                        LOWER(exchange) AS exchange,
                        COUNT(*)::int AS n
                 FROM fills
@@ -466,17 +465,14 @@ async def rpnl_symbols(
             entry = merged.setdefault((contract, account), {
                 "contract": contract,
                 "account": account,
-                "account_name": r["account_name"] or account,
                 "counts": {},
             })
-            if not entry["account_name"]:
-                entry["account_name"] = r["account_name"] or account
             venue = (r["exchange"] or "delta").lower()
             entry["counts"][venue] = entry["counts"].get(venue, 0) + int(r["n"] or 0)
         out = []
         for entry in merged.values():
             meta = venue_meta(entry["contract"], entry.pop("counts"))
-            name = entry["account_name"]
+            name = entry["account"]
             out.append({
                 **entry,
                 **{k: meta[k] for k in (
