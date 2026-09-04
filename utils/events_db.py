@@ -1453,14 +1453,18 @@ class EventsDB:
                            COALESCE(MAX(details->>'account_name'), '') AS account_name,
                            COUNT(*) FILTER (WHERE exchange = 'delta')::int AS fills,
                            COUNT(*) FILTER (WHERE exchange = 'binance')::int AS binance_fills,
+                           COUNT(*) FILTER (WHERE exchange = 'kucoin')::int AS kucoin_fills,
                            COUNT(*) FILTER (WHERE exchange = 'coindcx')::int AS cdcx_fills,
                            COUNT(*) FILTER (WHERE exchange <> 'delta')::int AS hedge_fills,
                            COALESCE(SUM(rpnl) FILTER (WHERE exchange = 'delta'), 0)::float AS rpnl,
                            COALESCE(SUM(rpnl) FILTER (WHERE exchange = 'binance'), 0)::float AS binance_rpnl,
+                           COALESCE(SUM(rpnl) FILTER (WHERE exchange = 'kucoin'), 0)::float AS kucoin_rpnl,
                            COALESCE(SUM(rpnl) FILTER (WHERE exchange = 'coindcx'), 0)::float AS cdcx_rpnl,
                            COALESCE(SUM(fee) FILTER (WHERE exchange = 'delta'), 0)::float AS fees,
                            COALESCE(SUM(fee) FILTER (WHERE exchange = 'binance'), 0)::float AS binance_fees,
+                           COALESCE(SUM(fee) FILTER (WHERE exchange = 'kucoin'), 0)::float AS kucoin_fees,
                            COALESCE(SUM(fee) FILTER (WHERE exchange = 'coindcx'), 0)::float AS cdcx_fees,
+                           MODE() WITHIN GROUP (ORDER BY LOWER(exchange)) AS primary_exchange,
                            MIN(created_at) AS first_at,
                            MAX(created_at) AS last_at
                     FROM fills
@@ -1477,6 +1481,7 @@ class EventsDB:
                 contract = canon_contract(r["contract"])
                 key = (contract, account)
                 binance_rpnl = float(r["binance_rpnl"] or 0)
+                kucoin_rpnl = float(r["kucoin_rpnl"] or 0)
                 cdcx_rpnl = float(r["cdcx_rpnl"] or 0)
                 item = {
                     "contract": contract,
@@ -1484,18 +1489,25 @@ class EventsDB:
                     "account_name": name,
                     "fills": int(r["fills"] or 0),
                     "binance_fills": int(r["binance_fills"] or 0),
+                    "kucoin_fills": int(r["kucoin_fills"] or 0),
                     "cdcx_fills": int(r["cdcx_fills"] or 0),
                     "hedge_fills": int(r["hedge_fills"] or 0),
                     "rpnl": round(float(r["rpnl"] or 0) * self.usdinr_rate, 2),
                     "binance_rpnl": round(binance_rpnl * self.usdinr_rate, 2),
+                    "kucoin_rpnl": round(kucoin_rpnl * self.usdinr_rate, 2),
                     "cdcx_rpnl": round(cdcx_rpnl, 2),
-                    "hedge_rpnl": round(binance_rpnl * self.usdinr_rate + cdcx_rpnl, 2),
+                    "hedge_rpnl": round(
+                        (binance_rpnl + kucoin_rpnl) * self.usdinr_rate + cdcx_rpnl,
+                        2,
+                    ),
                     "fees": round(float(r["fees"] or 0) * self.usdinr_rate, 2),
                     "hedge_fees": round(
                         float(r["binance_fees"] or 0) * self.usdinr_rate
+                        + float(r["kucoin_fees"] or 0) * self.usdinr_rate
                         + float(r["cdcx_fees"] or 0),
                         2,
                     ),
+                    "primary_exchange": (r["primary_exchange"] or "delta").lower(),
                     "first_at": int(r["first_at"].timestamp()) if r["first_at"] else None,
                     "last_at": int(r["last_at"].timestamp()) if r["last_at"] else None,
                 }
@@ -1505,10 +1517,12 @@ class EventsDB:
                     continue
                 prev["fills"] += item["fills"]
                 prev["binance_fills"] = prev.get("binance_fills", 0) + item["binance_fills"]
+                prev["kucoin_fills"] = prev.get("kucoin_fills", 0) + item["kucoin_fills"]
                 prev["cdcx_fills"] = prev.get("cdcx_fills", 0) + item["cdcx_fills"]
                 prev["hedge_fills"] += item["hedge_fills"]
                 prev["rpnl"] = round(prev["rpnl"] + item["rpnl"], 2)
                 prev["binance_rpnl"] = round(prev.get("binance_rpnl", 0) + item["binance_rpnl"], 2)
+                prev["kucoin_rpnl"] = round(prev.get("kucoin_rpnl", 0) + item["kucoin_rpnl"], 2)
                 prev["cdcx_rpnl"] = round(prev.get("cdcx_rpnl", 0) + item["cdcx_rpnl"], 2)
                 prev["hedge_rpnl"] = round(prev["hedge_rpnl"] + item["hedge_rpnl"], 2)
                 prev["fees"] = round(prev["fees"] + item["fees"], 2)
@@ -1553,7 +1567,7 @@ class EventsDB:
         qv = (quote_venue or "delta").lower()
         if qv in ("c",):
             qv = "coindcx"
-        if qv not in ("delta", "binance", "coindcx"):
+        if qv not in ("delta", "binance", "kucoin", "coindcx"):
             qv = "delta"
         if exch == "quote":
             return f" AND exchange = ${start_idx}", [qv]
@@ -1561,12 +1575,12 @@ class EventsDB:
             return f" AND exchange <> ${start_idx}", [qv]
         if exch == "hedge":
             return " AND exchange <> 'delta'", []
-        if exch in ("coindcx", "binance"):
+        if exch in ("coindcx", "binance", "kucoin"):
             return f" AND exchange = ${start_idx}", [exch]
         return f" AND exchange = ${start_idx}", ["delta"]
 
     def _rpnl_inr(self, value: float, exchange: str) -> float:
-        if (exchange or "delta").lower() in ("delta", "binance"):
+        if (exchange or "delta").lower() in ("delta", "binance", "kucoin"):
             return float(value or 0) * self.usdinr_rate
         return float(value or 0)
 
@@ -1582,8 +1596,12 @@ class EventsDB:
             step = max(60, int(bucket_seconds or 300))
             aliases = contract_aliases(contract)
             exch_sql, exch_args = self._exchange_filter(exchange, 5, quote_venue=quote_venue)
-            skip_acct = (exchange or "delta").lower() in ("coindcx", "hedge", "binance", "not_quote")
-            if (quote_venue or "delta").lower() == "binance" and (exchange or "").lower() == "quote":
+            skip_acct = (exchange or "delta").lower() in (
+                "coindcx", "hedge", "binance", "kucoin", "not_quote",
+            )
+            if (quote_venue or "delta").lower() in ("binance", "kucoin") and (
+                exchange or ""
+            ).lower() == "quote":
                 skip_acct = True
             if skip_acct:
                 acct_sql, acct_args = "", []
@@ -1656,8 +1674,12 @@ class EventsDB:
             params: list = [aliases, since, float(bucket_secs), strategy]
             exch_sql, exch_args = self._exchange_filter(exchange, len(params) + 1, quote_venue=quote_venue)
             params.extend(exch_args)
-            skip_acct = (exchange or "delta").lower() in ("coindcx", "hedge", "binance", "not_quote")
-            if (quote_venue or "delta").lower() == "binance" and (exchange or "").lower() == "quote":
+            skip_acct = (exchange or "delta").lower() in (
+                "coindcx", "hedge", "binance", "kucoin", "not_quote",
+            )
+            if (quote_venue or "delta").lower() in ("binance", "kucoin") and (
+                exchange or ""
+            ).lower() == "quote":
                 skip_acct = True
             if skip_acct:
                 acct_sql, acct_args = "", []

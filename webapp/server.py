@@ -154,13 +154,20 @@ for _cfg in _ALL_CFGS:
     _CONTRACT_VALUE.setdefault(_cfg.delta_symbol, float(_cfg.contract_value))
 
 
-_VENUE_LABEL = {"delta": "Delta", "binance": "Binance", "coindcx": "CoinDCX"}
+_VENUE_LABEL = {
+    "delta": "Delta",
+    "binance": "Binance",
+    "kucoin": "KuCoin",
+    "coindcx": "CoinDCX",
+}
 
 
 def _norm_quote_venue(raw: str | None) -> str:
     v = (raw or "delta").strip().lower()
     if v in ("b", "binance"):
         return "binance"
+    if v in ("k", "kucoin"):
+        return "kucoin"
     if v in ("c", "coindcx"):
         return "coindcx"
     return "delta"
@@ -242,27 +249,54 @@ def contract_meta(name: str) -> dict:
     }
 
 
+def _row_contract_meta(name: str, exchange: str | None) -> dict:
+    """Use the fill venue for dynamic symbols that have no dashboard config."""
+    meta = contract_meta(name)
+    if _cfg_for_contract(name) is not None:
+        return meta
+    venue = _norm_quote_venue(exchange)
+    label = _VENUE_LABEL.get(venue, venue.title())
+    meta.update({
+        "quote_venue": venue,
+        "quote_label": label,
+        "quote_symbol": (name or "").upper(),
+        "hedge_venue": "",
+        "hedge_label": "Hedge",
+        "hedge_symbol": "",
+        "label": f"{(name or '').upper()} · {label}",
+    })
+    return meta
+
+
 def _annotate_rpnl_row(row: dict) -> dict:
-    meta = contract_meta(row.get("contract") or "")
+    meta = _row_contract_meta(
+        row.get("contract") or "", row.get("primary_exchange")
+    )
     qv = meta["quote_venue"]
     delta_rpnl = float(row.get("rpnl") or 0)
     binance_rpnl = float(row.get("binance_rpnl") or 0)
+    kucoin_rpnl = float(row.get("kucoin_rpnl") or 0)
     cdcx_rpnl = float(row.get("cdcx_rpnl") or 0)
     delta_fills = int(row.get("fills") or 0)
     binance_fills = int(row.get("binance_fills") or 0)
+    kucoin_fills = int(row.get("kucoin_fills") or 0)
     cdcx_fills = int(row.get("cdcx_fills") or 0)
     if qv == "binance":
         quote_rpnl, quote_fills = binance_rpnl, binance_fills
-        hedge_rpnl = delta_rpnl + cdcx_rpnl
-        hedge_fills = delta_fills + cdcx_fills
+        hedge_rpnl = delta_rpnl + kucoin_rpnl + cdcx_rpnl
+        hedge_fills = delta_fills + kucoin_fills + cdcx_fills
+    elif qv == "kucoin":
+        quote_rpnl, quote_fills = kucoin_rpnl, kucoin_fills
+        hedge_rpnl = delta_rpnl + binance_rpnl + cdcx_rpnl
+        hedge_fills = delta_fills + binance_fills + cdcx_fills
     elif qv == "coindcx":
         quote_rpnl, quote_fills = cdcx_rpnl, cdcx_fills
-        hedge_rpnl = delta_rpnl + binance_rpnl
-        hedge_fills = delta_fills + binance_fills
+        hedge_rpnl = delta_rpnl + binance_rpnl + kucoin_rpnl
+        hedge_fills = delta_fills + binance_fills + kucoin_fills
     else:
         quote_rpnl, quote_fills = delta_rpnl, delta_fills
-        hedge_rpnl = binance_rpnl + cdcx_rpnl
-        hedge_fills = binance_fills + cdcx_fills
+        hedge_rpnl = binance_rpnl + kucoin_rpnl + cdcx_rpnl
+        hedge_fills = binance_fills + kucoin_fills + cdcx_fills
     row = dict(row)
     row.update(meta)
     row["rpnl"] = round(quote_rpnl, 2)
@@ -419,7 +453,8 @@ async def rpnl_symbols(
                 """
                 SELECT contract,
                        COALESCE(account, '') AS account,
-                       COALESCE(MAX(details->>'account_name'), '') AS account_name
+                       COALESCE(MAX(details->>'account_name'), '') AS account_name,
+                       MODE() WITHIN GROUP (ORDER BY LOWER(exchange)) AS primary_exchange
                 FROM fills
                 WHERE strategy = $1
                 GROUP BY contract, COALESCE(account, '')
@@ -435,7 +470,7 @@ async def rpnl_symbols(
             key = (contract, account)
             if key in merged:
                 continue
-            meta = contract_meta(contract)
+            meta = _row_contract_meta(contract, r["primary_exchange"])
             acct_bit = f" · {name}" if name else ""
             merged[key] = {
                 "contract": contract,

@@ -181,6 +181,7 @@
   }
   .rpnl-venue.delta { background: rgba(38,166,154,.18); color: #26a69a; }
   .rpnl-venue.binance { background: rgba(240,185,11,.18); color: #f0b90b; }
+  .rpnl-venue.kucoin { background: rgba(35,209,139,.18); color: #23d18b; }
   .rpnl-venue.coindcx { background: rgba(255,152,0,.18); color: #ff9800; }
   .rpnl-pill .p-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
   .rpnl-pill .p-meta { font-size: 10px; color: var(--muted); margin-top: 1px; }
@@ -1274,6 +1275,7 @@ let rpnlMeta = { quote_venue: 'delta', quote_label: 'Delta', quote_symbol: '', h
 function rpnlVenueClass(v) {
   v = (v || 'delta').toLowerCase();
   if (v === 'binance') return 'binance';
+  if (v === 'kucoin') return 'kucoin';
   if (v === 'coindcx') return 'coindcx';
   return 'delta';
 }
