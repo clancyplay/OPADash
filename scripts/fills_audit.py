@@ -56,6 +56,44 @@ LIMIT 25
 """
 
 
+async def show_schema(conn: asyncpg.Connection) -> None:
+    cols = await conn.fetch(
+        """
+        SELECT column_name, data_type, is_nullable, character_maximum_length
+        FROM information_schema.columns
+        WHERE table_name = 'fills'
+        ORDER BY ordinal_position
+        """
+    )
+    if not cols:
+        print("no 'fills' table found")
+        return
+    print(f"\nfills columns ({len(cols)}):")
+    for c in cols:
+        width = f"({c['character_maximum_length']})" if c["character_maximum_length"] else ""
+        null = "" if c["is_nullable"] == "YES" else " NOT NULL"
+        print(f"  {c['column_name']:<16} {c['data_type']}{width}{null}")
+
+    names = {c["column_name"] for c in cols}
+    for col in ("account", "strategy", "exchange"):
+        if col not in names:
+            print(f"\n!! the dashboard expects a '{col}' column and it is missing")
+            continue
+        vals = await conn.fetch(
+            f"SELECT {col}::text AS v, COUNT(*)::int AS n FROM fills "
+            f"GROUP BY {col}::text ORDER BY n DESC LIMIT 12"
+        )
+        print(f"\ndistinct {col}:")
+        for v in vals:
+            print(f"  {str(v['v']):<28} {v['n']} fills")
+
+    sample = await conn.fetchrow("SELECT * FROM fills ORDER BY id DESC LIMIT 1")
+    if sample:
+        print("\nmost recent row:")
+        for k, v in dict(sample).items():
+            print(f"  {k:<16} {v!r}")
+
+
 def _where(contract: str | None, strategy: str | None) -> tuple[str, list]:
     clauses, args = [], []
     if contract:
@@ -184,6 +222,7 @@ async def main() -> int:
     ap.add_argument("--contract", help="limit to one contract, e.g. LISTAUSD")
     ap.add_argument("--account", default="", help="account id for --delete ('' = the empty-account group)")
     ap.add_argument("--strategy", help="limit to one strategy tag, e.g. opa3")
+    ap.add_argument("--schema", action="store_true", help="dump the fills columns and their values")
     ap.add_argument("--delete", action="store_true", help="delete one contract+account group")
     ap.add_argument("--dedupe-exact", action="store_true", help="drop re-ingested identical fills")
     ap.add_argument("--yes", action="store_true", help="actually write (otherwise dry run)")
@@ -196,7 +235,9 @@ async def main() -> int:
 
     conn = await asyncpg.connect(url)
     try:
-        if args.delete:
+        if args.schema:
+            await show_schema(conn)
+        elif args.delete:
             if not args.contract:
                 print("--delete needs --contract", file=sys.stderr)
                 return 2

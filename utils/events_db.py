@@ -13,6 +13,13 @@ import asyncpg
 from utils.logger import get_logger
 
 
+# Exchanges that appear in fills.exchange. Add a venue here and the rPnL
+# queries, filters and currency conversion pick it up.
+KNOWN_VENUES = ("delta", "binance", "kucoin", "coindcx", "aster")
+# Venues whose rpnl/fee columns are already in INR; the rest are USD.
+INR_VENUES = ("coindcx",)
+
+
 def contract_aliases(contract: str) -> list[str]:
     """ZORAUSD ↔ ZORAUSDT so Binance fills show on the Delta rPnL series."""
     raw = (contract or "").strip()
@@ -1027,12 +1034,12 @@ class EventsDB:
                 rows = await conn.fetch(
                     """
                     SELECT DISTINCT strategy FROM (
-                        SELECT strategy FROM fills
-                        UNION SELECT strategy FROM orders
-                        UNION SELECT strategy FROM positions
-                        UNION SELECT strategy FROM events
+                        SELECT strategy::text AS strategy FROM fills
+                        UNION SELECT strategy::text FROM orders
+                        UNION SELECT strategy::text FROM positions
+                        UNION SELECT strategy::text FROM events
                     ) s
-                    WHERE strategy IS NOT NULL
+                    WHERE strategy IS NOT NULL AND strategy <> ''
                     ORDER BY strategy
                     """
                 )
@@ -1441,7 +1448,12 @@ class EventsDB:
             return {"rpnl": 0.0, "fills_buy": 0, "fills_sell": 0, "volume": 0.0}
 
     async def get_contract_rpnl_summary(self, strategy: str = "opa3") -> list[dict]:
-        """Per-contract+account fill count + realized PnL (₹) for the dashboard table."""
+        """Per-contract+account fill count + realized PnL (₹) for the dashboard.
+
+        Aggregated per exchange in Python rather than with a fixed set of SQL
+        FILTERs, so a venue that shows up in the fills table later (aster did)
+        is picked up without a code change.
+        """
         if not self.pool:
             return []
         try:
@@ -1449,117 +1461,147 @@ class EventsDB:
                 rows = await conn.fetch(
                     """
                     SELECT contract,
-                           COALESCE(account, '') AS account,
+                           COALESCE(account::text, '') AS account,
                            COALESCE(MAX(details->>'account_name'), '') AS account_name,
-                           COUNT(*) FILTER (WHERE exchange = 'delta')::int AS fills,
-                           COUNT(*) FILTER (WHERE exchange = 'binance')::int AS binance_fills,
-                           COUNT(*) FILTER (WHERE exchange = 'kucoin')::int AS kucoin_fills,
-                           COUNT(*) FILTER (WHERE exchange = 'coindcx')::int AS cdcx_fills,
-                           COUNT(*) FILTER (WHERE exchange <> 'delta')::int AS hedge_fills,
-                           COALESCE(SUM(rpnl) FILTER (WHERE exchange = 'delta'), 0)::float AS rpnl,
-                           COALESCE(SUM(rpnl) FILTER (WHERE exchange = 'binance'), 0)::float AS binance_rpnl,
-                           COALESCE(SUM(rpnl) FILTER (WHERE exchange = 'kucoin'), 0)::float AS kucoin_rpnl,
-                           COALESCE(SUM(rpnl) FILTER (WHERE exchange = 'coindcx'), 0)::float AS cdcx_rpnl,
-                           COALESCE(SUM(fee) FILTER (WHERE exchange = 'delta'), 0)::float AS fees,
-                           COALESCE(SUM(fee) FILTER (WHERE exchange = 'binance'), 0)::float AS binance_fees,
-                           COALESCE(SUM(fee) FILTER (WHERE exchange = 'kucoin'), 0)::float AS kucoin_fees,
-                           COALESCE(SUM(fee) FILTER (WHERE exchange = 'coindcx'), 0)::float AS cdcx_fees,
+                           LOWER(exchange) AS exchange,
+                           COUNT(*)::int AS n,
+                           COALESCE(SUM(rpnl), 0)::float AS rpnl,
+                           COALESCE(SUM(fee), 0)::float AS fee,
                            MIN(created_at) AS first_at,
                            MAX(created_at) AS last_at
                     FROM fills
-                    WHERE strategy = $1
-                    GROUP BY contract, COALESCE(account, '')
-                    ORDER BY SUM(rpnl) FILTER (WHERE exchange = 'delta') DESC NULLS LAST
+                    WHERE strategy::text = $1
+                    GROUP BY contract, COALESCE(account::text, ''), LOWER(exchange)
                     """,
                     strategy,
                 )
+            # Keyed on the account id — the id is what the fills queries filter
+            # on, so it has to be what the dashboard round-trips.
             grouped: dict[tuple[str, str], dict] = {}
             for r in rows:
                 account = r["account"] or ""
-                name = r["account_name"] or account
                 contract = canon_contract(r["contract"])
-                key = (contract, name)
-                binance_rpnl = float(r["binance_rpnl"] or 0)
-                kucoin_rpnl = float(r["kucoin_rpnl"] or 0)
-                cdcx_rpnl = float(r["cdcx_rpnl"] or 0)
-                item = {
+                item = grouped.setdefault((contract, account), {
                     "contract": contract,
-                    "account": name or account,
-                    "account_name": name,
-                    "fills": int(r["fills"] or 0),
-                    "binance_fills": int(r["binance_fills"] or 0),
-                    "kucoin_fills": int(r["kucoin_fills"] or 0),
-                    "cdcx_fills": int(r["cdcx_fills"] or 0),
-                    "hedge_fills": int(r["hedge_fills"] or 0),
-                    "rpnl": round(float(r["rpnl"] or 0) * self.usdinr_rate, 2),
-                    "binance_rpnl": round(binance_rpnl * self.usdinr_rate, 2),
-                    "kucoin_rpnl": round(kucoin_rpnl * self.usdinr_rate, 2),
-                    "cdcx_rpnl": round(cdcx_rpnl, 2),
-                    "hedge_rpnl": round(
-                        (binance_rpnl + kucoin_rpnl) * self.usdinr_rate + cdcx_rpnl,
-                        2,
-                    ),
-                    "fees": round(float(r["fees"] or 0) * self.usdinr_rate, 2),
-                    "hedge_fees": round(
-                        float(r["binance_fees"] or 0) * self.usdinr_rate
-                        + float(r["kucoin_fees"] or 0) * self.usdinr_rate
-                        + float(r["cdcx_fees"] or 0),
-                        2,
-                    ),
-                    "first_at": int(r["first_at"].timestamp()) if r["first_at"] else None,
-                    "last_at": int(r["last_at"].timestamp()) if r["last_at"] else None,
-                }
-                prev = grouped.get(key)
-                if prev is None:
-                    grouped[key] = item
-                    continue
-                prev["fills"] += item["fills"]
-                prev["binance_fills"] = prev.get("binance_fills", 0) + item["binance_fills"]
-                prev["kucoin_fills"] = prev.get("kucoin_fills", 0) + item["kucoin_fills"]
-                prev["cdcx_fills"] = prev.get("cdcx_fills", 0) + item["cdcx_fills"]
-                prev["hedge_fills"] += item["hedge_fills"]
-                prev["rpnl"] = round(prev["rpnl"] + item["rpnl"], 2)
-                prev["binance_rpnl"] = round(prev.get("binance_rpnl", 0) + item["binance_rpnl"], 2)
-                prev["kucoin_rpnl"] = round(prev.get("kucoin_rpnl", 0) + item["kucoin_rpnl"], 2)
-                prev["cdcx_rpnl"] = round(prev.get("cdcx_rpnl", 0) + item["cdcx_rpnl"], 2)
-                prev["hedge_rpnl"] = round(prev["hedge_rpnl"] + item["hedge_rpnl"], 2)
-                prev["fees"] = round(prev["fees"] + item["fees"], 2)
-                prev["hedge_fees"] = round(prev["hedge_fees"] + item["hedge_fees"], 2)
-                if item["first_at"] and (not prev["first_at"] or item["first_at"] < prev["first_at"]):
-                    prev["first_at"] = item["first_at"]
-                if item["last_at"] and (not prev["last_at"] or item["last_at"] > prev["last_at"]):
-                    prev["last_at"] = item["last_at"]
-                if item["account_name"] and not prev["account_name"]:
-                    prev["account_name"] = item["account_name"]
-            out = []
-            hedge_only: dict[str, dict] = {}
+                    "account": account,
+                    "account_name": r["account_name"] or account,
+                    "venue_fills": {},
+                    "venue_rpnl": {},
+                    "venue_fees": {},
+                    "first_at": None,
+                    "last_at": None,
+                })
+                if not item["account_name"]:
+                    item["account_name"] = r["account_name"] or account
+                venue = (r["exchange"] or "delta").lower()
+                item["venue_fills"][venue] = item["venue_fills"].get(venue, 0) + int(r["n"] or 0)
+                item["venue_rpnl"][venue] = round(
+                    item["venue_rpnl"].get(venue, 0.0)
+                    + self._rpnl_inr(float(r["rpnl"] or 0), venue), 4,
+                )
+                item["venue_fees"][venue] = round(
+                    item["venue_fees"].get(venue, 0.0)
+                    + self._rpnl_inr(float(r["fee"] or 0), venue), 4,
+                )
+                first = int(r["first_at"].timestamp()) if r["first_at"] else None
+                last = int(r["last_at"].timestamp()) if r["last_at"] else None
+                if first and (not item["first_at"] or first < item["first_at"]):
+                    item["first_at"] = first
+                if last and (not item["last_at"] or last > item["last_at"]):
+                    item["last_at"] = last
+
+            out: list[dict] = []
+            venue_only: dict[str, dict] = {}
             for item in grouped.values():
-                account = item["account"]
-                # CoinDCX/Binance fills are stored without a Delta account id — fold
-                # them onto the matching contract so the chart pills show both venues.
-                if item["fills"] == 0 and item["hedge_fills"] and not account:
-                    hedge_only[item["contract"]] = item
+                # Hedge fills are logged without the quote venue's account id —
+                # hold them aside so they can be folded onto the real pill.
+                if not item["account"] and not item["venue_fills"].get("delta"):
+                    venue_only[item["contract"]] = item
                 else:
                     out.append(item)
             used = set()
-            merge_fields = (
-                "binance_fills", "kucoin_fills", "cdcx_fills", "hedge_fills",
-                "binance_rpnl", "kucoin_rpnl", "cdcx_rpnl", "hedge_rpnl", "hedge_fees",
-            )
             for item in out:
-                h = hedge_only.get(item["contract"])
-                if h and item["hedge_fills"] == 0:
-                    for field in merge_fields:
-                        item[field] = h.get(field, 0)
+                h = venue_only.get(item["contract"])
+                if h and set(item["venue_fills"]) <= {"delta"}:
+                    for field in ("venue_fills", "venue_rpnl", "venue_fees"):
+                        for venue, val in h[field].items():
+                            if venue != "delta":
+                                item[field][venue] = val
                     used.add(item["contract"])
-            for contract, h in hedge_only.items():
+            for contract, h in venue_only.items():
                 if contract not in used and not any(m["contract"] == contract for m in out):
-                    h["account_name"] = h.get("account_name") or ""
                     out.append(h)
+            for item in out:
+                self._add_legacy_rpnl_fields(item)
+            out.sort(key=lambda i: i["venue_rpnl"].get("delta", 0.0), reverse=True)
             return out
         except Exception as e:
             self.logger.warning("events_db: get_contract_rpnl_summary failed — %s", e)
             return []
+
+    async def get_rpnl_rollup(
+        self, strategy: str = "opa3", since: "datetime | None" = None,
+    ) -> list[dict]:
+        """Realized PnL (₹) per IST day / contract / exchange.
+
+        Raw enough that the caller can roll it up by day or by symbol and still
+        decide which exchange is the quote venue.
+        """
+        if not self.pool:
+            return []
+        try:
+            params: list = [strategy]
+            sql = """
+                SELECT (created_at AT TIME ZONE 'Asia/Kolkata')::date AS day,
+                       contract,
+                       LOWER(exchange) AS exchange,
+                       COUNT(*)::int AS fills,
+                       COALESCE(SUM(rpnl), 0)::float AS rpnl,
+                       COALESCE(SUM(fee), 0)::float AS fee
+                FROM fills
+                WHERE strategy::text = $1
+            """
+            if since is not None:
+                params.append(since)
+                sql += f" AND created_at >= ${len(params)}"
+            sql += " GROUP BY 1, 2, 3 ORDER BY 1 DESC"
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(sql, *params)
+            return [
+                {
+                    "date": r["day"].isoformat(),
+                    "contract": canon_contract(r["contract"]),
+                    "exchange": (r["exchange"] or "delta").lower(),
+                    "fills": int(r["fills"] or 0),
+                    "rpnl": round(self._rpnl_inr(float(r["rpnl"] or 0), r["exchange"]), 4),
+                    "fee": round(self._rpnl_inr(float(r["fee"] or 0), r["exchange"]), 4),
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            self.logger.warning("events_db: get_rpnl_rollup failed — %s", e)
+            return []
+
+    @staticmethod
+    def _add_legacy_rpnl_fields(item: dict) -> None:
+        """Per-venue named keys the dashboard and Data page still read."""
+        fills, rpnl, fees = item["venue_fills"], item["venue_rpnl"], item["venue_fees"]
+        for key, venue in (
+            ("fills", "delta"), ("binance_fills", "binance"),
+            ("kucoin_fills", "kucoin"), ("cdcx_fills", "coindcx"),
+            ("aster_fills", "aster"),
+        ):
+            item[key] = fills.get(venue, 0)
+        for key, venue in (
+            ("rpnl", "delta"), ("binance_rpnl", "binance"),
+            ("kucoin_rpnl", "kucoin"), ("cdcx_rpnl", "coindcx"),
+            ("aster_rpnl", "aster"),
+        ):
+            item[key] = round(rpnl.get(venue, 0.0), 2)
+        item["fees"] = round(fees.get("delta", 0.0), 2)
+        item["hedge_fills"] = sum(n for v, n in fills.items() if v != "delta")
+        item["hedge_rpnl"] = round(sum(x for v, x in rpnl.items() if v != "delta"), 2)
+        item["hedge_fees"] = round(sum(x for v, x in fees.items() if v != "delta"), 2)
 
     def _exchange_filter(
         self, exchange: str | None, start_idx: int, quote_venue: str = "delta",
@@ -1568,7 +1610,7 @@ class EventsDB:
         qv = (quote_venue or "delta").lower()
         if qv in ("c",):
             qv = "coindcx"
-        if qv not in ("delta", "binance", "kucoin", "coindcx"):
+        if qv not in KNOWN_VENUES:
             qv = "delta"
         if exch == "quote":
             return f" AND exchange = ${start_idx}", [qv]
@@ -1576,20 +1618,20 @@ class EventsDB:
             return f" AND exchange <> ${start_idx}", [qv]
         if exch == "hedge":
             return " AND exchange <> 'delta'", []
-        if exch in ("coindcx", "binance", "kucoin"):
+        if exch in KNOWN_VENUES and exch != "delta":
             return f" AND exchange = ${start_idx}", [exch]
         return f" AND exchange = ${start_idx}", ["delta"]
 
     def _rpnl_inr(self, value: float, exchange: str) -> float:
-        if (exchange or "delta").lower() in ("delta", "binance", "kucoin"):
-            return float(value or 0) * self.usdinr_rate
-        return float(value or 0)
+        """CoinDCX books rPnL in INR already; every other venue is USD."""
+        if (exchange or "delta").lower() in INR_VENUES:
+            return float(value or 0)
+        return float(value or 0) * self.usdinr_rate
 
     def _skip_account_filter(self, exchange: str | None) -> bool:
         """Hedge-side fills are logged without the quote venue's account id."""
-        return (exchange or "").lower() in (
-            "not_quote", "hedge", "coindcx", "binance", "kucoin",
-        )
+        exch = (exchange or "").lower()
+        return exch in ("not_quote", "hedge") or (exch in KNOWN_VENUES and exch != "delta")
 
     async def get_contract_venue_stats(
         self, contract: str, strategy: str = "opa3", account: str | None = None,
@@ -1604,14 +1646,17 @@ class EventsDB:
             params: list = [aliases, strategy]
             sql = (
                 "SELECT LOWER(exchange) AS exchange, COUNT(*)::int AS n FROM fills "
-                "WHERE UPPER(contract) = ANY($1::text[]) AND strategy = $2"
+                "WHERE UPPER(contract) = ANY($1::text[]) AND strategy::text = $2"
             )
             if since is not None:
                 params.append(since)
                 sql += f" AND created_at >= ${len(params)}"
             if account:
                 params.append(account)
-                sql += f" AND (account = ${len(params)} OR account IS NULL OR account = '')"
+                sql += (
+                    f" AND (account::text = ${len(params)}"
+                    " OR account IS NULL OR account::text = '')"
+                )
             sql += " GROUP BY LOWER(exchange)"
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(sql, *params)
@@ -1642,9 +1687,9 @@ class EventsDB:
                     WITH src AS (
                       SELECT created_at, side, price::float AS price,
                              quantity::float AS quantity, rpnl::float AS rpnl,
-                             COALESCE(account, '') AS account, exchange
+                             COALESCE(account::text, '') AS account, exchange
                       FROM fills
-                      WHERE UPPER(contract) = ANY($1::text[]) AND strategy = $2
+                      WHERE UPPER(contract) = ANY($1::text[]) AND strategy::text = $2
                         AND created_at >= $3{exch_sql}{acct_sql}
                     ),
                     ranked AS (
@@ -1680,11 +1725,13 @@ class EventsDB:
             return []
 
     def _account_filter(self, account: str | None, start_idx: int) -> tuple[str, list]:
+        # account is cast to text so the queries survive the column being a
+        # varchar, an integer or anything else id-shaped.
         if account is None:
             return "", []
         if account == "":
-            return f" AND (account IS NULL OR account = '')", []
-        return f" AND account = ${start_idx}", [account]
+            return " AND (account IS NULL OR account::text = '')", []
+        return f" AND account::text = ${start_idx}", [account]
 
     async def get_rpnl_timeseries(
         self, contract: str, since: "datetime", bucket_minutes: int = 5, strategy: str = "opa3",
@@ -1717,7 +1764,7 @@ class EventsDB:
                            exchange,
                            COALESCE(SUM(rpnl), 0)    AS bucket_pnl
                     FROM fills
-                    WHERE UPPER(contract) = ANY($1::text[]) AND created_at >= $2 AND strategy = $4
+                    WHERE UPPER(contract) = ANY($1::text[]) AND created_at >= $2 AND strategy::text = $4
                       {exch_sql}{acct_sql}
                     GROUP BY bucket, exchange
                     ORDER BY bucket

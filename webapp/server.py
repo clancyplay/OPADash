@@ -159,6 +159,7 @@ _VENUE_LABEL = {
     "binance": "Binance",
     "kucoin": "KuCoin",
     "coindcx": "CoinDCX",
+    "aster": "Aster",
 }
 
 
@@ -170,6 +171,8 @@ def _norm_quote_venue(raw: str | None) -> str:
         return "kucoin"
     if v in ("c", "coindcx"):
         return "coindcx"
+    if v in ("a", "aster"):
+        return "aster"
     return "delta"
 
 
@@ -217,7 +220,7 @@ def _venue_symbol(cfg: _SymbolConfig | None, venue: str, contract: str) -> str:
     base = _base_asset(contract)
     if not base:
         return (contract or "").upper()
-    if venue == "binance":
+    if venue in ("binance", "aster"):
         return f"{base}USDT"
     if venue == "kucoin":
         return f"{base}USDTM"
@@ -284,18 +287,8 @@ def _venue_side(exchange: str | None) -> str:
 
 def _annotate_rpnl_row(row: dict) -> dict:
     """Split a summary row into quote-venue vs hedge-venue rPnL."""
-    counts = {
-        "delta": int(row.get("fills") or 0),
-        "binance": int(row.get("binance_fills") or 0),
-        "kucoin": int(row.get("kucoin_fills") or 0),
-        "coindcx": int(row.get("cdcx_fills") or 0),
-    }
-    rpnls = {
-        "delta": float(row.get("rpnl") or 0),
-        "binance": float(row.get("binance_rpnl") or 0),
-        "kucoin": float(row.get("kucoin_rpnl") or 0),
-        "coindcx": float(row.get("cdcx_rpnl") or 0),
-    }
+    counts = dict(row.get("venue_fills") or {})
+    rpnls = dict(row.get("venue_rpnl") or {})
     meta = venue_meta(row.get("contract") or "", counts)
     qv = meta["quote_venue"]
     row = dict(row)
@@ -453,13 +446,13 @@ async def rpnl_symbols(
             rows = await conn.fetch(
                 """
                 SELECT contract,
-                       COALESCE(account, '') AS account,
+                       COALESCE(account::text, '') AS account,
                        COALESCE(MAX(details->>'account_name'), '') AS account_name,
                        LOWER(exchange) AS exchange,
                        COUNT(*)::int AS n
                 FROM fills
-                WHERE strategy = $1
-                GROUP BY contract, COALESCE(account, ''), LOWER(exchange)
+                WHERE strategy::text = $1
+                GROUP BY contract, COALESCE(account::text, ''), LOWER(exchange)
                 ORDER BY contract, account
                 """,
                 strategy,
@@ -558,6 +551,59 @@ async def rpnl_summary(
     return [_annotate_rpnl_row(r) for r in rows]
 
 
+@app.get("/api/rpnl/rollup")
+async def rpnl_rollup(
+    strategy: str = Query("opa3"),
+    hours: int | None = Query(None, ge=1, le=8760, description="omit for all time"),
+) -> dict:
+    """Quote vs hedge rPnL totals, per symbol and per IST day."""
+    if _db is None or not _db.pool:
+        raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
+    since = datetime.now(timezone.utc) - timedelta(hours=hours) if hours else None
+    rows = await _db.get_rpnl_rollup(strategy=strategy, since=since)
+
+    # Decide each contract's quote venue once, from its fills across the window.
+    counts: dict[str, dict[str, int]] = {}
+    for r in rows:
+        counts.setdefault(r["contract"], {})
+        counts[r["contract"]][r["exchange"]] = (
+            counts[r["contract"]].get(r["exchange"], 0) + r["fills"]
+        )
+    metas = {c: venue_meta(c, n) for c, n in counts.items()}
+
+    def blank() -> dict:
+        return {"quote": 0.0, "hedge": 0.0, "total": 0.0, "fills": 0}
+
+    totals, by_symbol, by_day = blank(), {}, {}
+    for r in rows:
+        meta = metas[r["contract"]]
+        side = "quote" if r["exchange"] == meta["quote_venue"] else "hedge"
+        sym = by_symbol.setdefault(r["contract"], {**blank(), "contract": r["contract"],
+                                                  "quote_label": meta["quote_label"]})
+        day = by_day.setdefault(r["date"], {**blank(), "date": r["date"]})
+        for bucket in (totals, sym, day):
+            bucket[side] += r["rpnl"]
+            bucket["total"] += r["rpnl"]
+            bucket["fills"] += r["fills"]
+
+    def rounded(d: dict) -> dict:
+        return {k: (round(v, 2) if isinstance(v, float) else v) for k, v in d.items()}
+
+    return {
+        "strategy": strategy,
+        "hours": hours,
+        "totals": rounded(totals),
+        "by_symbol": sorted(
+            (rounded(s) for s in by_symbol.values()),
+            key=lambda s: abs(s["total"]), reverse=True,
+        ),
+        "by_day": sorted(
+            (rounded(d) for d in by_day.values()),
+            key=lambda d: d["date"], reverse=True,
+        ),
+    }
+
+
 @app.get("/api/rpnl/fills")
 async def rpnl_fills(
     symbol: str = Query(...),
@@ -627,14 +673,16 @@ _BINANCE_INTERVAL = {
 }
 
 
-async def _fetch_binance_ohlc(symbol: str, interval: str, lookback_secs: int) -> list[dict]:
-    """USDT-M futures trade klines."""
+async def _fetch_binance_ohlc(
+    symbol: str, interval: str, lookback_secs: int, base_url: str | None = None,
+) -> list[dict]:
+    """USDT-M futures trade klines. Aster serves the same /fapi/v1 shape."""
     end_ms = int(time.time() * 1000)
     start_ms = (int(time.time()) - lookback_secs) * 1000
     ivl = _BINANCE_INTERVAL.get(interval, "5m")
     by_t: dict[int, dict] = {}
     t0 = start_ms
-    async with httpx.AsyncClient(base_url=settings.binance_rest_url, timeout=20) as client:
+    async with httpx.AsyncClient(base_url=base_url or settings.binance_rest_url, timeout=20) as client:
         while t0 < end_ms:
             resp = await client.get(
                 "/fapi/v1/klines",
@@ -752,6 +800,10 @@ async def candles(
     try:
         if qv == "binance":
             bars = await _fetch_binance_ohlc(quote_symbol, interval, lookback)
+        elif qv == "aster":
+            bars = await _fetch_binance_ohlc(
+                quote_symbol, interval, lookback, base_url=settings.aster_rest_url,
+            )
         elif qv == "kucoin":
             resolved = (await _kucoin_symbol_map()).get(_base_asset(contract)) or quote_symbol
             quote_symbol = resolved
@@ -1020,7 +1072,7 @@ async def fills_list(
         params.append(exchange.lower())
         wheres.append(f"exchange = ${len(params)}")
     params.append(strategy)
-    wheres.append(f"strategy = ${len(params)}")
+    wheres.append(f"strategy::text = ${len(params)}")
     params.append(limit)
     async with _db.pool.acquire() as conn:
         rows = await conn.fetch(
@@ -1028,7 +1080,7 @@ async def fills_list(
             SELECT id, created_at, contract, exchange, order_id, side,
                    quantity::float AS quantity, price::float AS price,
                    cost::float AS cost, fee::float AS fee, rpnl::float AS rpnl,
-                   COALESCE(account, '') AS account
+                   COALESCE(account::text, '') AS account
             FROM fills WHERE {' AND '.join(wheres)}
             ORDER BY created_at DESC LIMIT ${len(params)}
             """,

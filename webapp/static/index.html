@@ -183,6 +183,7 @@
   .rpnl-venue.binance { background: rgba(240,185,11,.18); color: #f0b90b; }
   .rpnl-venue.kucoin { background: rgba(35,209,139,.18); color: #23d18b; }
   .rpnl-venue.coindcx { background: rgba(255,152,0,.18); color: #ff9800; }
+  .rpnl-venue.aster { background: rgba(155,109,255,.18); color: #9b6dff; }
   .rpnl-pill .p-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
   .rpnl-pill .p-meta { font-size: 10px; color: var(--muted); margin-top: 1px; }
   #posChart      { width: 100%; height: 68vh; position: relative; }
@@ -773,7 +774,7 @@
         <div class="tbl-grid-wrap" id="rsDayGrid"></div>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-top:8px;">rPnL is computed by running a VWAP position over every executed order (Delta + hedge), so partially-filled-then-cancelled orders are fully included.</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px;">Sums the realized PnL booked on every fill, in ₹. "Quote" is the exchange that trades each contract; "Hedge" is every other venue it traded on. Days are IST.</div>
   </div>
 
   <!-- Events -->
@@ -1110,9 +1111,11 @@ async function fetchRpnlSymbols() {
     if (list.length === 0) {
       sel.innerHTML = '<option value="">No data in DB</option>';
     } else {
+      const keep = sel.value;
       sel.innerHTML = list.map(c =>
-        '<option value="' + rpnlOptionValue(c) + '">' + escHtml(c.label || c.contract) + '</option>'
+        '<option value="' + escHtml(rpnlOptionValue(c)) + '">' + escHtml(c.label || c.contract) + '</option>'
       ).join('');
+      if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
     }
   } catch {
     fillSelect('rpnlSymbol', false);
@@ -1295,6 +1298,7 @@ function rpnlVenueClass(v) {
   if (v === 'binance') return 'binance';
   if (v === 'kucoin') return 'kucoin';
   if (v === 'coindcx') return 'coindcx';
+  if (v === 'aster') return 'aster';
   return 'delta';
 }
 
@@ -1337,7 +1341,9 @@ function renderRpnlSummary(rows) {
     const hedge = hedged ? (Number(r.hedge_rpnl) || 0) : 0;
     const main = quote + hedge;
     const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
-    return '<button type="button" class="rpnl-pill' + active + '" onclick="pickRpnlContract(\'' + key.replace(/'/g, "\\'") + '\')">' +
+    // Key goes in a data attribute, not an inline onclick string — account ids
+    // can contain quotes/ampersands that would break the attribute.
+    return '<button type="button" class="rpnl-pill' + active + '" data-rpnl-key="' + escHtml(key) + '">' +
       '<div class="p-name">' + escHtml(name) +
         '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
       '<div class="p-val" style="color:' + mainCol + '">' + inrFmt(main) +
@@ -1352,11 +1358,46 @@ function renderRpnlSummary(rows) {
         (hedged ? ' · ' + escHtml(hlab) + ' ' + r.hedge_fills : ' · no hedge') + '</div>' +
       '</button>';
   }).join('');
+  // The pills carry authoritative keys — make sure each one is selectable even
+  // if /api/rpnl/symbols and /api/rpnl/summary disagree about what exists.
+  rows.forEach(r => ensureRpnlOption(rpnlOptionValue(r), pillOptionLabel(r)));
+  if (!wrap.dataset.bound) {
+    wrap.dataset.bound = '1';
+    wrap.addEventListener('click', ev => {
+      const btn = ev.target.closest('[data-rpnl-key]');
+      if (btn) pickRpnlContract(btn.dataset.rpnlKey);
+    });
+  }
 }
 
-function pickRpnlContract(c) {
+function pillOptionLabel(r) {
+  const acct = rpnlAccountLabel(r);
+  return (r.quote_symbol || r.contract || '') +
+    (r.quote_label ? ' · ' + r.quote_label : '') +
+    (acct ? ' · ' + acct : '');
+}
+
+// Returns the <option> for a key, creating it when the dropdown doesn't have it.
+function ensureRpnlOption(key, label) {
   const sel = document.getElementById('rpnlSymbol');
-  sel.value = c;
+  if (!sel || !key) return null;
+  let opt = [...sel.options].find(o => o.value === key);
+  if (!opt) {
+    const placeholder = [...sel.options].find(o => !o.value);
+    if (placeholder) placeholder.remove();
+    opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = label || key.replace('::', ' · ');
+    sel.appendChild(opt);
+  }
+  return opt;
+}
+
+function pickRpnlContract(key) {
+  const sel = document.getElementById('rpnlSymbol');
+  if (!sel) return;
+  ensureRpnlOption(key, '');
+  sel.value = key;
   loadRpnlFresh();
 }
 
@@ -2971,7 +3012,7 @@ async function loadRsum() {
   const hours = document.getElementById('rsHours').value;
   document.getElementById('rsStatusMsg').textContent = 'Loading...';
   try {
-    const r = await fetch(withStrategy('/api/rpnl/summary' + (hours ? '?hours=' + hours : '')));
+    const r = await fetch(withStrategy('/api/rpnl/rollup' + (hours ? '?hours=' + hours : '')));
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
     const d = await r.json();
     renderRsum(d);
@@ -2985,39 +3026,43 @@ function pnlStr(v) { return (v >= 0 ? '+' : '') + '₹' + (v || 0).toFixed(2); }
 function pnlCls(v) { return v >= 0 ? 'pos-pos' : 'pos-neg'; }
 
 function renderRsum(d) {
-  const t = d.totals || { delta: 0, hedge: 0, total: 0 };
+  const t = d.totals || { quote: 0, hedge: 0, total: 0, fills: 0 };
   const cell = (k, v, cls) => '<div class="ins-cell"><div class="k">' + k + '</div><div class="v' + (cls ? ' ' + cls : '') + '">' + v + '</div></div>';
   document.getElementById('rsTotals').innerHTML =
-    cell('Delta rPnL', pnlStr(t.delta), pnlCls(t.delta)) +
+    cell('Quote rPnL', pnlStr(t.quote), pnlCls(t.quote)) +
     cell('Hedge rPnL', pnlStr(t.hedge), pnlCls(t.hedge)) +
-    cell('TOTAL rPnL', pnlStr(t.total), pnlCls(t.total));
+    cell('TOTAL rPnL', pnlStr(t.total), pnlCls(t.total)) +
+    cell('Fills', (t.fills || 0).toLocaleString('en-IN'));
 
   const sym = d.by_symbol || [];
   document.getElementById('rsSymGrid').innerHTML = !sym.length
-    ? '<div style="padding:16px;color:var(--muted);">No executed orders yet.</div>'
-    : '<table class="dtable"><thead><tr><th>Contract</th><th>Delta</th><th>Hedge</th><th>Total</th><th>Orders</th></tr></thead><tbody>'
+    ? '<div style="padding:16px;color:var(--muted);">No fills in this window.</div>'
+    : '<table class="dtable"><thead><tr><th>Contract</th><th>Venue</th><th>Quote</th><th>Hedge</th><th>Total</th><th>Fills</th></tr></thead><tbody>'
       + sym.map(s =>
         '<tr><td>' + esc(s.contract) + '</td>'
-        + '<td class="' + pnlCls(s.delta) + '">' + pnlStr(s.delta) + '</td>'
+        + '<td>' + esc(s.quote_label || '') + '</td>'
+        + '<td class="' + pnlCls(s.quote) + '">' + pnlStr(s.quote) + '</td>'
         + '<td class="' + pnlCls(s.hedge) + '">' + pnlStr(s.hedge) + '</td>'
         + '<td class="' + pnlCls(s.total) + '">' + pnlStr(s.total) + '</td>'
-        + '<td>' + ((s.delta_orders || 0) + (s.hedge_orders || 0)) + '</td></tr>'
+        + '<td>' + (s.fills || 0) + '</td></tr>'
       ).join('')
-      + '<tr style="font-weight:700;border-top:2px solid var(--border2);"><td>TOTAL</td>'
-      + '<td class="' + pnlCls(t.delta) + '">' + pnlStr(t.delta) + '</td>'
+      + '<tr style="font-weight:700;border-top:2px solid var(--border2);"><td>TOTAL</td><td></td>'
+      + '<td class="' + pnlCls(t.quote) + '">' + pnlStr(t.quote) + '</td>'
       + '<td class="' + pnlCls(t.hedge) + '">' + pnlStr(t.hedge) + '</td>'
-      + '<td class="' + pnlCls(t.total) + '">' + pnlStr(t.total) + '</td><td></td></tr>'
+      + '<td class="' + pnlCls(t.total) + '">' + pnlStr(t.total) + '</td>'
+      + '<td>' + (t.fills || 0) + '</td></tr>'
       + '</tbody></table>';
 
   const day = d.by_day || [];
   document.getElementById('rsDayGrid').innerHTML = !day.length
-    ? '<div style="padding:16px;color:var(--muted);">No executed orders yet.</div>'
-    : '<table class="dtable"><thead><tr><th>Date</th><th>Delta</th><th>Hedge</th><th>Total</th></tr></thead><tbody>'
+    ? '<div style="padding:16px;color:var(--muted);">No fills in this window.</div>'
+    : '<table class="dtable"><thead><tr><th>Date</th><th>Quote</th><th>Hedge</th><th>Total</th><th>Fills</th></tr></thead><tbody>'
       + day.map(x =>
         '<tr><td>' + esc(x.date) + '</td>'
-        + '<td class="' + pnlCls(x.delta) + '">' + pnlStr(x.delta) + '</td>'
+        + '<td class="' + pnlCls(x.quote) + '">' + pnlStr(x.quote) + '</td>'
         + '<td class="' + pnlCls(x.hedge) + '">' + pnlStr(x.hedge) + '</td>'
-        + '<td class="' + pnlCls(x.total) + '">' + pnlStr(x.total) + '</td></tr>'
+        + '<td class="' + pnlCls(x.total) + '">' + pnlStr(x.total) + '</td>'
+        + '<td>' + (x.fills || 0) + '</td></tr>'
       ).join('') + '</tbody></table>';
 }
 
