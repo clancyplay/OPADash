@@ -970,7 +970,7 @@
   </div>
   <div class="rpnl-stack">
     <div class="rpnl-pane">
-      <div class="rpnl-pane-label" id="ohlcPaneLabel">Price · Δ fills ▴▾ · hedge fills ●</div>
+      <div class="rpnl-pane-label" id="ohlcPaneLabel">Price · vol · fills ▴▾</div>
       <div id="ohlcChart"></div>
       <div class="chart-legend" id="ohlcLegend"></div>
     </div>
@@ -1166,7 +1166,7 @@ function updateRpnlPaneLabels() {
   const venueLab = venue === 'hedge' ? hlab : (venue === 'quote' ? qlab : qlab + ' + ' + hlab);
   const ohlc = document.getElementById('ohlcPaneLabel');
   const lab = document.getElementById('rpnlPaneLabel');
-  if (ohlc) ohlc.textContent = (qsym ? qsym + ' · ' : '') + qlab + ' price · fills ▴▾'
+  if (ohlc) ohlc.textContent = (qsym ? qsym + ' · ' : '') + qlab + ' price · vol · fills ▴▾'
     + (rpnlMeta.has_hedge ? ' · ' + hlab + ' ●' : '');
   if (lab) lab.textContent = (rpnlView === 'cumul' ? 'Cumulative rPnL ₹' : 'Per-bucket rPnL ₹') + ' · ' + venueLab;
 }
@@ -1278,7 +1278,7 @@ function setupMpAuto() {
 
 // rPnL Chart
 let rpnlChart, rpnlSeries, rpnlHistSeries, rpnlHedgeSeries, rpnlNetSeries, rpnlTimer;
-let ohlcChart, ohlcSeries, ohlcHedgeMarkerSeries;
+let ohlcChart, ohlcSeries, ohlcHedgeMarkerSeries, ohlcVolSeries;
 let rpnlView         = 'cumul';
 let rpnlPtsCache     = [];
 let rpnlHedgeCache   = [];
@@ -1611,7 +1611,7 @@ function rpnlChartBase(timeScaleVisible) {
     layout: { background: { color: '#0e1117' }, textColor: '#d1d4dc' },
     grid:   { vertLines: { color: '#1c2130' }, horzLines: { color: '#1c2130' } },
     crosshair: { mode: LightweightCharts.CrosshairMode.Magnet },
-    rightPriceScale: { borderColor: '#303647', minimumWidth: 92, scaleMargins: { top: 0.12, bottom: 0.1 } },
+    rightPriceScale: { borderColor: '#303647', minimumWidth: 92, scaleMargins: { top: 0.12, bottom: timeScaleVisible ? 0.1 : 0.22 } },
     handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
     handleScale: { axisPressedMouseMove: { time: true, price: true }, mouseWheel: true, pinch: true },
     kineticScroll: { mouse: false, touch: true },
@@ -1651,6 +1651,22 @@ function fillAtTime(t) {
   return best && bestD <= candleSecs ? best : null;
 }
 
+function fmtVol(n) {
+  const v = Math.abs(Number(n) || 0);
+  if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+  if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+  if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  return v.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+}
+
+function volumeBarsFromOhlc(bars) {
+  return (bars || []).map(b => ({
+    time: b.time,
+    value: Number(b.volume) || 0,
+    color: (b.close >= b.open) ? 'rgba(38,166,154,0.45)' : 'rgba(239,83,80,0.45)',
+  }));
+}
+
 function paintOhlcLegend(time) {
   const el = document.getElementById('ohlcLegend');
   if (!time) { el.style.display = 'none'; return; }
@@ -1662,7 +1678,8 @@ function paintOhlcLegend(time) {
     '<div class="leg-row"><span class="leg-label">O</span><span class="leg-val">' + d.open + '</span></div>' +
     '<div class="leg-row"><span class="leg-label">H</span><span class="leg-val">' + d.high + '</span></div>' +
     '<div class="leg-row"><span class="leg-label">L</span><span class="leg-val">' + d.low + '</span></div>' +
-    '<div class="leg-row"><span class="leg-label">C</span><span class="leg-val">' + d.close + '</span></div>';
+    '<div class="leg-row"><span class="leg-label">C</span><span class="leg-val">' + d.close + '</span></div>' +
+    '<div class="leg-row"><span class="leg-label">Vol</span><span class="leg-val">' + fmtVol(d.volume) + '</span></div>';
   if (fill) {
     const col = fill.rpnl >= 0 ? '#26a69a' : '#ef5350';
     const qv = (rpnlMeta.quote_venue || 'delta').toLowerCase();
@@ -1765,6 +1782,15 @@ function initRpnl() {
     lastValueVisible: false,
     priceLineVisible: false,
     crosshairMarkerVisible: false,
+  });
+  ohlcVolSeries = ohlcChart.addHistogramSeries({
+    priceFormat: { type: 'volume' },
+    priceScaleId: '',
+    lastValueVisible: false,
+    priceLineVisible: false,
+  });
+  ohlcChart.priceScale('').applyOptions({
+    scaleMargins: { top: 0.78, bottom: 0 },
   });
 
   rpnlChart = LightweightCharts.createChart(document.getElementById('rpnlChart'), rpnlChartBase(true));
@@ -2033,10 +2059,12 @@ async function loadRpnl(keepRange) {
       bars = dedupeTimes((cd.candles || []).map(b => ({
         time: b.time,
         open: b.open, high: b.high, low: b.low, close: b.close,
+        volume: Number(b.volume) || 0,
       })));
     }
     ohlcBarsCache = bars;
     if (ohlcSeries) ohlcSeries.setData(bars);
+    if (ohlcVolSeries) ohlcVolSeries.setData(volumeBarsFromOhlc(bars));
     if (ohlcHedgeMarkerSeries) {
       ohlcHedgeMarkerSeries.setData(bars.map(b => ({ time: b.time, value: b.close })));
     }

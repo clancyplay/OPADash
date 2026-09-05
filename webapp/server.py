@@ -633,6 +633,21 @@ async def rpnl_fills(
     }
 
 
+def _num(v, default: float = 0.0) -> float:
+    try:
+        return float(v) if v is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _candle_volume(c: dict) -> float:
+    """Delta candles use `volume`; some payloads only have turnover."""
+    for key in ("volume", "turnover"):
+        if c.get(key) is not None:
+            return _num(c.get(key))
+    return 0.0
+
+
 async def _fetch_delta_ohlc(symbol: str, resolution: str, lookback_secs: int) -> list[dict]:
     """Trade OHLC candles (not MARK:). Chunked so long windows still fill."""
     end = int(time.time())
@@ -652,10 +667,11 @@ async def _fetch_delta_ohlc(symbol: str, resolution: str, lookback_secs: int) ->
                 ts = int(c["time"])
                 by_t[ts] = {
                     "time": ts,
-                    "open": float(c["open"]),
-                    "high": float(c["high"]),
-                    "low": float(c["low"]),
-                    "close": float(c["close"]),
+                    "open": _num(c["open"]),
+                    "high": _num(c["high"]),
+                    "low": _num(c["low"]),
+                    "close": _num(c["close"]),
+                    "volume": _candle_volume(c),
                 }
             if t1 >= end:
                 break
@@ -698,10 +714,11 @@ async def _fetch_binance_ohlc(
                 ts = int(row[0] // 1000)
                 by_t[ts] = {
                     "time": ts,
-                    "open": float(row[1]),
-                    "high": float(row[2]),
-                    "low": float(row[3]),
-                    "close": float(row[4]),
+                    "open": _num(row[1]),
+                    "high": _num(row[2]),
+                    "low": _num(row[3]),
+                    "close": _num(row[4]),
+                    "volume": _num(row[5] if len(row) > 5 else 0),
                 }
             last_open = int(rows[-1][0])
             nxt = last_open + 1
@@ -765,10 +782,11 @@ async def _fetch_kucoin_ohlc(symbol: str, interval: str, lookback_secs: int) -> 
                 ts = int(row[0]) // 1000
                 by_t[ts] = {
                     "time": ts,
-                    "open": float(row[1]),
-                    "high": float(row[2]),
-                    "low": float(row[3]),
-                    "close": float(row[4]),
+                    "open": _num(row[1]),
+                    "high": _num(row[2]),
+                    "low": _num(row[3]),
+                    "close": _num(row[4]),
+                    "volume": _num(row[5] if len(row) > 5 else 0),
                 }
             if t1 >= end_ms:
                 break
