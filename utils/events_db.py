@@ -289,44 +289,6 @@ class EventsDB:
             self.logger.debug("events_db: get_live_state failed — %s", e)
             return []
 
-    async def get_live_heartbeats(self, max_age_secs: int = 45) -> list[dict]:
-        """Contracts the quoter is currently writing to `live_state`.
-
-        A row older than `max_age_secs` is treated as dead — the bot stopped or
-        crashed without deleting it. Account is read from the JSON payload when
-        the bot puts it there; otherwise the heartbeat is contract-wide.
-        """
-        rows = await self.get_live_state()
-        now = datetime.now(timezone.utc)
-        out: list[dict] = []
-        for r in rows:
-            raw_ts = r.get("updated_at")
-            try:
-                ts = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
-            except (TypeError, ValueError):
-                continue
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-            age = (now - ts).total_seconds()
-            data = r.get("data") or {}
-            if not isinstance(data, dict):
-                data = {}
-            acct = str(
-                data.get("account")
-                or data.get("account_id")
-                or data.get("delta_account")
-                or ""
-            )
-            out.append({
-                "symbol": (r.get("symbol") or "").upper(),
-                "account": acct,
-                "age_secs": round(age, 1),
-                "fresh": age <= max_age_secs,
-                "paused": bool(data.get("paused")),
-                "halted": bool(data.get("halted")),
-            })
-        return out
-
     async def log_deposit_withdrawal(self, amount: float, note: str = "", recorded_by: str = "webapp", at: "datetime | None" = None) -> int | None:
         """Log a deposit (positive) or withdrawal (negative). Returns new row id.
         Pass `at` (UTC datetime) to back-date a historical entry."""
