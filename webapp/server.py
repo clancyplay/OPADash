@@ -285,7 +285,32 @@ def _venue_side(exchange: str | None) -> str:
     return "both"
 
 
-def _annotate_rpnl_row(row: dict) -> dict:
+def _live_name_keys(name: str) -> set[str]:
+    """LAB / LABUSD / LABUSDT all collapse to the same matching set."""
+    u = (name or "").upper().strip()
+    if not u:
+        return set()
+    return {u, canon_contract(u), _base_asset(u)} - {""}
+
+
+def _match_live_heartbeat(row: dict, beats: list[dict]) -> dict | None:
+    """Pick the freshest heartbeat that belongs to this pill's contract/account."""
+    names = _live_name_keys(row.get("contract") or "") | _live_name_keys(row.get("quote_symbol") or "")
+    acct = str(row.get("account") or "")
+    best = None
+    for b in beats:
+        if not (_live_name_keys(b.get("symbol") or "") & names):
+            continue
+        beat_acct = str(b.get("account") or "")
+        if beat_acct and acct and beat_acct != acct:
+            continue
+        if best is None or b["age_secs"] < best["age_secs"]:
+            best = b
+    return best
+
+
+def _annotate_rpnl_row(row: dict, beats: list[dict] | None = None, *,
+                       live_state_present: bool = False) -> dict:
     """Split a summary row into quote-venue vs hedge-venue rPnL."""
     counts = dict(row.get("venue_fills") or {})
     rpnls = dict(row.get("venue_rpnl") or {})
@@ -299,6 +324,29 @@ def _annotate_rpnl_row(row: dict) -> dict:
     row["hedge_fills"] = sum(n for k, n in counts.items() if k != qv)
     acct = row.get("account") or ""
     row["label"] = meta["label"] + (f" · {acct}" if acct else "")
+    last_at = row.get("last_at")
+    last_age = None
+    if last_at:
+        last_age = max(0, int(datetime.now(timezone.utc).timestamp() - int(last_at)))
+    row["last_fill_age_secs"] = last_age
+    heartbeat = _match_live_heartbeat(row, beats or [])
+    # Heartbeat from live_state is the real "bot is quoting this". Last-fill
+    # recency is only a fallback when the table is empty.
+    if heartbeat and heartbeat.get("fresh"):
+        row["live"] = not heartbeat.get("halted")
+        row["live_age_secs"] = heartbeat.get("age_secs")
+        row["live_paused"] = bool(heartbeat.get("paused"))
+        row["live_halted"] = bool(heartbeat.get("halted"))
+    elif not live_state_present and last_age is not None and last_age <= 600:
+        row["live"] = True
+        row["live_age_secs"] = last_age
+        row["live_paused"] = False
+        row["live_halted"] = False
+    else:
+        row["live"] = False
+        row["live_age_secs"] = heartbeat.get("age_secs") if heartbeat else last_age
+        row["live_paused"] = bool(heartbeat.get("paused")) if heartbeat else False
+        row["live_halted"] = bool(heartbeat.get("halted")) if heartbeat else False
     return row
 
 # Delta candle resolution -> seconds per candle, used to size the start/end window
@@ -544,7 +592,15 @@ async def rpnl_summary(
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
     rows = await _db.get_contract_rpnl_summary(strategy=strategy)
-    return [_annotate_rpnl_row(r) for r in rows]
+    beats = await _db.get_live_heartbeats()
+    live_state_present = bool(beats)
+    out = []
+    for r in rows:
+        out.append(_annotate_rpnl_row(
+            r, beats, live_state_present=live_state_present,
+        ))
+    out.sort(key=lambda r: (not r.get("live"), -abs(float(r.get("rpnl") or 0) + float(r.get("hedge_rpnl") or 0))))
+    return out
 
 
 @app.get("/api/rpnl/rollup")

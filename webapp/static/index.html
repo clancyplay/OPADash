@@ -174,6 +174,14 @@
   }
   .rpnl-pill:hover { border-color: var(--accent); }
   .rpnl-pill.active { border-color: var(--accent); background: rgba(41,98,255,.12); }
+  .rpnl-pill.idle { opacity: 0.55; }
+  .rpnl-live {
+    font-size: 9px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+    padding: 1px 5px; border-radius: 4px; flex-shrink: 0;
+    background: rgba(38,166,154,.2); color: #26a69a;
+  }
+  .rpnl-live.off { background: rgba(127,133,152,.16); color: var(--muted); }
+  .rpnl-live.paused { background: rgba(255,152,0,.18); color: #ffb74d; }
   .rpnl-pill .p-name { font-size: 11px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px; }
   .rpnl-venue {
     font-size: 9px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
@@ -953,6 +961,7 @@
     <button class="btn" onclick="loadRpnlFresh()">Refresh</button>
     <button class="btn" onclick="fitRpnlView()" title="Fit both charts to full window">Fit</button>
     <label><input type="checkbox" id="rpnlAuto" onchange="setupRpnlAuto()" /> Auto (10s)</label>
+    <label><input type="checkbox" id="rpnlLiveOnly" onchange="onRpnlLiveOnly()" /> Live only</label>
     <div style="margin-left:auto;display:flex;gap:4px;">
       <button class="btn" id="viewCumul"  onclick="setRpnlView('cumul')">Cumulative</button>
       <button class="btn" id="viewBucket" onclick="setRpnlView('bucket')">Per Bucket</button>
@@ -1314,21 +1323,43 @@ function inrFmtDec(n, d) {
   return sign + '₹' + Math.abs(v).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
+let rpnlSummaryCache = [];
+let rpnlLiveOnly = false;
+
+function onRpnlLiveOnly() {
+  rpnlLiveOnly = !!(document.getElementById('rpnlLiveOnly') || {}).checked;
+  renderRpnlSummary(rpnlSummaryCache);
+}
+
+function agoLabel(unix) {
+  if (!unix && unix !== 0) return '';
+  const s = Math.max(0, (Date.now() / 1000) - Number(unix));
+  if (s < 60) return Math.round(s) + 's ago';
+  if (s < 3600) return Math.round(s / 60) + 'm ago';
+  if (s < 86400) return Math.round(s / 3600) + 'h ago';
+  return Math.round(s / 86400) + 'd ago';
+}
+
 function renderRpnlSummary(rows) {
   const wrap = document.getElementById('rpnlSummaryWrap');
   if (!wrap) return;
-  if (!rows || !rows.length) { wrap.innerHTML = ''; return; }
+  rpnlSummaryCache = Array.isArray(rows) ? rows : [];
+  if (!rpnlSummaryCache.length) { wrap.innerHTML = ''; return; }
+  const shown = rpnlLiveOnly ? rpnlSummaryCache.filter(r => r.live) : rpnlSummaryCache;
+  if (!shown.length) {
+    wrap.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:6px 4px;">No live contracts right now — uncheck Live only to see history.</div>';
+    return;
+  }
   const cur = document.getElementById('rpnlSymbol').value;
-  // Two rows can share a contract + account name but sit on different account
-  // ids — show the id so they are distinguishable instead of looking cloned.
   const nameCount = {};
-  rows.forEach(r => {
+  shown.forEach(r => {
     const n = (r.quote_symbol || r.contract) + '|' + rpnlAccountLabel(r);
     nameCount[n] = (nameCount[n] || 0) + 1;
   });
-  wrap.innerHTML = rows.map(r => {
+  wrap.innerHTML = shown.map(r => {
     const key = rpnlOptionValue(r);
     const active = key === cur ? ' active' : '';
+    const idle = r.live ? '' : ' idle';
     const acct = rpnlAccountLabel(r);
     const qv = r.quote_venue || 'delta';
     const qlab = r.quote_label || 'Delta';
@@ -1341,10 +1372,15 @@ function renderRpnlSummary(rows) {
     const hedge = hedged ? (Number(r.hedge_rpnl) || 0) : 0;
     const main = quote + hedge;
     const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
-    // Key goes in a data attribute, not an inline onclick string — account ids
-    // can contain quotes/ampersands that would break the attribute.
-    return '<button type="button" class="rpnl-pill' + active + '" data-rpnl-key="' + escHtml(key) + '">' +
+    let liveCls = 'off', liveTxt = 'idle';
+    if (r.live_halted) { liveCls = 'off'; liveTxt = 'halted'; }
+    else if (r.live_paused) { liveCls = 'paused'; liveTxt = 'paused'; }
+    else if (r.live) { liveCls = ''; liveTxt = 'live'; }
+    const lastFill = r.last_at ? agoLabel(r.last_at) : '';
+    const lastBit = lastFill ? ' · last fill ' + lastFill : '';
+    return '<button type="button" class="rpnl-pill' + active + idle + '" data-rpnl-key="' + escHtml(key) + '">' +
       '<div class="p-name">' + escHtml(name) +
+        '<span class="rpnl-live ' + liveCls + '">' + liveTxt + '</span>' +
         '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
       '<div class="p-val" style="color:' + mainCol + '">' + inrFmt(main) +
         (hedged ? ' <span style="font-size:10px;font-weight:600;color:var(--muted)">net</span>' : '') + '</div>' +
@@ -1355,12 +1391,11 @@ function renderRpnlSummary(rows) {
           '</div>'
         : '') +
       '<div class="p-meta">' + escHtml(qlab) + ' ' + (r.fills || 0) + ' fills' +
-        (hedged ? ' · ' + escHtml(hlab) + ' ' + r.hedge_fills : ' · no hedge') + '</div>' +
+        (hedged ? ' · ' + escHtml(hlab) + ' ' + r.hedge_fills : ' · no hedge') +
+        lastBit + '</div>' +
       '</button>';
   }).join('');
-  // The pills carry authoritative keys — make sure each one is selectable even
-  // if /api/rpnl/symbols and /api/rpnl/summary disagree about what exists.
-  rows.forEach(r => ensureRpnlOption(rpnlOptionValue(r), pillOptionLabel(r)));
+  shown.forEach(r => ensureRpnlOption(rpnlOptionValue(r), pillOptionLabel(r)));
   if (!wrap.dataset.bound) {
     wrap.dataset.bound = '1';
     wrap.addEventListener('click', ev => {
