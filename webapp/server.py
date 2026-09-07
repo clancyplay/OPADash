@@ -566,11 +566,17 @@ async def rpnl_summary(
 async def rpnl_rollup(
     strategy: str = Query("opa3"),
     hours: int | None = Query(None, ge=1, le=8760, description="omit for all time"),
+    today: bool = Query(False, description="Restrict to IST calendar day"),
 ) -> dict:
     """Quote vs hedge rPnL totals, per symbol and per IST day."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
-    since = datetime.now(timezone.utc) - timedelta(hours=hours) if hours else None
+    if today:
+        since = _ist_midnight_utc()
+    elif hours:
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    else:
+        since = None
     rows = await _db.get_rpnl_rollup(strategy=strategy, since=since)
 
     # Decide each contract's quote venue once, from its fills across the window.
@@ -1117,6 +1123,268 @@ async def recent_events(
 
 
 # ── Reports ───────────────────────────────────────────────────────────────────
+
+def _ist_midnight_utc() -> datetime:
+    now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return start - timedelta(hours=5, minutes=30)
+
+
+def _touch_range(dst: dict, first: int | None, last: int | None) -> None:
+    if first and (not dst.get("first_at") or first < dst["first_at"]):
+        dst["first_at"] = first
+    if last and (not dst.get("last_at") or last > dst["last_at"]):
+        dst["last_at"] = last
+
+
+def _blank_acct(account: str, name: str = "") -> dict:
+    return {
+        "account": account,
+        "account_name": name or account or "unattributed",
+        "rpnl": 0.0,
+        "fees": 0.0,
+        "fills": 0,
+        "upnl": 0.0,
+        "balance": None,
+        "positions": [],
+        "exchanges": {},
+        "contracts": {},
+        "first_at": None,
+        "last_at": None,
+    }
+
+
+def _add_fill_row(acct: dict, row: dict) -> None:
+    acct["rpnl"] += row["rpnl"]
+    acct["fees"] += row["fee"]
+    acct["fills"] += row["fills"]
+    _touch_range(acct, row.get("first_at"), row.get("last_at"))
+    if row.get("account_name") and (
+        not acct["account_name"] or acct["account_name"] in (acct["account"], "unattributed")
+    ):
+        acct["account_name"] = row["account_name"]
+    exch = row["exchange"]
+    slot = acct["exchanges"].setdefault(exch, {
+        "exchange": exch, "fills": 0, "rpnl": 0.0, "fees": 0.0,
+    })
+    slot["fills"] += row["fills"]
+    slot["rpnl"] += row["rpnl"]
+    slot["fees"] += row["fee"]
+    con = acct["contracts"].setdefault(row["contract"], {
+        "contract": row["contract"],
+        "venue_fills": {},
+        "venue_rpnl": {},
+        "fills": 0,
+        "rpnl": 0.0,
+        "fees": 0.0,
+    })
+    con["venue_fills"][exch] = con["venue_fills"].get(exch, 0) + row["fills"]
+    con["venue_rpnl"][exch] = con["venue_rpnl"].get(exch, 0.0) + row["rpnl"]
+    con["fills"] += row["fills"]
+    con["rpnl"] += row["rpnl"]
+    con["fees"] += row["fee"]
+
+
+def _finish_account(acct: dict) -> dict:
+    exchanges = []
+    for exch, slot in acct["exchanges"].items():
+        slot["label"] = _VENUE_LABEL.get(exch, exch.title())
+        slot["rpnl"] = round(slot["rpnl"], 2)
+        slot["fees"] = round(slot["fees"], 2)
+        exchanges.append(slot)
+    exchanges.sort(key=lambda e: abs(e["rpnl"]), reverse=True)
+    contracts = []
+    for con in acct["contracts"].values():
+        meta = venue_meta(con["contract"], con["venue_fills"])
+        qv = meta["quote_venue"]
+        quote_rpnl = con["venue_rpnl"].get(qv, 0.0)
+        hedge_rpnl = sum(v for k, v in con["venue_rpnl"].items() if k != qv)
+        venues = []
+        for exch, n in con["venue_fills"].items():
+            venues.append({
+                "exchange": exch,
+                "label": _VENUE_LABEL.get(exch, exch.title()),
+                "fills": n,
+                "rpnl": round(con["venue_rpnl"].get(exch, 0.0), 2),
+            })
+        venues.sort(key=lambda v: abs(v["rpnl"]), reverse=True)
+        contracts.append({
+            "contract": con["contract"],
+            "quote_venue": qv,
+            "quote_label": meta["quote_label"],
+            "quote_symbol": meta["quote_symbol"],
+            "has_hedge": meta["has_hedge"],
+            "hedge_label": meta["hedge_label"],
+            "rpnl": round(quote_rpnl, 2),
+            "hedge_rpnl": round(hedge_rpnl, 2),
+            "net": round(quote_rpnl + hedge_rpnl, 2),
+            "fills": con["venue_fills"].get(qv, 0),
+            "hedge_fills": sum(n for k, n in con["venue_fills"].items() if k != qv),
+            "fees": round(con["fees"], 2),
+            "venues": venues,
+        })
+    contracts.sort(key=lambda c: abs(c["net"]), reverse=True)
+    acct["exchanges"] = exchanges
+    acct["contracts"] = contracts
+    acct["rpnl"] = round(acct["rpnl"], 2)
+    acct["fees"] = round(acct["fees"], 2)
+    acct["upnl"] = round(acct["upnl"], 2)
+    return acct
+
+
+def _assemble_reports_overview(
+    raw: dict, usdinr: float = 87.0, live_keys: set | None = None,
+) -> dict:
+    accounts: dict[str, dict] = {}
+    orphans: list[dict] = []
+    for row in raw.get("rows") or []:
+        aid = row.get("account") or ""
+        if aid:
+            accounts.setdefault(aid, _blank_acct(aid, row.get("account_name") or ""))
+            _add_fill_row(accounts[aid], row)
+        else:
+            orphans.append(row)
+
+    by_contract: dict[str, list[str]] = {}
+    for aid, acct in accounts.items():
+        for contract in acct["contracts"]:
+            by_contract.setdefault(contract, []).append(aid)
+    for row in orphans:
+        cands = by_contract.get(row["contract"]) or []
+        if len(cands) == 1:
+            target = cands[0]
+        elif cands:
+            target = max(cands, key=lambda i: accounts[i]["contracts"][row["contract"]]["fills"])
+        else:
+            target = ""
+            accounts.setdefault("", _blank_acct("", "unattributed"))
+        _add_fill_row(accounts[target], row)
+
+    shared_balances: list[dict] = []
+    for bal in raw.get("balances") or []:
+        aid = str(bal.get("account") or "")
+        cleaned = {
+            k: v for k, v in bal.items()
+            if k not in ("id", "strategy") and v not in (None, "")
+        }
+        if aid and aid in accounts:
+            accounts[aid]["balance"] = cleaned
+        else:
+            shared_balances.append(cleaned)
+
+    shared_positions: list[dict] = []
+    for pos in raw.get("positions") or []:
+        aid = str(pos.get("account") or "")
+        cleaned = {
+            k: v for k, v in pos.items()
+            if k not in ("id", "strategy") and v not in (None, "")
+        }
+        upnl = pos.get("net_upnl")
+        try:
+            upnl_f = float(upnl) if upnl is not None else None
+        except (TypeError, ValueError):
+            upnl_f = None
+        if upnl_f is not None:
+            cleaned["net_upnl"] = round(upnl_f * usdinr, 2)
+        if aid and aid in accounts:
+            if upnl_f is not None:
+                accounts[aid]["upnl"] += upnl_f * usdinr
+            accounts[aid].setdefault("positions", []).append(cleaned)
+        else:
+            shared_positions.append(cleaned)
+
+    live_keys = live_keys or set()
+    finished = [_finish_account(a) for a in accounts.values()]
+    for acct in finished:
+        aid = acct.get("account") or ""
+        acct["live"] = any(
+            ping_is_live(c["contract"], aid, live_keys) for c in acct["contracts"]
+        )
+        acct.setdefault("positions", [])
+    finished.sort(key=lambda a: (not a["live"], -abs(a["rpnl"])))
+
+    by_exchange: dict[str, dict] = {}
+    totals = {
+        "rpnl": 0.0, "fees": 0.0, "fills": 0, "upnl": 0.0,
+        "accounts": len(finished), "balance": None, "live": 0,
+    }
+    equity = 0.0
+    equity_n = 0
+    for acct in finished:
+        totals["rpnl"] += acct["rpnl"]
+        totals["fees"] += acct["fees"]
+        totals["fills"] += acct["fills"]
+        totals["upnl"] += acct["upnl"]
+        if acct.get("live"):
+            totals["live"] += 1
+        bal = (acct.get("balance") or {}).get("total_balance")
+        if bal is not None:
+            try:
+                equity += float(bal)
+                equity_n += 1
+            except (TypeError, ValueError):
+                pass
+        for slot in acct["exchanges"]:
+            agg = by_exchange.setdefault(slot["exchange"], {
+                "exchange": slot["exchange"], "label": slot["label"],
+                "fills": 0, "rpnl": 0.0, "fees": 0.0,
+            })
+            agg["fills"] += slot["fills"]
+            agg["rpnl"] += slot["rpnl"]
+            agg["fees"] += slot["fees"]
+    for agg in by_exchange.values():
+        agg["rpnl"] = round(agg["rpnl"], 2)
+        agg["fees"] = round(agg["fees"], 2)
+    if equity_n:
+        totals["balance"] = round(equity, 2)
+    elif shared_balances:
+        t = shared_balances[0].get("total_balance")
+        try:
+            totals["balance"] = round(float(t), 2) if t is not None else None
+        except (TypeError, ValueError):
+            totals["balance"] = None
+    totals["rpnl"] = round(totals["rpnl"], 2)
+    totals["fees"] = round(totals["fees"], 2)
+    totals["upnl"] = round(totals["upnl"], 2)
+    return {
+        "totals": totals,
+        "by_exchange": sorted(by_exchange.values(), key=lambda e: abs(e["rpnl"]), reverse=True),
+        "accounts": finished,
+        "shared_balances": shared_balances,
+        "shared_positions": shared_positions,
+        "snapshot": shared_balances[0] if shared_balances else None,
+    }
+
+
+@app.get("/api/reports/overview")
+async def reports_overview(
+    strategy: str = Query("opa3"),
+    hours: int | None = Query(None, ge=1, le=8760),
+    today: bool = Query(False, description="Restrict to IST calendar day"),
+) -> dict:
+    """Per-account, per-exchange realized PnL plus latest balances/positions."""
+    if _db is None or not _db.pool:
+        raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
+    if today:
+        since = _ist_midnight_utc()
+        window = "today"
+    elif hours:
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+        window = f"{hours}h"
+    else:
+        since = None
+        window = "all"
+    raw = await _db.get_accounts_overview(strategy=strategy, since=since)
+    live_keys = await _db.get_live_ping_keys(strategy)
+    out = _assemble_reports_overview(raw, usdinr=_db.usdinr_rate, live_keys=live_keys)
+    out.update({
+        "strategy": strategy,
+        "window": window,
+        "hours": hours,
+        "generated_at": int(datetime.now(timezone.utc).timestamp()),
+    })
+    return out
+
 
 @app.get("/api/reports")
 async def list_reports(

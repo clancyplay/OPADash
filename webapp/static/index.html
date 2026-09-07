@@ -305,87 +305,102 @@
   .toast.err  { border-color: rgba(239,83,80,.5); color: #f48fb1; }
 
   /* ── Reports page ─────────────────────────────────────── */
-  #reports { padding: 20px; max-width: 1180px; margin: 0 auto; }
+  #reports { padding: 20px; max-width: 1440px; margin: 0 auto; }
   #reports-inner { padding: 4px; }
-
-  .rpt-timeline {
-    display: flex; align-items: center; gap: 14px;
-    background: var(--surface); border: 1px solid var(--border2);
-    border-radius: 12px; padding: 12px 16px; margin-bottom: 16px;
-  }
-  .tl-nav {
-    background: #1e2230; color: var(--text); border: 1px solid var(--border2);
-    border-radius: 8px; padding: 8px 14px; font-size: 12.5px; cursor: pointer; white-space: nowrap;
-    transition: background .15s, border-color .15s;
-  }
-  .tl-nav:hover:not(:disabled) { background: #2a3040; border-color: var(--accent); }
-  .tl-nav:disabled { opacity: .35; cursor: not-allowed; }
-  .tl-track { flex: 1; min-width: 0; }
-  .tl-track input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; height: 4px; }
-  .tl-labels { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--muted); gap: 8px; }
-  .tl-labels .tl-cur { color: var(--accent); font-weight: 700; text-align: center; flex: 1; }
-
   .rpt-hero {
     background: linear-gradient(135deg, #161a25 0%, #1a2032 100%);
     border: 1px solid var(--border2); border-radius: 14px;
-    padding: 24px 26px; margin-bottom: 16px;
-    display: grid; grid-template-columns: auto 1fr; gap: 26px; align-items: center;
+    padding: 22px 24px; margin-bottom: 14px;
   }
-  .rpt-hero .hero-main { display: flex; flex-direction: column; gap: 3px; }
-  .rpt-hero .hero-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
-  .rpt-hero .hero-bal {
-    font-size: 40px; font-weight: 800; letter-spacing: -.5px; line-height: 1.05;
-    font-variant-numeric: tabular-nums; cursor: pointer;
+  .rpt-hero .hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  .rpt-hero .hero-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .rpt-hero .hero-bal { font-size: 36px; font-weight: 800; letter-spacing: -.5px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .rpt-hero .hero-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .rpt-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 10px; margin-top: 16px; }
+  .rpt-kpi { background: rgba(0,0,0,.22); border: 1px solid var(--border2); border-radius: 10px; padding: 10px 12px; }
+  .rpt-kpi .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+  .rpt-kpi .v { font-size: 18px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .rpt-exch { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .rpt-exchip {
+    background: var(--surface); border: 1px solid var(--border2); border-radius: 10px;
+    padding: 8px 12px; min-width: 128px;
   }
-  .rpt-hero .hero-bal:hover { color: #fff; }
-  .rpt-hero .hero-time { font-size: 12px; color: var(--muted); margin-top: 3px; }
-  .hero-chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
-  .metric-chip {
-    background: rgba(0,0,0,.22); border: 1px solid var(--border2); border-radius: 10px;
-    padding: 10px 12px; cursor: pointer; transition: border-color .15s, transform .15s;
+  .rpt-exchip .el { font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; }
+  .rpt-exchip .ev { font-size: 15px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .rpt-exchip .em { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .rpt-daywrap {
+    background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
+    margin-bottom: 14px; overflow: hidden;
   }
-  .metric-chip:hover { border-color: var(--accent); transform: translateY(-2px); }
-  .metric-chip .mc-label { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; display: flex; align-items: center; gap: 4px; }
-  .metric-chip .mc-val { font-size: 17px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
-  .metric-chip .mc-graph { margin-left: auto; opacity: .45; font-size: 10px; }
-
-  .rpt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 14px; align-items: start; }
-  .sec-card { background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; overflow: hidden; }
-  .sec-card.wide { grid-column: 1 / -1; }
-  .sec-head {
-    display: flex; align-items: center; gap: 8px;
-    padding: 12px 16px; border-bottom: 1px solid var(--border);
-    font-size: 13px; font-weight: 700; background: rgba(255,255,255,.015);
+  .rpt-daywrap h4, .rpt-matrix-wrap h4 {
+    margin: 0; padding: 10px 14px; font-size: 12px; color: var(--muted);
+    border-bottom: 1px solid var(--border); letter-spacing: .3px; text-transform: uppercase;
   }
-  .sec-head .sec-icon { font-size: 15px; }
-  .sec-body {
-    padding: 14px 16px; white-space: pre-wrap; word-break: break-word;
-    font-size: 13px; line-height: 1.62; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+  #rptDayChart { width: 100%; height: 180px; }
+  .rpt-matrix-wrap {
+    background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
+    margin-bottom: 14px; overflow: hidden;
   }
-  .sec-body code { background: rgba(0,0,0,.3); padding: 1px 5px; border-radius: 3px; font-size: 12px; font-variant-numeric: tabular-nums; }
-
-  /* Report metric graph modal */
-  .gmodal {
-    display: none; position: fixed; inset: 0; z-index: 2000;
-    background: rgba(4,6,12,.72); backdrop-filter: blur(3px);
-    align-items: center; justify-content: center; padding: 24px;
+  .rpt-matrix-scroll { overflow-x: auto; }
+  table.rpt-matrix { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; min-width: 640px; }
+  table.rpt-matrix th {
+    text-align: right; color: var(--muted); font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: .4px; padding: 8px 10px; white-space: nowrap; border-bottom: 1px solid var(--border);
+    background: #151926; position: sticky; top: 0;
   }
-  .gmodal.open { display: flex; }
-  .gmodal-inner {
-    background: var(--bg); border: 1px solid var(--border2); border-radius: 14px;
-    width: min(960px, 100%); max-height: 90vh; display: flex; flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0,0,0,.6); overflow: hidden;
+  table.rpt-matrix th:first-child, table.rpt-matrix td:first-child { text-align: left; }
+  table.rpt-matrix td { padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.rpt-matrix tr:hover td { background: rgba(255,255,255,.025); }
+  table.rpt-matrix tr.rpt-click { cursor: pointer; }
+  table.rpt-matrix .an { font-weight: 700; color: #fff; }
+  table.rpt-matrix .aid { font-size: 11px; color: var(--muted); font-weight: 400; }
+  table.rpt-matrix tfoot td { font-weight: 700; border-top: 1px solid var(--border2); background: #151926; }
+  .rpt-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .rpt-tools input[type=search] {
+    background: var(--surface); color: var(--text); border: 1px solid var(--border2);
+    border-radius: 8px; padding: 7px 10px; font-size: 12.5px; min-width: 200px;
   }
-  .gmodal-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-  .gmodal-metrics { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
-  .gmetric-btn {
-    background: #1e2230; color: var(--muted); border: 1px solid var(--border2);
-    border-radius: 20px; padding: 5px 12px; font-size: 12px; cursor: pointer; transition: all .15s;
+  .rpt-accts { display: flex; flex-direction: column; gap: 12px; }
+  .rpt-acct {
+    background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; overflow: hidden;
   }
-  .gmetric-btn:hover { color: var(--text); }
-  .gmetric-btn.active { color: #fff; border-color: var(--accent); background: rgba(41,98,255,.18); }
-  .gmodal-chart { position: relative; width: 100%; height: 60vh; }
-  .gmodal-status { padding: 8px 16px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); }
+  .rpt-acct.hidden { display: none; }
+  .rpt-acct-h {
+    display: grid; grid-template-columns: minmax(160px, 1.4fr) minmax(140px, 1.6fr) auto auto;
+    align-items: center; gap: 12px;
+    padding: 12px 16px; cursor: pointer; border-bottom: 1px solid transparent;
+  }
+  .rpt-acct-h:hover { background: rgba(255,255,255,.02); }
+  .rpt-acct .aname { font-size: 15px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px; }
+  .rpt-acct .aid { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .rpt-acct .anet { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
+  .rpt-acct .ameta { font-size: 11px; color: var(--muted); text-align: right; }
+  .rpt-vchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .rpt-vchip {
+    font-size: 11px; padding: 3px 7px; border-radius: 6px; background: rgba(255,255,255,.04);
+    border: 1px solid var(--border); font-variant-numeric: tabular-nums;
+  }
+  .rpt-live {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #26a69a; box-shadow: 0 0 0 3px rgba(38,166,154,.22);
+  }
+  .rpt-acct-b { padding: 4px 16px 16px; display: none; }
+  .rpt-acct.open .rpt-acct-b { display: block; }
+  .rpt-acct.open { border-color: rgba(41,98,255,.45); }
+  .rpt-acct.open .rpt-acct-h { background: rgba(41,98,255,.06); border-bottom-color: var(--border); }
+  .rpt-xtable { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; margin-bottom: 12px; }
+  .rpt-xtable th { text-align: left; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .4px; padding: 4px 8px; }
+  .rpt-xtable td { padding: 6px 8px; border-top: 1px solid var(--border); }
+  .rpt-xtable td.num, .rpt-xtable th.num { text-align: right; }
+  .rpt-sec { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin: 10px 0 4px; }
+  .rpt-bal {
+    display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px;
+  }
+  .rpt-bal .bb {
+    background: rgba(0,0,0,.22); border: 1px solid var(--border2); border-radius: 8px;
+    padding: 7px 10px; font-size: 12px; color: var(--muted);
+  }
+  .rpt-bal .bb b { color: var(--text); font-size: 13px; margin-left: 6px; }
 
   .pos-neg  { color: var(--red); }
   .pos-pos  { color: var(--green); }
@@ -483,15 +498,14 @@
     #rpnlChart, #posChart { height: 28vh; }
     #ohlcChart { height: 34vh; }
 
-    .rpt-hero { grid-template-columns: 1fr; gap: 16px; }
-    .rpt-hero .hero-bal { font-size: 32px; }
-    .rpt-timeline { flex-wrap: wrap; }
+    .rpt-hero .hero-bal { font-size: 28px; }
+    .rpt-acct-h { grid-template-columns: 1fr auto; }
+    .rpt-acct .ameta, .rpt-vchips { grid-column: 1 / -1; text-align: left; }
     #bot, #reports, #data { padding: 14px; }
     .fills-duo, .tables-duo { grid-template-columns: 1fr; }
     .fill-scroll { max-height: 44vh; }
-    .gmodal { padding: 10px; }
-    .gmodal-chart { height: 54vh; }
     .chart-legend { font-size: 11px; min-width: 130px; padding: 6px 9px; }
+    #rptDayChart { height: 140px; }
   }
 
   @media (max-width: 420px) {
@@ -532,7 +546,7 @@
     <div class="card" onclick="showPage('reports')">
       <span class="icon">🧾</span>
       <h3>Reports</h3>
-      <p>The latest report plus a full history of every past report the bot has sent.</p>
+      <p>Balances, realized PnL and fills for every account on every exchange.</p>
       <div class="arrow">View reports -&gt;</div>
     </div>
     <div class="card" onclick="showPage('markprice')">
@@ -641,43 +655,39 @@
 <!-- REPORTS -->
 <div id="reports" class="page">
   <div class="ctrl-bar">
+    <label>Window
+      <select id="rptHours" onchange="loadReports()">
+        <option value="today">Today (IST)</option>
+        <option value="24" selected>24h</option>
+        <option value="168">7d</option>
+        <option value="720">30d</option>
+        <option value="">All time</option>
+      </select>
+    </label>
     <button class="btn" onclick="loadReports()">Refresh</button>
     <label><input type="checkbox" id="reportsAuto" onchange="setupReportsAuto()" /> Auto (30s)</label>
-    <button class="btn" onclick="openReportGraph('total_balance')">📈 Graphs</button>
     <span id="reportsCount" style="margin-left:auto;font-size:12px;color:var(--muted);"></span>
   </div>
   <div id="reports-inner">
-    <div id="reportEmpty" style="display:none;color:var(--muted);padding:24px;line-height:1.6;">Loading reports...</div>
+    <div id="reportEmpty" style="display:none;color:var(--muted);padding:24px;line-height:1.6;">Loading accounts…</div>
     <div id="reportShell" style="display:none;">
-      <div class="rpt-timeline">
-        <button class="tl-nav" id="tlPrev" onclick="stepReport(-1)">‹ Older</button>
-        <div class="tl-track">
-          <input type="range" id="tlSlider" min="0" max="0" value="0" oninput="onSlider(this.value)" />
-          <div class="tl-labels">
-            <span id="tlStart"></span>
-            <span class="tl-cur" id="tlCur"></span>
-            <span id="tlEnd"></span>
-          </div>
-        </div>
-        <button class="tl-nav" id="tlNext" onclick="stepReport(1)">Newer ›</button>
-      </div>
       <div class="rpt-hero" id="rptHero"></div>
-      <div class="rpt-grid" id="rptGrid"></div>
+      <div class="rpt-exch" id="rptExch"></div>
+      <div class="rpt-matrix-wrap">
+        <h4>Accounts × exchanges</h4>
+        <div class="rpt-matrix-scroll" id="rptMatrix"></div>
+      </div>
+      <div class="rpt-daywrap">
+        <h4>Daily realized PnL (IST)</h4>
+        <div id="rptDayChart"></div>
+      </div>
+      <div class="rpt-tools">
+        <input type="search" id="rptSearch" placeholder="Filter accounts…" oninput="filterReportAccts()" />
+        <button class="btn" type="button" onclick="setReportAcctsOpen(true)">Expand all</button>
+        <button class="btn" type="button" onclick="setReportAcctsOpen(false)">Collapse</button>
+      </div>
+      <div class="rpt-accts" id="rptAccts"></div>
     </div>
-  </div>
-</div>
-
-<!-- Report metric graph modal -->
-<div class="gmodal" id="gmodal" onclick="if(event.target===this)closeReportGraph()">
-  <div class="gmodal-inner">
-    <div class="gmodal-head">
-      <div class="gmodal-metrics" id="gmodalMetrics"></div>
-      <button class="btn" onclick="closeReportGraph()">✕ Close</button>
-    </div>
-    <div class="gmodal-chart" id="gmodalChart">
-      <div class="chart-legend" id="gmodalLegend" style="display:none;"></div>
-    </div>
-    <div class="gmodal-status" id="gmodalStatus"></div>
   </div>
 </div>
 
@@ -1004,7 +1014,10 @@ function showPage(name) {
   if (name === 'rpnl'      && !rpnlReady) { initRpnl();      rpnlReady = true; }
   if (name === 'position'  && !posReady)  { initPosition();  posReady  = true; }
   if (name === 'bot'       && !botReady)  { initBot();       botReady  = true; }
-  if (name === 'reports'   && !reportsReady) { initReports(); reportsReady = true; }
+  if (name === 'reports') {
+    if (!reportsReady) { initReports(); reportsReady = true; }
+    else { loadReports(); requestAnimationFrame(resizeReportChart); }
+  }
   if (name === 'data') {
     if (!dataReady) { initData(); dataReady = true; }
     else showDataTab(dataTab);
@@ -1103,6 +1116,7 @@ async function onStrategyChange(val) {
   if (name === 'position' && posReady)  loadPosFresh();
   if (name === 'bot'      && botReady)  loadBotStatus();
   if (name === 'data'     && dataReady) initData();
+  if (name === 'reports'  && reportsReady) loadReports();
   checkHealth();
 }
 
@@ -2560,250 +2574,309 @@ function renderLiveCards(rows) {
 
 // Reports page
 let reportsTimer;
-let reportsAsc = [];       // ascending by time (oldest first)
-let curReportIdx = -1;
-let dayStartBalReports = null;
-const reportMsgCache = {};
-
-const REPORT_METRICS = {
-  total_balance: { label: 'Total Balance', color: '#2962ff', pnl: false },
-  delta_balance: { label: 'Delta Balance', color: '#26a69a', pnl: false },
-  hedge_balance: { label: 'Hedge Balance', color: '#ff9800', pnl: false },
-  net_upnl:      { label: 'Net uPnL',      color: '#e91e63', pnl: true  },
-  session_rpnl:  { label: 'Session rPnL',  color: '#ab47bc', pnl: true  },
-  daily_rpnl:    { label: 'Daily rPnL',    color: '#00bcd4', pnl: true  },
-};
+let rptDayChart = null, rptDaySeries = null;
+let rptCache = { accounts: [], exchanges: [] };
+const rptOpenAccts = new Set();
 
 function initReports() { loadReports(); }
 
+function rptHoursQuery() {
+  const v = (document.getElementById('rptHours') || {}).value;
+  if (v === 'today') return '&today=true';
+  if (v) return '&hours=' + encodeURIComponent(v);
+  return '';
+}
+
+function rptSigned(n) {
+  const v = Number(n) || 0;
+  const sign = v < 0 ? '−' : (v > 0 ? '+' : '');
+  return sign + '₹' + Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+function rptMoney(n) {
+  const v = Number(n) || 0;
+  return '₹' + Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+function rptCol(n) { return (Number(n) || 0) >= 0 ? 'var(--green)' : 'var(--red)'; }
+function rptAcctKey(a, i) { return encodeURIComponent(a.account || ('x' + i)); }
+function rptAcctName(a) {
+  if (a.account_name && a.account_name !== a.account) return a.account_name;
+  return a.account || 'unattributed';
+}
+
+function fmtBalanceCards(bal) {
+  if (!bal || typeof bal !== 'object') return '';
+  const skip = new Set(['account', 'account_name', 'time', 'created_at']);
+  const cards = [];
+  for (const [k, v] of Object.entries(bal)) {
+    if (skip.has(k) || v == null || v === '') continue;
+    const label = k.replace(/_balance$/,' ').replace(/_/g,' ').trim();
+    if (typeof v === 'number') cards.push('<div class="bb">' + escHtml(label) + '<b>' + rptMoney(v) + '</b></div>');
+    else if (typeof v === 'string' && v.length < 48) cards.push('<div class="bb">' + escHtml(label) + '<b>' + escHtml(v) + '</b></div>');
+  }
+  if (bal.time) cards.push('<div class="bb">snapshot <b>' + fmtIST(bal.time) + '</b></div>');
+  return cards.length ? '<div class="rpt-bal">' + cards.join('') + '</div>' : '';
+}
+
 async function loadReports() {
+  const empty = document.getElementById('reportEmpty');
+  const shell = document.getElementById('reportShell');
+  empty.style.display = 'block';
+  empty.textContent = 'Loading accounts…';
   try {
-    const r = await fetch('/api/reports?limit=200');
-    if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.detail || r.statusText); }
-    const reports = await r.json();
-    document.getElementById('reportsCount').textContent = reports.length + ' report' + (reports.length === 1 ? '' : 's');
-    const empty = document.getElementById('reportEmpty');
-    const shell = document.getElementById('reportShell');
-    if (!reports.length) {
-      empty.style.display = 'block';
-      empty.innerHTML = 'No reports saved yet.<br>Reports appear here once the bot sends its next periodic report.';
+    const qs = rptHoursQuery();
+    const [oR, dR] = await Promise.all([
+      fetch(withStrategy('/api/reports/overview') + qs),
+      fetch(withStrategy('/api/rpnl/rollup') + qs),
+    ]);
+    if (!oR.ok) {
+      const b = await oR.json().catch(() => ({}));
+      throw new Error(b.detail || oR.statusText);
+    }
+    const d = await oR.json();
+    let roll = { by_day: [] };
+    if (dR.ok) roll = await dR.json();
+    const accts = d.accounts || [];
+    rptCache = { accounts: accts, exchanges: d.by_exchange || [], snapshot: d.snapshot, shared_positions: d.shared_positions || [] };
+    const liveN = (d.totals && d.totals.live) || 0;
+    document.getElementById('reportsCount').textContent =
+      accts.length + ' account' + (accts.length === 1 ? '' : 's') +
+      (liveN ? ' · ' + liveN + ' live' : '') +
+      ' · ' + (d.window || '') + ' · ' + (d.strategy || '');
+    if (!accts.length) {
+      empty.innerHTML = 'No fills for this strategy in the selected window.';
       shell.style.display = 'none';
       return;
     }
     empty.style.display = 'none';
     shell.style.display = 'block';
-
-    reportsAsc = [...reports].sort((a, b) => a.time - b.time);
-
-    // Midnight IST baseline for intraday balance change
-    const ISTOffsetMs  = 5.5 * 3600 * 1000;
-    const midnightSecs = (Math.floor((Date.now() + ISTOffsetMs) / 86400000) * 86400000 - ISTOffsetMs) / 1000;
-    dayStartBalReports = null;
-    for (const rp of reportsAsc) if (rp.time <= midnightSecs && rp.summary?.total_balance != null) dayStartBalReports = rp.summary.total_balance;
-    if (dayStartBalReports == null) {
-      const f = reportsAsc.find(rp => rp.time >= midnightSecs && rp.summary?.total_balance != null);
-      if (f) dayStartBalReports = f.summary.total_balance;
+    if (!rptOpenAccts.size && accts.length <= 8) {
+      accts.forEach((a, i) => rptOpenAccts.add(rptAcctKey(a, i)));
     }
-
-    const slider = document.getElementById('tlSlider');
-    slider.max = reportsAsc.length - 1;
-    if (curReportIdx < 0 || curReportIdx > reportsAsc.length - 1) curReportIdx = reportsAsc.length - 1;
-    slider.value = curReportIdx;
-    document.getElementById('tlStart').textContent = fmtIST(reportsAsc[0].time);
-    document.getElementById('tlEnd').textContent   = fmtIST(reportsAsc.at(-1).time);
-    renderCurrentReport();
-  } catch(e) {
+    renderReportHero(d);
+    renderReportExchanges(d.by_exchange || []);
+    renderReportMatrix(accts, d.by_exchange || []);
+    renderReportAccounts(accts, d.snapshot, d.shared_positions || []);
+    drawReportDays(roll.by_day || []);
+    filterReportAccts();
+    requestAnimationFrame(resizeReportChart);
+  } catch (e) {
     document.getElementById('reportsCount').textContent = 'Error';
-    const empty = document.getElementById('reportEmpty');
     empty.style.display = 'block';
-    empty.innerHTML = '<span style="color:var(--red)">Error: ' + e.message + '</span>';
-    document.getElementById('reportShell').style.display = 'none';
+    empty.innerHTML = '<span style="color:var(--red)">Error: ' + escHtml(e.message) + '</span>';
+    shell.style.display = 'none';
   }
 }
 
-function onSlider(v) { curReportIdx = parseInt(v); renderCurrentReport(); }
-function stepReport(dir) {
-  const n = reportsAsc.length; if (!n) return;
-  curReportIdx = Math.max(0, Math.min(n - 1, curReportIdx + dir));
-  document.getElementById('tlSlider').value = curReportIdx;
-  renderCurrentReport();
-}
-
-function _pnlColor(v) { return v >= 0 ? 'var(--green)' : 'var(--red)'; }
-
-async function renderCurrentReport() {
-  const rp = reportsAsc[curReportIdx]; if (!rp) return;
-  const s = rp.summary || {};
-  const prev = curReportIdx > 0 ? reportsAsc[curReportIdx - 1] : null;
-  const n = reportsAsc.length;
-
-  document.getElementById('tlPrev').disabled = curReportIdx <= 0;
-  document.getElementById('tlNext').disabled = curReportIdx >= n - 1;
-  document.getElementById('tlCur').textContent = fmtIST(rp.time) + '  (' + (curReportIdx + 1) + '/' + n + ')';
-
-  const bal       = s.total_balance;
-  const sinceLast = (prev && prev.summary?.total_balance != null && bal != null) ? bal - prev.summary.total_balance : null;
-  const today     = (dayStartBalReports != null && bal != null) ? bal - dayStartBalReports : null;
-
-  const money  = (v) => v == null ? '—' : '₹' + v.toFixed(2);
-  const signed = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + '₹' + v.toFixed(2);
-  const col    = (v) => v == null ? '' : 'style="color:' + _pnlColor(v) + '"';
-  const chip = (label, valHtml, metric) =>
-    '<div class="metric-chip"' + (metric ? ' onclick="openReportGraph(\'' + metric + '\')"' : '') + '>' +
-      '<div class="mc-label">' + label + (metric ? '<span class="mc-graph">📈</span>' : '') + '</div>' +
-      '<div class="mc-val">' + valHtml + '</div>' +
-    '</div>';
-
-  const chips = [
-    chip('Since last',   '<span ' + col(sinceLast) + '>' + signed(sinceLast) + '</span>', 'total_balance'),
-    chip('Today',        '<span ' + col(today) + '>' + signed(today) + '</span>', 'total_balance'),
-    chip('Daily rPnL',   '<span ' + col(s.daily_rpnl) + '>' + signed(s.daily_rpnl) + '</span>', 'daily_rpnl'),
-    chip('Session rPnL', '<span ' + col(s.session_rpnl) + '>' + signed(s.session_rpnl) + '</span>', 'session_rpnl'),
-    chip('Net uPnL',     '<span ' + col(s.net_upnl) + '>' + signed(s.net_upnl) + '</span>', 'net_upnl'),
-    chip('Δ / Hedge',    '<span style="color:#26a69a">' + money(s.delta_balance) + '</span> <span style="color:var(--muted)">/</span> <span style="color:#ff9800">' + money(s.hedge_balance) + '</span>', 'delta_balance'),
-  ].join('');
-
-  const contracts = Array.isArray(s.contracts) && s.contracts.length ? ' · ' + s.contracts.join(', ') : '';
+function renderReportHero(d) {
+  const t = d.totals || {};
+  const kpis = [
+    ['Equity', t.balance == null ? '—' : rptMoney(t.balance), ''],
+    ['Accounts', String(t.accounts || 0) + (t.live ? ' · ' + t.live + ' live' : ''), ''],
+    ['Fills', (t.fills || 0).toLocaleString('en-IN'), ''],
+    ['Fees', rptMoney(t.fees), ''],
+    ['Open uPnL', rptSigned(t.upnl), rptCol(t.upnl)],
+  ];
   document.getElementById('rptHero').innerHTML =
-    '<div class="hero-main">' +
-      '<div class="hero-label">Total Balance</div>' +
-      '<div class="hero-bal" onclick="openReportGraph(\'total_balance\')">' + money(bal) + '</div>' +
-      '<div class="hero-time">' + fmtIST(rp.time) + ' IST' + contracts + '</div>' +
+    '<div class="hero-top">' +
+      '<div><div class="hero-label">Net realized PnL</div>' +
+        '<div class="hero-bal" style="color:' + rptCol(t.rpnl) + '">' + rptSigned(t.rpnl) + '</div>' +
+        '<div class="hero-sub">' + escHtml((d.strategy || '') + ' · ' + (d.window || '') +
+          ' · IST ' + new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false })) + '</div></div>' +
     '</div>' +
-    '<div class="hero-chips">' + chips + '</div>';
+    '<div class="rpt-kpis">' + kpis.map(function (x) {
+      return '<div class="rpt-kpi"><div class="k">' + x[0] + '</div><div class="v"' +
+        (x[2] ? ' style="color:' + x[2] + '"' : '') + '>' + x[1] + '</div></div>';
+    }).join('') + '</div>';
+}
 
-  const grid = document.getElementById('rptGrid');
-  grid.innerHTML = '<div style="color:var(--muted);padding:12px;">Loading report details…</div>';
-  try {
-    let msg = reportMsgCache[rp.id];
-    if (msg == null) {
-      const r = await fetch('/api/reports/' + rp.id);
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
-      msg = (await r.json()).message || '';
-      reportMsgCache[rp.id] = msg;
-    }
-    if (reportsAsc[curReportIdx]?.id !== rp.id) return; // user moved on
-    const sections = parseSections(msg);
-    grid.innerHTML = sections.length
-      ? sections.map(sec => {
-          const wide = /Stats|Insights/i.test(sec.title) ? ' wide' : '';
-          return '<div class="sec-card' + wide + '">' +
-            '<div class="sec-head"><span class="sec-icon">' + sec.icon + '</span>' + sec.title + '</div>' +
-            '<div class="sec-body">' + sec.body + '</div>' +
-          '</div>';
-        }).join('')
-      : '<div style="color:var(--muted);padding:12px;">No detail sections in this report.</div>';
-  } catch(e) {
-    grid.innerHTML = '<div style="color:var(--red);padding:12px;">Failed to load details: ' + e.message + '</div>';
+function renderReportExchanges(rows) {
+  const wrap = document.getElementById('rptExch');
+  wrap.innerHTML = rows.map(function (e) {
+    return '<div class="rpt-exchip">' +
+      '<div class="el rpnl-venue ' + rpnlVenueClass(e.exchange) + '">' + escHtml(e.label || e.exchange) + '</div>' +
+      '<div class="ev" style="color:' + rptCol(e.rpnl) + '">' + rptSigned(e.rpnl) + '</div>' +
+      '<div class="em">' + (e.fills || 0) + ' fills · fees ' + rptMoney(e.fees) + '</div></div>';
+  }).join('');
+}
+
+function renderReportMatrix(accts, exchanges) {
+  const wrap = document.getElementById('rptMatrix');
+  if (!wrap) return;
+  const cols = exchanges.slice();
+  const head = '<tr><th>Account</th>' + cols.map(function (e) {
+    return '<th>' + escHtml(e.label || e.exchange) + '</th>';
+  }).join('') + '<th>Net</th><th>Fills</th><th>uPnL</th></tr>';
+  const body = accts.map(function (a, i) {
+    const key = rptAcctKey(a, i);
+    const byEx = {};
+    (a.exchanges || []).forEach(function (e) { byEx[e.exchange] = e; });
+    const cells = cols.map(function (c) {
+      const e = byEx[c.exchange];
+      if (!e) return '<td style="color:var(--muted)">—</td>';
+      return '<td style="color:' + rptCol(e.rpnl) + '" title="' + (e.fills || 0) + ' fills">' + rptSigned(e.rpnl) + '</td>';
+    }).join('');
+    return '<tr class="rpt-click" data-acct-key="' + escHtml(key) + '" onclick="jumpReportAcct(\'' + key + '\')">' +
+      '<td><div class="an">' + (a.live ? '<span class="rpt-live" title="live"></span> ' : '') + escHtml(rptAcctName(a)) + '</div>' +
+        (a.account && a.account !== a.account_name ? '<div class="aid">' + escHtml(a.account) + '</div>' : '') +
+      '</td>' + cells +
+      '<td style="color:' + rptCol(a.rpnl) + '">' + rptSigned(a.rpnl) + '</td>' +
+      '<td>' + (a.fills || 0) + '</td>' +
+      '<td style="color:' + rptCol(a.upnl) + '">' + (a.upnl ? rptSigned(a.upnl) : '—') + '</td></tr>';
+  }).join('');
+  const footCells = cols.map(function (c) {
+    return '<td style="color:' + rptCol(c.rpnl) + '">' + rptSigned(c.rpnl) + '</td>';
+  }).join('');
+  const totFills = accts.reduce(function (s, a) { return s + (a.fills || 0); }, 0);
+  const totRpnl = accts.reduce(function (s, a) { return s + (Number(a.rpnl) || 0); }, 0);
+  const totUpnl = accts.reduce(function (s, a) { return s + (Number(a.upnl) || 0); }, 0);
+  wrap.innerHTML = '<table class="rpt-matrix"><thead>' + head + '</thead><tbody>' + body + '</tbody>' +
+    '<tfoot><tr><td>Total</td>' + footCells +
+    '<td style="color:' + rptCol(totRpnl) + '">' + rptSigned(totRpnl) + '</td>' +
+    '<td>' + totFills + '</td>' +
+    '<td style="color:' + rptCol(totUpnl) + '">' + rptSigned(totUpnl) + '</td></tr></tfoot></table>';
+}
+
+function jumpReportAcct(key) {
+  rptOpenAccts.add(key);
+  const el = document.getElementById('acct-' + key);
+  if (el) {
+    el.classList.add('open');
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 }
 
-// Split a Telegram-HTML report message into styled section cards.
-function parseSections(message) {
-  const parts = message.split(/\n(?=<b>)/);
-  const out = [];
-  for (const block of parts) {
-    const nl = block.indexOf('\n');
-    const headerLine = nl === -1 ? block : block.slice(0, nl);
-    const body = nl === -1 ? '' : block.slice(nl + 1);
-    const hm = headerLine.match(/<b>(.*?)<\/b>/);
-    if (!hm) continue;
-    const title = hm[1].trim();
-    if (/OPA3/i.test(title)) continue; // report header — hero shows this info
-    let icon = '📄', name = title;
-    const em = title.match(/^(\S+)\s+(.+)$/);
-    if (em) { icon = em[1]; name = em[2]; }
-    const clean = body.replace(/^[\s]*\n/, '').trimEnd();
-    if (!clean) continue;
-    out.push({ icon, title: name, body: clean });
-  }
-  return out;
+function toggleReportAcct(id) {
+  const el = document.getElementById('acct-' + id);
+  if (!el) return;
+  el.classList.toggle('open');
+  if (el.classList.contains('open')) rptOpenAccts.add(id); else rptOpenAccts.delete(id);
 }
 
-// ── Report metric graph modal ─────────────────────────────
-let gModalChart = null, gModalSeries = null, gModalMetric = 'total_balance', gEscBound = false;
-
-function openReportGraph(metric) {
-  if (!reportsAsc.length) return;
-  gModalMetric = metric || 'total_balance';
-  document.getElementById('gmodal').classList.add('open');
-  if (!gModalChart) initGModalChart();
-  if (!gEscBound) {
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeReportGraph(); });
-    gEscBound = true;
-  }
-  renderGModalMetrics();
-  drawGModal();
-  requestAnimationFrame(() => gModalChart.applyOptions({ width: document.getElementById('gmodalChart').clientWidth }));
-}
-function closeReportGraph() { document.getElementById('gmodal').classList.remove('open'); }
-
-function initGModalChart() {
-  gModalChart = LightweightCharts.createChart(document.getElementById('gmodalChart'), {
-    autoSize: true,
-    layout: { background: { color: '#0e1117' }, textColor: '#d1d4dc' },
-    grid:   { vertLines: { color: '#1c2130' }, horzLines: { color: '#1c2130' } },
-    timeScale: { timeVisible: true, secondsVisible: false },
-    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-  });
-  const legend = document.getElementById('gmodalLegend');
-  gModalChart.subscribeCrosshairMove((param) => {
-    if (!param.time || !param.point || param.point.x < 0 || !gModalSeries) { legend.style.display = 'none'; return; }
-    const d = param.seriesData.get(gModalSeries);
-    if (!d) { legend.style.display = 'none'; return; }
-    const t = new Date((param.time - IST_OFFSET) * 1000).toLocaleString('en-IN',
-      { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
-    const meta = REPORT_METRICS[gModalMetric];
-    const v = d.value;
-    const vs = meta.pnl ? (v >= 0 ? '+' : '') + '₹' + v.toFixed(2) : '₹' + v.toFixed(2);
-    legend.innerHTML =
-      '<div class="leg-time">' + t + '</div>' +
-      '<div class="leg-row"><span class="leg-label">' + meta.label + '</span>' +
-      '<span class="leg-val" style="color:' + (meta.pnl ? _pnlColor(v) : meta.color) + '">' + vs + '</span></div>';
-    legend.style.display = 'block';
-  });
-  window.addEventListener('resize', () => {
-    if (document.getElementById('gmodal').classList.contains('open'))
-      gModalChart.applyOptions({ width: document.getElementById('gmodalChart').clientWidth });
+function setReportAcctsOpen(open) {
+  document.querySelectorAll('.rpt-acct').forEach(function (el) {
+    const key = (el.id || '').replace(/^acct-/, '');
+    el.classList.toggle('open', open);
+    if (open) rptOpenAccts.add(key); else rptOpenAccts.delete(key);
   });
 }
 
-function renderGModalMetrics() {
-  document.getElementById('gmodalMetrics').innerHTML = Object.entries(REPORT_METRICS).map(([k, m]) =>
-    '<button class="gmetric-btn' + (k === gModalMetric ? ' active' : '') + '" onclick="switchGModalMetric(\'' + k + '\')">' + m.label + '</button>'
-  ).join('');
+function filterReportAccts() {
+  const q = ((document.getElementById('rptSearch') || {}).value || '').trim().toLowerCase();
+  document.querySelectorAll('.rpt-acct').forEach(function (el) {
+    const hay = (el.getAttribute('data-filter') || '').toLowerCase();
+    el.classList.toggle('hidden', q && hay.indexOf(q) < 0);
+  });
 }
-function switchGModalMetric(k) { gModalMetric = k; renderGModalMetrics(); drawGModal(); }
 
-function drawGModal() {
-  const meta = REPORT_METRICS[gModalMetric];
-  const pts = reportsAsc
-    .filter(r => r.summary && r.summary[gModalMetric] != null)
-    .map(r => ({ time: r.time + IST_OFFSET, value: r.summary[gModalMetric] }));
-  pts.sort((a, b) => a.time - b.time);
-  const data = []; let lastT = null;
-  for (const p of pts) { if (p.time === lastT) data[data.length - 1] = p; else data.push(p); lastT = p.time; }
+function renderReportAccounts(accts, snapshot, sharedPos) {
+  const snapHtml = snapshot ? '<div class="rpt-sec">Strategy balance snapshot</div>' + fmtBalanceCards(snapshot) : '';
+  const sharedPosHtml = (sharedPos && sharedPos.length)
+    ? '<div class="rpt-sec">Open positions (not tagged to an account)</div>' + posTable(sharedPos)
+    : '';
+  document.getElementById('rptAccts').innerHTML = snapHtml + sharedPosHtml + accts.map(function (a, i) {
+    const key = rptAcctKey(a, i);
+    const open = rptOpenAccts.has(key) ? ' open' : '';
+    const name = escHtml(rptAcctName(a));
+    const idBit = a.account && a.account !== a.account_name
+      ? '<div class="aid">' + escHtml(a.account) + '</div>' : '';
+    const hay = [a.account, a.account_name].concat(
+      (a.contracts || []).map(function (c) { return c.quote_symbol || c.contract; }),
+      (a.exchanges || []).map(function (e) { return e.exchange + ' ' + (e.label || ''); })
+    ).join(' ');
+    const chips = (a.exchanges || []).map(function (e) {
+      return '<span class="rpt-vchip"><span class="rpnl-venue ' + rpnlVenueClass(e.exchange) + '">' +
+        escHtml(e.label || e.exchange) + '</span> <span style="color:' + rptCol(e.rpnl) + '">' +
+        rptSigned(e.rpnl) + '</span></span>';
+    }).join('');
+    const exchRows = (a.exchanges || []).map(function (e) {
+      return '<tr><td><span class="rpnl-venue ' + rpnlVenueClass(e.exchange) + '">' +
+        escHtml(e.label || e.exchange) + '</span></td>' +
+        '<td class="num" style="color:' + rptCol(e.rpnl) + '">' + rptSigned(e.rpnl) + '</td>' +
+        '<td class="num">' + rptMoney(e.fees) + '</td><td class="num">' + (e.fills || 0) + '</td></tr>';
+    }).join('');
+    const conRows = (a.contracts || []).map(function (c) {
+      const venueBits = (c.venues || []).map(function (v) {
+        return '<span class="rpnl-venue ' + rpnlVenueClass(v.exchange) + '">' + escHtml(v.label) + '</span> ' +
+          '<span style="color:' + rptCol(v.rpnl) + '">' + rptSigned(v.rpnl) + '</span>';
+      }).join(' · ');
+      return '<tr><td>' + escHtml(c.quote_symbol || c.contract) +
+        (c.has_hedge ? ' <span style="color:var(--muted);font-size:11px">hedged</span>' : '') +
+        '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + venueBits + '</div></td>' +
+        '<td class="num" style="color:' + rptCol(c.rpnl) + '">' + rptSigned(c.rpnl) + '</td>' +
+        '<td class="num" style="color:#ff9800">' + (c.has_hedge ? rptSigned(c.hedge_rpnl) : '—') + '</td>' +
+        '<td class="num" style="color:' + rptCol(c.net) + '">' + rptSigned(c.net) + '</td>' +
+        '<td class="num">' + (c.fills || 0) + (c.hedge_fills ? ' + ' + c.hedge_fills : '') + '</td></tr>';
+    }).join('');
+    return '<div class="rpt-acct' + open + '" id="acct-' + key + '" data-filter="' + escHtml(hay) + '">' +
+      '<div class="rpt-acct-h" onclick="toggleReportAcct(\'' + key + '\')">' +
+        '<div><div class="aname">' + (a.live ? '<span class="rpt-live" title="live"></span>' : '') + name + '</div>' + idBit + '</div>' +
+        '<div class="rpt-vchips">' + chips + '</div>' +
+        '<div class="ameta">' + (a.fills || 0) + ' fills' +
+          (a.last_at ? ' · last ' + fmtIST(a.last_at) : '') +
+          (a.upnl ? '<br>uPnL ' + rptSigned(a.upnl) : '') + '</div>' +
+        '<div class="anet" style="color:' + rptCol(a.rpnl) + '">' + rptSigned(a.rpnl) + '</div>' +
+      '</div>' +
+      '<div class="rpt-acct-b">' +
+        fmtBalanceCards(a.balance) +
+        '<div class="rpt-sec">Exchanges</div>' +
+        '<table class="rpt-xtable"><thead><tr><th>Exchange</th><th class="num">rPnL</th><th class="num">Fees</th><th class="num">Fills</th></tr></thead><tbody>' +
+          exchRows + '</tbody></table>' +
+        '<div class="rpt-sec">Contracts</div>' +
+        '<table class="rpt-xtable"><thead><tr><th>Contract</th><th class="num">Quote</th><th class="num">Hedge</th><th class="num">Net</th><th class="num">Fills</th></tr></thead><tbody>' +
+          conRows + '</tbody></table>' +
+        ((a.positions && a.positions.length) ? '<div class="rpt-sec">Open positions</div>' + posTable(a.positions) : '') +
+      '</div></div>';
+  }).join('');
+}
 
-  if (gModalSeries) { gModalChart.removeSeries(gModalSeries); gModalSeries = null; }
-  if (meta.pnl) {
-    gModalSeries = gModalChart.addBaselineSeries({
-      baseValue: { type: 'price', price: 0 },
-      topLineColor: '#26a69a', topFillColor1: 'rgba(38,166,154,0.28)', topFillColor2: 'rgba(38,166,154,0.04)',
-      bottomLineColor: '#ef5350', bottomFillColor1: 'rgba(239,83,80,0.04)', bottomFillColor2: 'rgba(239,83,80,0.28)',
-      lineWidth: 2, priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+function posTable(rows) {
+  return '<table class="rpt-xtable"><thead><tr><th>Contract</th><th class="num">Quote</th><th class="num">Hedge</th><th class="num">Mark</th><th class="num">uPnL</th></tr></thead><tbody>' +
+    rows.map(function (p) {
+      const q = p.delta_size != null ? p.delta_size : p.size;
+      const h = p.binance_size != null ? p.binance_size : p.hedge_size;
+      const mark = p.mark_price != null ? Number(p.mark_price).toPrecision(6) : '—';
+      const upnl = p.net_upnl;
+      return '<tr><td>' + escHtml(p.contract || '') + '</td>' +
+        '<td class="num">' + (q == null ? '—' : Number(q).toFixed(3)) + '</td>' +
+        '<td class="num">' + (h == null ? '—' : Number(h).toFixed(3)) + '</td>' +
+        '<td class="num">' + mark + '</td>' +
+        '<td class="num" style="color:' + rptCol(upnl) + '">' + (upnl == null ? '—' : rptSigned(upnl)) + '</td></tr>';
+    }).join('') + '</tbody></table>';
+}
+
+function resizeReportChart() {
+  if (!rptDayChart) return;
+  const el = document.getElementById('rptDayChart');
+  if (el && el.clientWidth) rptDayChart.applyOptions({ width: el.clientWidth });
+}
+
+function drawReportDays(days) {
+  const el = document.getElementById('rptDayChart');
+  if (!el) return;
+  const pts = (days || []).slice().reverse().map(function (d) {
+    return {
+      time: d.date,
+      value: Number(d.total) || 0,
+      color: (Number(d.total) || 0) >= 0 ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)',
+    };
+  }).filter(function (p) { return p.time; });
+  if (!rptDayChart) {
+    rptDayChart = LightweightCharts.createChart(el, {
+      autoSize: true,
+      layout: { background: { color: '#161a25' }, textColor: '#d1d4dc' },
+      grid: { vertLines: { color: '#1c2130' }, horzLines: { color: '#1c2130' } },
+      rightPriceScale: { borderColor: '#303647' },
+      timeScale: { borderColor: '#303647', timeVisible: false },
     });
-  } else {
-    gModalSeries = gModalChart.addAreaSeries({
-      lineColor: meta.color, topColor: meta.color + '55', bottomColor: meta.color + '08',
-      lineWidth: 2, priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    rptDaySeries = rptDayChart.addHistogramSeries({
+      priceFormat: { type: 'custom', minMove: 1, formatter: function (p) {
+        const n = Number(p) || 0;
+        return (n < 0 ? '−' : '') + '₹' + Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+      } },
     });
   }
-  gModalSeries.setData(data);
-  gModalChart.timeScale().fitContent();
-  const last = data.at(-1);
-  const lastStr = last ? (meta.pnl ? (last.value >= 0 ? '+' : '') + '₹' + last.value.toFixed(2) : '₹' + last.value.toFixed(2)) : '';
-  document.getElementById('gmodalStatus').innerHTML = meta.label + ' · ' + data.length + ' point' + (data.length === 1 ? '' : 's') +
-    (last ? ' · latest: <b style="color:' + (meta.pnl ? _pnlColor(last.value) : meta.color) + '">' + lastStr + '</b>' : '');
+  rptDaySeries.setData(pts);
+  rptDayChart.timeScale().fitContent();
 }
 
 function setupReportsAuto() {

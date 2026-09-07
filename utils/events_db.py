@@ -1652,6 +1652,153 @@ class EventsDB:
             self.logger.warning("events_db: get_rpnl_rollup failed — %s", e)
             return []
 
+    async def _table_columns(self, conn, table: str) -> set[str]:
+        rows = await conn.fetch(
+            """
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = $1
+            """,
+            table,
+        )
+        return {r["column_name"] for r in rows}
+
+    @staticmethod
+    def _plain(v):
+        if v is None:
+            return None
+        if isinstance(v, datetime):
+            return int(v.timestamp())
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            if hasattr(v, "items"):
+                return dict(v)
+            return v
+
+    async def _latest_balances(self, conn, strategy: str, cols: set[str]) -> list[dict]:
+        if not cols or "created_at" not in cols:
+            return []
+        select = [c for c in sorted(cols) if c != "id"]
+        quoted = ", ".join(f'"{c}"' for c in select)
+        args: list = []
+        where = ""
+        if "strategy" in cols:
+            args.append(strategy)
+            where = "WHERE strategy::text = $1"
+        order_col = "id DESC" if "id" in cols else "created_at DESC"
+        if "account" in cols:
+            sql = (
+                f"SELECT DISTINCT ON (COALESCE(account::text, '')) {quoted} "
+                f"FROM balances {where} "
+                f"ORDER BY COALESCE(account::text, ''), {order_col}"
+            )
+        else:
+            sql = f"SELECT {quoted} FROM balances {where} ORDER BY {order_col} LIMIT 1"
+        try:
+            rows = await conn.fetch(sql, *args)
+        except Exception as e:
+            self.logger.debug("events_db: latest balances skipped — %s", e)
+            return []
+        out = []
+        for r in rows:
+            item = {"time": int(r["created_at"].timestamp()) if r["created_at"] else None}
+            for c in select:
+                if c == "created_at":
+                    continue
+                item[c] = self._plain(r[c])
+            out.append(item)
+        return out
+
+    async def _latest_positions(self, conn, strategy: str, cols: set[str]) -> list[dict]:
+        if not cols or "contract" not in cols:
+            return []
+        select = [c for c in sorted(cols) if c != "id"]
+        quoted = ", ".join(f'"{c}"' for c in select)
+        args: list = []
+        where = ""
+        if "strategy" in cols:
+            args.append(strategy)
+            where = f"WHERE strategy::text = ${len(args)}"
+        keys = "contract"
+        order = "contract, id DESC" if "id" in cols else "contract, created_at DESC"
+        if "account" in cols:
+            keys = "COALESCE(account::text, ''), contract"
+            order = (
+                "COALESCE(account::text, ''), contract, id DESC"
+                if "id" in cols
+                else "COALESCE(account::text, ''), contract, created_at DESC"
+            )
+        sql = f"SELECT DISTINCT ON ({keys}) {quoted} FROM positions {where} ORDER BY {order}"
+        try:
+            rows = await conn.fetch(sql, *args)
+        except Exception as e:
+            self.logger.debug("events_db: latest positions skipped — %s", e)
+            return []
+        out = []
+        for r in rows:
+            item = {
+                "time": int(r["created_at"].timestamp()) if r["created_at"] else None,
+                "contract": canon_contract(r["contract"]),
+            }
+            for c in select:
+                if c in ("created_at", "contract"):
+                    continue
+                item[c] = self._plain(r[c])
+            out.append(item)
+        return out
+
+    async def get_accounts_overview(
+        self, strategy: str = "opa3", since: "datetime | None" = None,
+    ) -> dict:
+        """Fills rolled up by account × contract × exchange, plus latest
+        balance/position snapshots if those tables have been extended."""
+        empty = {"rows": [], "balances": [], "positions": []}
+        if not self.pool:
+            return empty
+        try:
+            params: list = [strategy]
+            sql = """
+                SELECT COALESCE(account::text, '') AS account,
+                       COALESCE(MAX(details->>'account_name'), '') AS account_name,
+                       contract,
+                       LOWER(exchange) AS exchange,
+                       COUNT(*)::int AS fills,
+                       COALESCE(SUM(rpnl), 0)::float AS rpnl,
+                       COALESCE(SUM(fee), 0)::float AS fee,
+                       MIN(created_at) AS first_at,
+                       MAX(created_at) AS last_at
+                FROM fills
+                WHERE strategy::text = $1
+            """
+            if since is not None:
+                params.append(since)
+                sql += f" AND created_at >= ${len(params)}"
+            sql += " GROUP BY 1, 3, 4"
+            async with self.pool.acquire() as conn:
+                fill_rows = await conn.fetch(sql, *params)
+                bal_cols = await self._table_columns(conn, "balances")
+                pos_cols = await self._table_columns(conn, "positions")
+                balances = await self._latest_balances(conn, strategy, bal_cols)
+                positions = await self._latest_positions(conn, strategy, pos_cols)
+            rows = []
+            for r in fill_rows:
+                exch = (r["exchange"] or "delta").lower()
+                rows.append({
+                    "account": r["account"] or "",
+                    "account_name": r["account_name"] or "",
+                    "contract": canon_contract(r["contract"]),
+                    "exchange": exch,
+                    "fills": int(r["fills"] or 0),
+                    "rpnl": round(self._rpnl_inr(float(r["rpnl"] or 0), exch), 4),
+                    "fee": round(self._rpnl_inr(float(r["fee"] or 0), exch), 4),
+                    "first_at": int(r["first_at"].timestamp()) if r["first_at"] else None,
+                    "last_at": int(r["last_at"].timestamp()) if r["last_at"] else None,
+                })
+            return {"rows": rows, "balances": balances, "positions": positions}
+        except Exception as e:
+            self.logger.warning("events_db: get_accounts_overview failed — %s", e)
+            return empty
+
     @staticmethod
     def _add_legacy_rpnl_fields(item: dict) -> None:
         """Per-venue named keys the dashboard and Data page still read."""
