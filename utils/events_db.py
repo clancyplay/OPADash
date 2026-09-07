@@ -15,7 +15,7 @@ from utils.logger import get_logger
 
 # Exchanges that appear in fills.exchange. Add a venue here and the rPnL
 # queries, filters and currency conversion pick it up.
-KNOWN_VENUES = ("delta", "binance", "kucoin", "coindcx", "aster")
+KNOWN_VENUES = ("delta", "binance", "kucoin", "coindcx", "aster", "bybit", "coinbase")
 # Venues whose rpnl/fee columns are already in INR; the rest are USD.
 INR_VENUES = ("coindcx",)
 
@@ -25,12 +25,16 @@ def contract_aliases(contract: str) -> list[str]:
     raw = (contract or "").strip()
     if not raw:
         return []
-    upper = raw.upper()
+    upper = raw.upper().replace("-", "").replace("_", "")
     out = [upper]
     if upper.endswith("USDT"):
         out.append(upper[:-1])
+    elif upper.endswith("USDC"):
+        out.append(upper[:-1])
+        out.append(upper[:-1] + "T")
     elif upper.endswith("USD"):
         out.append(upper + "T")
+        out.append(upper + "C")
     seen, aliases = set(), []
     for name in out:
         if name not in seen:
@@ -40,18 +44,21 @@ def contract_aliases(contract: str) -> list[str]:
 
 
 def canon_contract(contract: str) -> str:
-    name = (contract or "").upper()
+    name = (contract or "").upper().replace("-", "").replace("_", "")
+    if name.endswith("USDTM"):
+        return name[:-5] + "USD"
+    if name.endswith("USDC"):
+        return name[:-1]
     if name.endswith("USDT"):
         return name[:-1]
+    if name.endswith("PERPINTX") and len(name) > 8:
+        return f"{name[:-8]}-PERP-INTX"
     return name
 
 
 def ping_contract(contract: str) -> str:
-    """Match OPA6 dash_contract so KuCoin ZORAUSDTM lines up with ZORAUSD pills."""
-    name = (contract or "").upper()
-    if name.endswith("USDTM"):
-        return name[:-5] + "USD"
-    return canon_contract(name)
+    """Match OPA6 dash_contract so KuCoin ZORAUSDTM / Coinbase ETH-USD line up."""
+    return canon_contract(contract)
 
 
 def ping_is_live(contract: str, account: str, keys: set[tuple[str, str]]) -> bool:
@@ -1652,13 +1659,15 @@ class EventsDB:
         for key, venue in (
             ("fills", "delta"), ("binance_fills", "binance"),
             ("kucoin_fills", "kucoin"), ("cdcx_fills", "coindcx"),
-            ("aster_fills", "aster"),
+            ("aster_fills", "aster"), ("bybit_fills", "bybit"),
+            ("coinbase_fills", "coinbase"),
         ):
             item[key] = fills.get(venue, 0)
         for key, venue in (
             ("rpnl", "delta"), ("binance_rpnl", "binance"),
             ("kucoin_rpnl", "kucoin"), ("cdcx_rpnl", "coindcx"),
-            ("aster_rpnl", "aster"),
+            ("aster_rpnl", "aster"), ("bybit_rpnl", "bybit"),
+            ("coinbase_rpnl", "coinbase"),
         ):
             item[key] = round(rpnl.get(venue, 0.0), 2)
         item["fees"] = round(fees.get("delta", 0.0), 2)
@@ -1670,11 +1679,8 @@ class EventsDB:
         self, exchange: str | None, start_idx: int, quote_venue: str = "delta",
     ) -> tuple[str, list]:
         exch = (exchange or "delta").lower()
-        qv = (quote_venue or "delta").lower()
-        if qv in ("c",):
-            qv = "coindcx"
-        if qv not in KNOWN_VENUES:
-            qv = "delta"
+        qv = (quote_venue or "delta").strip().lower()
+        qv = {"c": "coindcx", "b": "binance", "k": "kucoin", "a": "aster", "y": "bybit", "g": "coinbase", "cb": "coinbase"}.get(qv, qv) or "delta"
         if exch == "quote":
             return f" AND exchange = ${start_idx}", [qv]
         if exch == "not_quote":

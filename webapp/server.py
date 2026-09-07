@@ -160,20 +160,23 @@ _VENUE_LABEL = {
     "kucoin": "KuCoin",
     "coindcx": "CoinDCX",
     "aster": "Aster",
+    "bybit": "Bybit",
+    "coinbase": "Coinbase",
 }
 
 
 def _norm_quote_venue(raw: str | None) -> str:
     v = (raw or "delta").strip().lower()
-    if v in ("b", "binance"):
-        return "binance"
-    if v in ("k", "kucoin"):
-        return "kucoin"
-    if v in ("c", "coindcx"):
-        return "coindcx"
-    if v in ("a", "aster"):
-        return "aster"
-    return "delta"
+    aliases = {
+        "b": "binance", "binance": "binance",
+        "k": "kucoin", "kucoin": "kucoin",
+        "c": "coindcx", "coindcx": "coindcx",
+        "a": "aster", "aster": "aster",
+        "y": "bybit", "bybit": "bybit",
+        "g": "coinbase", "cb": "coinbase", "coinbase": "coinbase",
+        "d": "delta", "delta": "delta",
+    }
+    return aliases.get(v, v or "delta")
 
 
 def _cfg_for_contract(name: str) -> _SymbolConfig | None:
@@ -196,11 +199,12 @@ def _cfg_for_contract(name: str) -> _SymbolConfig | None:
 
 
 def _base_asset(name: str) -> str:
-    """LISTAUSD / LISTAUSDT / LISTAUSDTM / B-LISTA_USDT -> LISTA."""
+    """LISTAUSD / LISTAUSDT / LISTAUSDTM / B-LISTA_USDT / ETH-USD -> LISTA / ETH."""
     u = (name or "").upper().strip()
     if u.startswith("B-") and "_" in u:
         return u[2:].split("_", 1)[0]
-    for suffix in ("USDTM", "USDT", "USD"):
+    u = u.replace("-", "")
+    for suffix in ("USDTM", "PERPINTX", "USDT", "USDC", "USD"):
         if u.endswith(suffix) and len(u) > len(suffix):
             return u[: -len(suffix)]
     return u
@@ -220,12 +224,17 @@ def _venue_symbol(cfg: _SymbolConfig | None, venue: str, contract: str) -> str:
     base = _base_asset(contract)
     if not base:
         return (contract or "").upper()
-    if venue in ("binance", "aster"):
+    if venue in ("binance", "aster", "bybit"):
         return f"{base}USDT"
     if venue == "kucoin":
         return f"{base}USDTM"
     if venue == "coindcx":
         return f"B-{base}_USDT"
+    if venue == "coinbase":
+        u = (contract or "").upper().replace("-", "").replace("_", "")
+        if u.endswith("PERPINTX") or "PERP" in u:
+            return f"{base}-PERP-INTX"
+        return f"{base}-USD"
     return (contract or "").upper()
 
 
@@ -280,7 +289,7 @@ def _venue_side(exchange: str | None) -> str:
     e = (exchange or "both").strip().lower()
     if e in ("quote", "delta"):
         return "quote"
-    if e in ("hedge", "coindcx", "binance", "kucoin", "not_quote"):
+    if e in ("hedge", "coindcx", "binance", "kucoin", "aster", "bybit", "coinbase", "not_quote"):
         return "hedge"
     return "both"
 
@@ -800,6 +809,133 @@ async def _fetch_kucoin_ohlc(symbol: str, interval: str, lookback_secs: int) -> 
     return sorted(by_t.values(), key=lambda p: p["time"])
 
 
+_BYBIT_INTERVAL = {
+    "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
+    "1h": "60", "2h": "120", "4h": "240", "1d": "D",
+}
+
+
+async def _fetch_bybit_ohlc(symbol: str, interval: str, lookback_secs: int) -> list[dict]:
+    """Bybit v5 klines. Linear USDT-M first, inverse USD if that is empty."""
+    ivl = _BYBIT_INTERVAL.get(interval, "5")
+    window_end = int(time.time() * 1000)
+    window_start = (int(time.time()) - lookback_secs) * 1000
+    raw = (symbol or "").upper()
+    linear = raw if raw.endswith("USDT") else (
+        raw + "T" if raw.endswith("USD") else raw + "USDT"
+    )
+    inverse = raw[:-1] if raw.endswith("USDT") else raw
+    async with httpx.AsyncClient(base_url=settings.bybit_rest_url, timeout=20) as client:
+        for category, sym in (("linear", linear), ("inverse", inverse)):
+            bars = await _bybit_kline_range(
+                client, category, sym, ivl, window_start, window_end,
+            )
+            if bars:
+                return bars
+    return []
+
+
+async def _bybit_kline_range(
+    client: httpx.AsyncClient, category: str, symbol: str,
+    interval: str, start_ms: int, end_ms: int,
+) -> list[dict]:
+    by_t: dict[int, dict] = {}
+    end = end_ms
+    for _ in range(40):
+        if end <= start_ms:
+            break
+        resp = await client.get(
+            "/v5/market/kline",
+            params={
+                "category": category,
+                "symbol": symbol,
+                "interval": interval,
+                "start": start_ms,
+                "end": end,
+                "limit": 1000,
+            },
+        )
+        resp.raise_for_status()
+        payload = resp.json() or {}
+        if int(payload.get("retCode") or 0) != 0:
+            return []
+        rows = (payload.get("result") or {}).get("list") or []
+        if not rows:
+            break
+        for row in rows:
+            ts = int(row[0]) // 1000
+            by_t[ts] = {
+                "time": ts,
+                "open": _num(row[1]),
+                "high": _num(row[2]),
+                "low": _num(row[3]),
+                "close": _num(row[4]),
+                "volume": _num(row[5] if len(row) > 5 else 0),
+            }
+        oldest = min(int(r[0]) for r in rows)
+        if oldest <= start_ms or len(rows) < 1000:
+            break
+        end = oldest - 1
+    return sorted(by_t.values(), key=lambda p: p["time"])
+
+
+_COINBASE_GRANULARITY = {
+    "1m": "ONE_MINUTE", "5m": "FIVE_MINUTE", "15m": "FIFTEEN_MINUTE",
+    "30m": "THIRTY_MINUTE", "1h": "ONE_HOUR", "2h": "TWO_HOUR", "6h": "SIX_HOUR",
+    "1d": "ONE_DAY",
+}
+
+
+def _coinbase_product(symbol: str) -> str:
+    s = (symbol or "").strip().upper()
+    if "-" in s:
+        return s
+    for quote in ("USDC", "USDT", "USD", "EUR", "GBP"):
+        if s.endswith(quote) and len(s) > len(quote):
+            return f"{s[:-len(quote)]}-{quote}"
+    return s
+
+
+async def _fetch_coinbase_ohlc(symbol: str, interval: str, lookback_secs: int) -> list[dict]:
+    """Public Advanced Trade candles."""
+    gran = _COINBASE_GRANULARITY.get(interval, "FIVE_MINUTE")
+    pid = _coinbase_product(symbol)
+    end = int(time.time())
+    start = end - int(lookback_secs)
+    bars: dict[int, dict] = {}
+    async with httpx.AsyncClient(base_url="https://api.coinbase.com", timeout=20) as client:
+        t1 = end
+        for _ in range(12):
+            if t1 <= start:
+                break
+            resp = await client.get(
+                f"/api/v3/brokerage/market/products/{pid}/candles",
+                params={"start": str(start), "end": str(t1), "granularity": gran},
+            )
+            resp.raise_for_status()
+            rows = (resp.json() or {}).get("candles") or []
+            if not rows:
+                break
+            oldest = t1
+            for row in rows:
+                ts = int(float(row.get("start") or 0))
+                if ts <= 0:
+                    continue
+                bars[ts] = {
+                    "time": ts,
+                    "open": _num(row.get("open")),
+                    "high": _num(row.get("high")),
+                    "low": _num(row.get("low")),
+                    "close": _num(row.get("close")),
+                    "volume": _num(row.get("volume")),
+                }
+                oldest = min(oldest, ts)
+            if oldest <= start or len(rows) < 100:
+                break
+            t1 = oldest - 1
+    return sorted(bars.values(), key=lambda p: p["time"])
+
+
 @app.get("/api/candles")
 async def candles(
     symbol: str = Query(..., description="Contract name e.g. LABUSD"),
@@ -828,6 +964,10 @@ async def candles(
             resolved = (await _kucoin_symbol_map()).get(_base_asset(contract)) or quote_symbol
             quote_symbol = resolved
             bars = await _fetch_kucoin_ohlc(resolved, interval, lookback)
+        elif qv == "bybit":
+            bars = await _fetch_bybit_ohlc(quote_symbol, interval, lookback)
+        elif qv == "coinbase":
+            bars = await _fetch_coinbase_ohlc(quote_symbol, interval, lookback)
         else:
             bars = await _fetch_delta_ohlc(quote_symbol, interval, lookback)
     except Exception as exc:

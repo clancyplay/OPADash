@@ -189,6 +189,8 @@
   .rpnl-venue.kucoin { background: rgba(35,209,139,.18); color: #23d18b; }
   .rpnl-venue.coindcx { background: rgba(255,152,0,.18); color: #ff9800; }
   .rpnl-venue.aster { background: rgba(155,109,255,.18); color: #9b6dff; }
+  .rpnl-venue.bybit { background: rgba(247,166,0,.18); color: #f7a600; }
+  .rpnl-venue.coinbase { background: rgba(0,82,255,.18); color: #5b8cff; }
   .rpnl-pill .p-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
   .rpnl-pill .p-meta { font-size: 10px; color: var(--muted); margin-top: 1px; }
   #posChart      { width: 100%; height: 68vh; position: relative; }
@@ -1306,6 +1308,8 @@ function rpnlVenueClass(v) {
   if (v === 'kucoin') return 'kucoin';
   if (v === 'coindcx') return 'coindcx';
   if (v === 'aster') return 'aster';
+  if (v === 'bybit') return 'bybit';
+  if (v === 'coinbase') return 'coinbase';
   return 'delta';
 }
 
