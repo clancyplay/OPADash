@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from config.settings import Settings
 from config.symbol import SYMBOL_LAB, SYMBOL_MMT, SYMBOL_VELVET, SYMBOL_AIOT
 from config import symbol as _symbol_module
-from utils.events_db import EventsDB, canon_contract, contract_aliases
+from utils.events_db import EventsDB, canon_contract, contract_aliases, ping_is_live
 from utils.logger import start_db_log_forwarder
 
 logger = logging.getLogger("webapp")
@@ -299,6 +299,7 @@ def _annotate_rpnl_row(row: dict) -> dict:
     row["hedge_fills"] = sum(n for k, n in counts.items() if k != qv)
     acct = row.get("account") or ""
     row["label"] = meta["label"] + (f" · {acct}" if acct else "")
+    row["live"] = bool(row.get("live"))
     return row
 
 # Delta candle resolution -> seconds per candle, used to size the start/end window
@@ -481,6 +482,11 @@ async def rpnl_symbols(
                 )},
                 "label": meta["label"] + (f" · {name}" if name else ""),
             })
+        if _db is not None:
+            keys = await _db.get_live_ping_keys(strategy)
+            for entry in out:
+                entry["live"] = ping_is_live(entry["contract"], entry["account"], keys)
+            out.sort(key=lambda e: (0 if e.get("live") else 1, e["contract"], e["account"]))
         return out
     except Exception as e:
         logger.warning("webapp: rpnl_symbols failed: %s", e)

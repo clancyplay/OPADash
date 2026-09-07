@@ -173,7 +173,12 @@
     min-width: 128px; color: inherit; font-family: inherit; text-align: left;
   }
   .rpnl-pill:hover { border-color: var(--accent); }
+  .rpnl-pill.live { border-color: rgba(38,166,154,.45); }
   .rpnl-pill.active { border-color: var(--accent); background: rgba(41,98,255,.12); }
+  .rpnl-pill .p-live {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    background: var(--green); box-shadow: 0 0 6px var(--green);
+  }
   .rpnl-pill .p-name { font-size: 11px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px; }
   .rpnl-venue {
     font-size: 9px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
@@ -1112,8 +1117,10 @@ async function fetchRpnlSymbols() {
       sel.innerHTML = '<option value="">No data in DB</option>';
     } else {
       const keep = sel.value;
+      list.sort((a, b) => Number(!!b.live) - Number(!!a.live));
       sel.innerHTML = list.map(c =>
-        '<option value="' + escHtml(rpnlOptionValue(c)) + '">' + escHtml(c.label || c.contract) + '</option>'
+        '<option value="' + escHtml(rpnlOptionValue(c)) + '">' +
+          escHtml((c.live ? '● ' : '') + (c.label || c.contract)) + '</option>'
       ).join('');
       if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
     }
@@ -1326,9 +1333,10 @@ function renderRpnlSummary(rows) {
     const n = (r.quote_symbol || r.contract) + '|' + rpnlAccountLabel(r);
     nameCount[n] = (nameCount[n] || 0) + 1;
   });
-  wrap.innerHTML = rows.map(r => {
+  wrap.innerHTML = rows.slice().sort((a, b) => Number(!!b.live) - Number(!!a.live)).map(r => {
     const key = rpnlOptionValue(r);
     const active = key === cur ? ' active' : '';
+    const liveCls = r.live ? ' live' : '';
     const acct = rpnlAccountLabel(r);
     const qv = r.quote_venue || 'delta';
     const qlab = r.quote_label || 'Delta';
@@ -1343,8 +1351,9 @@ function renderRpnlSummary(rows) {
     const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
     // Key goes in a data attribute, not an inline onclick string — account ids
     // can contain quotes/ampersands that would break the attribute.
-    return '<button type="button" class="rpnl-pill' + active + '" data-rpnl-key="' + escHtml(key) + '">' +
-      '<div class="p-name">' + escHtml(name) +
+    return '<button type="button" class="rpnl-pill' + active + liveCls + '" data-rpnl-key="' + escHtml(key) + '">' +
+      '<div class="p-name">' + (r.live ? '<span class="p-live" title="bot running"></span>' : '') +
+        escHtml(name) +
         '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
       '<div class="p-val" style="color:' + mainCol + '">' + inrFmt(main) +
         (hedged ? ' <span style="font-size:10px;font-weight:600;color:var(--muted)">net</span>' : '') + '</div>' +
@@ -1354,7 +1363,7 @@ function renderRpnlSummary(rows) {
             '<span style="color:#ff9800">' + escHtml(hlab) + ' ' + inrFmt(hedge) + '</span>' +
           '</div>'
         : '') +
-      '<div class="p-meta">' + escHtml(qlab) + ' ' + (r.fills || 0) + ' fills' +
+      '<div class="p-meta">' + (r.live ? 'live · ' : '') + escHtml(qlab) + ' ' + (r.fills || 0) + ' fills' +
         (hedged ? ' · ' + escHtml(hlab) + ' ' + r.hedge_fills : ' · no hedge') + '</div>' +
       '</button>';
   }).join('');

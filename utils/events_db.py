@@ -46,6 +46,24 @@ def canon_contract(contract: str) -> str:
     return name
 
 
+def ping_contract(contract: str) -> str:
+    """Match OPA6 dash_contract so KuCoin ZORAUSDTM lines up with ZORAUSD pills."""
+    name = (contract or "").upper()
+    if name.endswith("USDTM"):
+        return name[:-5] + "USD"
+    return canon_contract(name)
+
+
+def ping_is_live(contract: str, account: str, keys: set[tuple[str, str]]) -> bool:
+    c = ping_contract(contract)
+    a = account or ""
+    if (c, a) in keys or (c, "") in keys:
+        return True
+    if not a:
+        return any(k[0] == c for k in keys)
+    return False
+
+
 class EventsDB:
     def __init__(self, database_url: str, usdinr_rate: float = 1.0) -> None:
         self.database_url = database_url
@@ -249,6 +267,18 @@ class EventsDB:
                     data         JSONB NOT NULL DEFAULT '{}'
                 );
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bot_ping (
+                    strategy   VARCHAR(40) NOT NULL,
+                    account    VARCHAR(40) NOT NULL DEFAULT '',
+                    contract   VARCHAR(80) NOT NULL,
+                    venue      VARCHAR(20) NOT NULL DEFAULT '',
+                    pinged_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (strategy, account, contract)
+                );
+                CREATE INDEX IF NOT EXISTS idx_bot_ping_live
+                    ON bot_ping (strategy, pinged_at DESC);
+            """)
 
     async def update_live_state(self, symbol: str, data: dict) -> None:
         """Upsert per-symbol live state (positions, orders, book). Called by quoter every sync."""
@@ -288,6 +318,38 @@ class EventsDB:
         except Exception as e:
             self.logger.debug("events_db: get_live_state failed — %s", e)
             return []
+
+    LIVE_PING_SECS = 45.0
+
+    async def get_live_ping_keys(
+        self, strategy: str, stale_secs: float | None = None,
+    ) -> set[tuple[str, str]]:
+        """(contract, account) pairs whose bot pinged within stale_secs."""
+        if not self.pool:
+            return set()
+        window = self.LIVE_PING_SECS if stale_secs is None else float(stale_secs)
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT contract, COALESCE(account, '') AS account
+                    FROM bot_ping
+                    WHERE strategy::text = $1
+                      AND pinged_at >= NOW() - ($2::float * INTERVAL '1 second')
+                    """,
+                    strategy, window,
+                )
+            keys: set[tuple[str, str]] = set()
+            for r in rows:
+                acct = r["account"] or ""
+                name = ping_contract(r["contract"])
+                keys.add((name, acct))
+                for alias in contract_aliases(r["contract"]):
+                    keys.add((ping_contract(alias), acct))
+            return keys
+        except Exception as e:
+            self.logger.debug("events_db: get_live_ping_keys failed — %s", e)
+            return set()
 
     async def log_deposit_withdrawal(self, amount: float, note: str = "", recorded_by: str = "webapp", at: "datetime | None" = None) -> int | None:
         """Log a deposit (positive) or withdrawal (negative). Returns new row id.
@@ -1474,6 +1536,7 @@ class EventsDB:
                     """,
                     strategy,
                 )
+            live_keys = await self.get_live_ping_keys(strategy)
             # Keyed on the account id — the id is what the fills queries filter
             # on, so it has to be what the dashboard round-trips.
             grouped: dict[tuple[str, str], dict] = {}
@@ -1529,7 +1592,11 @@ class EventsDB:
                     out.append(h)
             for item in out:
                 self._add_legacy_rpnl_fields(item)
-            out.sort(key=lambda i: i["venue_rpnl"].get("delta", 0.0), reverse=True)
+                item["live"] = ping_is_live(item["contract"], item["account"], live_keys)
+            out.sort(key=lambda i: (
+                0 if i.get("live") else 1,
+                -i["venue_rpnl"].get("delta", 0.0),
+            ))
             return out
         except Exception as e:
             self.logger.warning("events_db: get_contract_rpnl_summary failed — %s", e)
