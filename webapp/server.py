@@ -1539,11 +1539,14 @@ async def reports_overview(
 
 
 @app.get("/api/balances")
-async def balances_board(strategy: str = Query("opa3")) -> dict:
-    """Latest wallet snapshot for every account on the strategy."""
+async def balances_board(
+    strategy: str = Query("opa3"),
+    scope: str = Query("all", description="all | strategy"),
+) -> dict:
+    """Latest wallet snapshot for every exchange subaccount."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
-    out = await _db.get_balances_board(strategy=strategy)
+    out = await _db.get_balances_board(strategy=strategy, scope=scope)
     out["strategy"] = strategy
     out["generated_at"] = int(datetime.now(timezone.utc).timestamp())
     return out

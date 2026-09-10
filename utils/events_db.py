@@ -216,6 +216,19 @@ class EventsDB:
                 CREATE INDEX IF NOT EXISTS idx_balances_created_at ON balances(created_at DESC);
             """)
             await conn.execute("""
+                CREATE TABLE IF NOT EXISTS account_balances (
+                    id            BIGSERIAL PRIMARY KEY,
+                    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    strategy      VARCHAR(40),
+                    account       VARCHAR(40)  NOT NULL DEFAULT '',
+                    account_name  VARCHAR(80),
+                    exchange      VARCHAR(20)  NOT NULL,
+                    balance       NUMERIC(22, 4) NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_account_balances_lookup
+                    ON account_balances (account, exchange, created_at DESC);
+            """)
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS reports (
                     id          BIGSERIAL PRIMARY KEY,
                     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1807,86 +1820,171 @@ class EventsDB:
             "venues": {k: round(v, 4) for k, v in venues.items()},
         }
 
-    async def get_balances_board(self, strategy: str = "opa3") -> dict:
-        """Latest wallet snapshot per account, plus fills accounts with no row yet."""
-        empty = {"accounts": [], "exchanges": [], "totals": {"balance": 0.0, "accounts": 0}}
+    async def get_balances_board(self, strategy: str = "opa3", scope: str = "all") -> dict:
+        """Latest wallet per exchange account. Wallet is account-level, so snapshots
+        are matched by account id even if they were written under another strategy.
+        `scope=strategy` lists only accounts that traded `strategy`; `all` lists every
+        subaccount in fills."""
+        empty = {
+            "accounts": [], "exchanges": [],
+            "totals": {"balance": None, "accounts": 0, "with_balance": 0},
+            "snapshots": 0, "as_of": None,
+        }
         if not self.pool:
             return empty
+        labels = {
+            "delta": "Delta", "binance": "Binance", "kucoin": "KuCoin",
+            "coindcx": "CoinDCX", "aster": "Aster", "bybit": "Bybit",
+            "coinbase": "Coinbase",
+        }
+        junk = {
+            "", "aster", "delta", "binance", "kucoin", "coindcx", "bybit",
+            "coinbase", "stack", "belt", "lean", "touch", "edge", "wing",
+            "harvest", "shop", "opa3", "opa4", "opa5", "opa6",
+        }
         try:
             async with self.pool.acquire() as conn:
-                cols = await self._table_columns(conn, "balances")
-                long_rows = await self._latest_balances_long(conn, strategy, cols)
-                if long_rows:
-                    by_acct: dict[str, dict] = {}
-                    for r in long_rows:
-                        aid = r["account"]
-                        slot = by_acct.setdefault(aid, {
-                            "account": aid, "account_name": "", "time": r.get("time"),
-                            "venues": {},
-                        })
-                        if r.get("exchange"):
-                            slot["venues"][r["exchange"]] = r["amount"]
-                        if r.get("time") and (not slot.get("time") or r["time"] > slot["time"]):
-                            slot["time"] = r["time"]
-                    raw_rows = [
-                        {**s, "total_balance": sum(s["venues"].values())}
-                        for s in by_acct.values()
-                    ]
-                else:
-                    raw_rows = await self._latest_balances(conn, strategy, cols)
-                names = await conn.fetch(
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS account_balances (
+                        id            BIGSERIAL PRIMARY KEY,
+                        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        strategy      VARCHAR(40),
+                        account       VARCHAR(40)  NOT NULL DEFAULT '',
+                        account_name  VARCHAR(80),
+                        exchange      VARCHAR(20)  NOT NULL,
+                        balance       NUMERIC(22, 4) NOT NULL
+                    )
+                """)
+                snaps = await conn.fetch(
                     """
-                    SELECT COALESCE(account::text, '') AS account,
-                           COALESCE(MAX(details->>'account_name'), '') AS account_name
-                    FROM fills
-                    WHERE strategy::text = $1
-                    GROUP BY 1
-                    """,
-                    strategy,
+                    SELECT DISTINCT ON (COALESCE(account::text, ''), LOWER(exchange))
+                           COALESCE(account::text, '') AS account,
+                           COALESCE(account_name, '') AS account_name,
+                           LOWER(exchange) AS exchange,
+                           balance::float AS balance,
+                           COALESCE(strategy::text, '') AS strategy,
+                           created_at
+                    FROM account_balances
+                    ORDER BY COALESCE(account::text, ''), LOWER(exchange), created_at DESC
+                    """
                 )
-            name_map = {(r["account"] or ""): (r["account_name"] or "") for r in names}
-            by_acct = {}
-            for item in raw_rows:
-                row = self._normalize_balance_row(item)
-                aid = row["account"]
-                if not row["account_name"]:
-                    row["account_name"] = name_map.get(aid, "") or aid or "unattributed"
-                by_acct[aid] = row
-            for aid, name in name_map.items():
-                if aid not in by_acct:
-                    by_acct[aid] = {
+                fill_sql = """
+                    SELECT COALESCE(account::text, '') AS account,
+                           COALESCE(MAX(details->>'account_name'), '') AS account_name,
+                           ARRAY_AGG(DISTINCT strategy::text) AS strategies,
+                           ARRAY_AGG(DISTINCT LOWER(exchange)) AS exchanges
+                    FROM fills
+                    WHERE COALESCE(account::text, '') <> ''
+                """
+                fill_args: list = []
+                if (scope or "all").lower() == "strategy":
+                    fill_args.append(strategy)
+                    fill_sql += " AND strategy::text = $1"
+                fill_sql += " GROUP BY 1"
+                fills = await conn.fetch(fill_sql, *fill_args)
+            by_acct: dict[str, dict] = {}
+
+            def slot(aid: str) -> dict:
+                row = by_acct.get(aid)
+                if row is None:
+                    row = {
                         "account": aid,
-                        "account_name": name or aid or "unattributed",
+                        "account_name": "",
+                        "strategies": [],
+                        "venues": {},
+                        "venue_times": {},
                         "time": None,
                         "total": None,
-                        "venues": {},
                     }
-            accounts = list(by_acct.values())
+                    by_acct[aid] = row
+                return row
+
+            for r in fills:
+                aid = r["account"] or ""
+                if aid.lower() in junk:
+                    continue
+                row = slot(aid)
+                if r["account_name"]:
+                    row["account_name"] = r["account_name"]
+                for s in (r["strategies"] or []):
+                    if s and s not in row["strategies"]:
+                        row["strategies"].append(s)
+                for e in (r["exchanges"] or []):
+                    if e:
+                        row["venues"].setdefault(e, None)
+
+            as_of = None
+            snap_n = 0
+            for r in snaps:
+                aid = r["account"] or ""
+                if not aid or aid.lower() in junk:
+                    continue
+                row = slot(aid)
+                if r["account_name"] and not row["account_name"]:
+                    row["account_name"] = r["account_name"]
+                exch = r["exchange"] or ""
+                if not exch:
+                    continue
+                row["venues"][exch] = float(r["balance"] or 0)
+                ts = int(r["created_at"].timestamp()) if r["created_at"] else None
+                if ts:
+                    row["venue_times"][exch] = ts
+                    if not row["time"] or ts > row["time"]:
+                        row["time"] = ts
+                    if as_of is None or ts > as_of:
+                        as_of = ts
+                snap_n += 1
+                st = r["strategy"] or ""
+                if st and st not in row["strategies"]:
+                    row["strategies"].append(st)
+
+            if (scope or "all").lower() == "strategy":
+                keep = {r["account"] for r in fills if (r["account"] or "").lower() not in junk}
+                by_acct = {k: v for k, v in by_acct.items() if k in keep}
+
+            accounts = []
             exchanges: dict[str, float] = {}
-            total = 0.0
-            for acct in accounts:
-                for exch, amt in (acct.get("venues") or {}).items():
-                    exchanges[exch] = exchanges.get(exch, 0.0) + amt
-                if acct.get("total") is not None:
-                    total += acct["total"]
-            accounts.sort(key=lambda a: (-(a.get("total") or 0), a.get("account") or ""))
-            exch_list = sorted(exchanges, key=lambda e: abs(exchanges[e]), reverse=True)
-            labels = {
-                "delta": "Delta", "binance": "Binance", "kucoin": "KuCoin",
-                "coindcx": "CoinDCX", "aster": "Aster", "bybit": "Bybit",
-                "coinbase": "Coinbase",
-            }
+            equity = 0.0
+            equity_n = 0
+            with_bal = 0
+            for acct in by_acct.values():
+                known = {k: v for k, v in acct["venues"].items() if v is not None}
+                acct["total"] = round(sum(known.values()), 4) if known else None
+                if acct["total"] is not None:
+                    equity += acct["total"]
+                    equity_n += 1
+                    with_bal += 1
+                if not acct["account_name"]:
+                    acct["account_name"] = acct["account"]
+                acct["strategies"] = sorted(acct["strategies"])
+                acct.pop("venue_times", None)
+                for k, v in known.items():
+                    exchanges[k] = exchanges.get(k, 0.0) + v
+                for k in acct["venues"]:
+                    exchanges.setdefault(k, 0.0)
+                accounts.append(acct)
+            accounts.sort(key=lambda a: (-(a.get("total") or -1), a.get("account") or ""))
+            exch_list = sorted(exchanges, key=lambda e: (-abs(exchanges[e]), e))
             return {
                 "accounts": accounts,
                 "exchanges": [
-                    {"exchange": e, "label": labels.get(e, e.title()),
-                     "balance": round(exchanges[e], 4)}
+                    {
+                        "exchange": e,
+                        "label": labels.get(e, e.title()),
+                        "balance": round(exchanges[e], 4) if any(
+                            (a.get("venues") or {}).get(e) is not None for a in accounts
+                        ) else None,
+                    }
                     for e in exch_list
                 ],
                 "totals": {
-                    "balance": round(total, 4),
+                    "balance": round(equity, 4) if equity_n else None,
                     "accounts": len(accounts),
+                    "with_balance": with_bal,
                 },
+                "snapshots": snap_n,
+                "as_of": as_of,
+                "scope": (scope or "all").lower(),
             }
         except Exception as e:
             self.logger.warning("events_db: get_balances_board failed — %s", e)
