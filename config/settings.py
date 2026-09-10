@@ -42,6 +42,8 @@ class Settings:
     kucoin_rest_url: str
     aster_rest_url: str
     bybit_rest_url: str
+    coinbase_rest_url: str
+    coinbase_intx_url: str
     report_interval_seconds: float
 
     @classmethod
@@ -55,5 +57,7 @@ class Settings:
             kucoin_rest_url=os.getenv("KUCOIN_REST_URL", "https://api-futures.kucoin.com"),
             aster_rest_url=os.getenv("ASTER_REST_URL", "https://fapi.asterdex.com"),
             bybit_rest_url=os.getenv("BYBIT_REST_URL", "https://api.bybit.com"),
+            coinbase_rest_url=os.getenv("COINBASE_REST_URL", "https://api.coinbase.com"),
+            coinbase_intx_url=os.getenv("COINBASE_INTX_URL", "https://api.international.coinbase.com"),
             report_interval_seconds=float(os.getenv("REPORT_INTERVAL_SECONDS", "300")),
         )

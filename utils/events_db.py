@@ -21,25 +21,39 @@ INR_VENUES = ("coindcx",)
 
 
 def contract_aliases(contract: str) -> list[str]:
-    """ZORAUSD ↔ ZORAUSDT so Binance fills show on the Delta rPnL series."""
+    """Match fills across venue spellings: ZORAUSD ↔ ZORAUSDT, ETH-USD ↔ ETHUSD,
+    ETH-PERP-INTX ↔ ETHPERPINTX. `UPPER(contract) = ANY(...)` needs every form
+    that actually lands in the fills table, including dashed Coinbase ids."""
     raw = (contract or "").strip()
     if not raw:
         return []
-    upper = raw.upper().replace("-", "").replace("_", "")
-    out = [upper]
-    if upper.endswith("USDT"):
-        out.append(upper[:-1])
-    elif upper.endswith("USDC"):
-        out.append(upper[:-1])
-        out.append(upper[:-1] + "T")
-    elif upper.endswith("USD"):
-        out.append(upper + "T")
-        out.append(upper + "C")
+    upper_raw = raw.upper()
+    stripped = upper_raw.replace("-", "").replace("_", "")
+    out = [upper_raw, stripped, canon_contract(raw)]
+    if stripped.endswith("USDTM") and len(stripped) > 5:
+        base = stripped[:-5]
+        out.extend([base + "USD", base + "USDT", base + "USDTM"])
+    elif stripped.endswith("USDT") and len(stripped) > 4:
+        base = stripped[:-4]
+        out.extend([base + "USD", base + "USDT", f"{base}-USD", f"{base}-USDT"])
+    elif stripped.endswith("USDC") and len(stripped) > 4:
+        base = stripped[:-4]
+        out.extend([base + "USD", base + "USDC", f"{base}-USD", f"{base}-USDC"])
+    elif stripped.endswith("USD") and len(stripped) > 3:
+        base = stripped[:-3]
+        out.extend([base + "USDT", base + "USDC", f"{base}-USD", f"{base}-USDT", f"{base}-USDC"])
+    if stripped.endswith("PERPINTX") and len(stripped) > 8:
+        base = stripped[:-8]
+        out.extend([f"{base}-PERP-INTX", f"{base}-PERP", base + "PERP"])
+    elif stripped.endswith("PERP") and len(stripped) > 4:
+        base = stripped[:-4]
+        out.extend([f"{base}-PERP", f"{base}-PERP-INTX", base + "PERPINTX"])
     seen, aliases = set(), []
     for name in out:
-        if name not in seen:
-            seen.add(name)
-            aliases.append(name)
+        n = (name or "").strip()
+        if n and n not in seen:
+            seen.add(n)
+            aliases.append(n)
     return aliases
 
 
@@ -1708,6 +1722,175 @@ class EventsDB:
                 item[c] = self._plain(r[c])
             out.append(item)
         return out
+
+    async def _latest_balances_long(self, conn, strategy: str, cols: set[str]) -> list[dict]:
+        """account × exchange rows when balances is stored long, not wide."""
+        amt = next((c for c in ("balance", "wallet_balance", "equity", "amount") if c in cols), None)
+        if not amt or "exchange" not in cols or "created_at" not in cols:
+            return []
+        args: list = []
+        where = ""
+        if "strategy" in cols:
+            args.append(strategy)
+            where = "WHERE strategy::text = $1"
+        order_col = "id DESC" if "id" in cols else "created_at DESC"
+        acct = "COALESCE(account::text, '')" if "account" in cols else "''"
+        sql = (
+            f"SELECT DISTINCT ON ({acct}, LOWER(exchange::text)) "
+            f"{acct} AS account, LOWER(exchange::text) AS exchange, "
+            f"{amt}::float AS amount, created_at "
+            f"FROM balances {where} "
+            f"ORDER BY {acct}, LOWER(exchange::text), {order_col}"
+        )
+        try:
+            rows = await conn.fetch(sql, *args)
+        except Exception as e:
+            self.logger.debug("events_db: long balances skipped — %s", e)
+            return []
+        return [
+            {
+                "account": r["account"] or "",
+                "exchange": (r["exchange"] or "").lower(),
+                "amount": float(r["amount"] or 0),
+                "time": int(r["created_at"].timestamp()) if r["created_at"] else None,
+            }
+            for r in rows
+        ]
+
+    def _normalize_balance_row(self, item: dict) -> dict:
+        skip = {"account", "account_name", "time", "created_at", "id", "strategy"}
+        venues: dict[str, float] = {}
+        extra = dict(item)
+        existing = extra.get("venues")
+        if isinstance(existing, dict):
+            for k, v in existing.items():
+                try:
+                    venues[str(k).lower()] = float(v)
+                except (TypeError, ValueError):
+                    continue
+        details = extra.get("details") or extra.get("data") or extra.get("balances")
+        if isinstance(details, dict):
+            for k, v in details.items():
+                try:
+                    fv = float(v)
+                except (TypeError, ValueError):
+                    continue
+                key = k.lower().replace(" ", "_")
+                if key.endswith("_balance"):
+                    key = key[:-8]
+                key = {"cdcx": "coindcx", "cb": "coinbase", "hedge": "binance"}.get(key, key)
+                venues[key] = fv
+        for k, v in extra.items():
+            if k in skip or k in ("details", "data", "balances"):
+                continue
+            if not k.endswith("_balance") or k == "total_balance":
+                continue
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            exch = k[:-8].lower()
+            exch = {"cdcx": "coindcx", "cb": "coinbase", "hedge": "binance"}.get(exch, exch)
+            venues[exch] = fv
+        total = extra.get("total_balance")
+        try:
+            total_f = float(total) if total is not None else None
+        except (TypeError, ValueError):
+            total_f = None
+        if total_f is None and venues:
+            total_f = sum(venues.values())
+        return {
+            "account": str(extra.get("account") or ""),
+            "account_name": extra.get("account_name") or "",
+            "time": extra.get("time"),
+            "total": round(total_f, 4) if total_f is not None else None,
+            "venues": {k: round(v, 4) for k, v in venues.items()},
+        }
+
+    async def get_balances_board(self, strategy: str = "opa3") -> dict:
+        """Latest wallet snapshot per account, plus fills accounts with no row yet."""
+        empty = {"accounts": [], "exchanges": [], "totals": {"balance": 0.0, "accounts": 0}}
+        if not self.pool:
+            return empty
+        try:
+            async with self.pool.acquire() as conn:
+                cols = await self._table_columns(conn, "balances")
+                long_rows = await self._latest_balances_long(conn, strategy, cols)
+                if long_rows:
+                    by_acct: dict[str, dict] = {}
+                    for r in long_rows:
+                        aid = r["account"]
+                        slot = by_acct.setdefault(aid, {
+                            "account": aid, "account_name": "", "time": r.get("time"),
+                            "venues": {},
+                        })
+                        if r.get("exchange"):
+                            slot["venues"][r["exchange"]] = r["amount"]
+                        if r.get("time") and (not slot.get("time") or r["time"] > slot["time"]):
+                            slot["time"] = r["time"]
+                    raw_rows = [
+                        {**s, "total_balance": sum(s["venues"].values())}
+                        for s in by_acct.values()
+                    ]
+                else:
+                    raw_rows = await self._latest_balances(conn, strategy, cols)
+                names = await conn.fetch(
+                    """
+                    SELECT COALESCE(account::text, '') AS account,
+                           COALESCE(MAX(details->>'account_name'), '') AS account_name
+                    FROM fills
+                    WHERE strategy::text = $1
+                    GROUP BY 1
+                    """,
+                    strategy,
+                )
+            name_map = {(r["account"] or ""): (r["account_name"] or "") for r in names}
+            by_acct = {}
+            for item in raw_rows:
+                row = self._normalize_balance_row(item)
+                aid = row["account"]
+                if not row["account_name"]:
+                    row["account_name"] = name_map.get(aid, "") or aid or "unattributed"
+                by_acct[aid] = row
+            for aid, name in name_map.items():
+                if aid not in by_acct:
+                    by_acct[aid] = {
+                        "account": aid,
+                        "account_name": name or aid or "unattributed",
+                        "time": None,
+                        "total": None,
+                        "venues": {},
+                    }
+            accounts = list(by_acct.values())
+            exchanges: dict[str, float] = {}
+            total = 0.0
+            for acct in accounts:
+                for exch, amt in (acct.get("venues") or {}).items():
+                    exchanges[exch] = exchanges.get(exch, 0.0) + amt
+                if acct.get("total") is not None:
+                    total += acct["total"]
+            accounts.sort(key=lambda a: (-(a.get("total") or 0), a.get("account") or ""))
+            exch_list = sorted(exchanges, key=lambda e: abs(exchanges[e]), reverse=True)
+            labels = {
+                "delta": "Delta", "binance": "Binance", "kucoin": "KuCoin",
+                "coindcx": "CoinDCX", "aster": "Aster", "bybit": "Bybit",
+                "coinbase": "Coinbase",
+            }
+            return {
+                "accounts": accounts,
+                "exchanges": [
+                    {"exchange": e, "label": labels.get(e, e.title()),
+                     "balance": round(exchanges[e], 4)}
+                    for e in exch_list
+                ],
+                "totals": {
+                    "balance": round(total, 4),
+                    "accounts": len(accounts),
+                },
+            }
+        except Exception as e:
+            self.logger.warning("events_db: get_balances_board failed — %s", e)
+            return empty
 
     async def _latest_positions(self, conn, strategy: str, cols: set[str]) -> list[dict]:
         if not cols or "contract" not in cols:

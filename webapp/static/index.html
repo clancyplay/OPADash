@@ -521,6 +521,7 @@
   <span class="brand">OPADash</span>
   <button id="navHome"      class="active" onclick="showPage('home')">Home</button>
   <button id="navBot"                   onclick="showPage('bot')">Bot</button>
+  <button id="navBalances"              onclick="showPage('balances')">Balances</button>
   <button id="navReports"               onclick="showPage('reports')">Reports</button>
   <button id="navMarkprice"             onclick="showPage('markprice')">Mark Price</button>
   <button id="navRpnl"                  onclick="showPage('rpnl')">rPnL</button>
@@ -542,6 +543,12 @@
       <h3>Bot Control</h3>
       <p>Live status, open positions, balances and an activity feed — start or stop quoting on demand.</p>
       <div class="arrow">Open bot -&gt;</div>
+    </div>
+    <div class="card" onclick="showPage('balances')">
+      <span class="icon">💰</span>
+      <h3>Balances</h3>
+      <p>Current wallet snapshot for every account on every exchange.</p>
+      <div class="arrow">View balances -&gt;</div>
     </div>
     <div class="card" onclick="showPage('reports')">
       <span class="icon">🧾</span>
@@ -647,6 +654,26 @@
       <h3>Activity Feed</h3>
       <div class="feed" id="eventFeed">
         <div style="color:var(--muted);text-align:center;padding:16px;">Loading events...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- BALANCES -->
+<div id="balances" class="page">
+  <div class="ctrl-bar">
+    <button class="btn" onclick="loadBalances()">Refresh</button>
+    <label><input type="checkbox" id="balAuto" checked onchange="setupBalAuto()" /> Auto (30s)</label>
+    <span id="balCount" style="margin-left:auto;font-size:12px;color:var(--muted);"></span>
+  </div>
+  <div id="balances-inner" style="padding:20px;max-width:1440px;margin:0 auto;">
+    <div id="balEmpty" style="display:none;color:var(--muted);padding:24px;line-height:1.6;">Loading balances…</div>
+    <div id="balShell" style="display:none;">
+      <div class="rpt-hero" id="balHero"></div>
+      <div class="rpt-exch" id="balExch"></div>
+      <div class="rpt-matrix-wrap">
+        <h4>Accounts × exchange wallets</h4>
+        <div class="rpt-matrix-scroll" id="balMatrix"></div>
       </div>
     </div>
   </div>
@@ -1001,19 +1028,34 @@
 
 <script>
 // Page nav
-const PAGE_IDS = ['home', 'bot', 'reports', 'markprice', 'rpnl', 'position', 'data'];
-const NAV_IDS  = { home: 'navHome', bot: 'navBot', reports: 'navReports', markprice: 'navMarkprice', rpnl: 'navRpnl', position: 'navPosition', data: 'navData' };
-let mpReady = false, rpnlReady = false, posReady = false, botReady = false, reportsReady = false, dataReady = false;
+const PAGE_IDS = ['home', 'bot', 'balances', 'reports', 'markprice', 'rpnl', 'position', 'data'];
+const NAV_IDS  = { home: 'navHome', bot: 'navBot', balances: 'navBalances', reports: 'navReports', markprice: 'navMarkprice', rpnl: 'navRpnl', position: 'navPosition', data: 'navData' };
+let mpReady = false, rpnlReady = false, posReady = false, botReady = false, reportsReady = false, balancesReady = false, dataReady = false;
+
+const LS_STRATEGY = 'opadash.strategy';
+const LS_PAGE = 'opadash.page';
+function lsGet(key, fallback) {
+  try { const v = localStorage.getItem(key); return v == null || v === '' ? fallback : v; } catch { return fallback; }
+}
+function lsSet(key, value) {
+  try { localStorage.setItem(key, value); } catch {}
+}
 
 function showPage(name) {
+  if (!PAGE_IDS.includes(name)) name = 'home';
   PAGE_IDS.forEach(p => {
     document.getElementById(p).classList.toggle('visible', p === name);
     document.getElementById(NAV_IDS[p]).classList.toggle('active', p === name);
   });
+  lsSet(LS_PAGE, name);
   if (name === 'markprice' && !mpReady)   { initMarkPrice(); mpReady   = true; }
   if (name === 'rpnl'      && !rpnlReady) { initRpnl();      rpnlReady = true; }
   if (name === 'position'  && !posReady)  { initPosition();  posReady  = true; }
   if (name === 'bot'       && !botReady)  { initBot();       botReady  = true; }
+  if (name === 'balances') {
+    if (!balancesReady) { initBalances(); balancesReady = true; }
+    else loadBalances();
+  }
   if (name === 'reports') {
     if (!reportsReady) { initReports(); reportsReady = true; }
     else { loadReports(); requestAnimationFrame(resizeReportChart); }
@@ -1087,8 +1129,8 @@ function fillSelect(id, withLabel) {
     .join('');
 }
 
-// Strategy filter — defaults to 'opa3' so the existing view is unchanged.
-let currentStrategy = 'opa3';
+// Strategy filter — restored from localStorage so the last pick comes back.
+let currentStrategy = lsGet(LS_STRATEGY, 'opa3');
 // Append the active strategy to any strategy-tagged /api/* URL.
 function withStrategy(url) {
   return url + (url.includes('?') ? '&' : '?') + 'strategy=' + encodeURIComponent(currentStrategy);
@@ -1100,12 +1142,17 @@ async function fetchStrategies() {
     const sel = document.getElementById('strategy-select');
     if (sel && Array.isArray(list) && list.length) {
       sel.innerHTML = list.map(s => '<option value="' + s + '">' + s + '</option>').join('');
-      if ([...sel.options].some(o => o.value === currentStrategy)) sel.value = currentStrategy;
+      const saved = lsGet(LS_STRATEGY, currentStrategy);
+      if ([...sel.options].some(o => o.value === saved)) currentStrategy = saved;
+      else if (![...sel.options].some(o => o.value === currentStrategy)) currentStrategy = list[0];
+      sel.value = currentStrategy;
+      lsSet(LS_STRATEGY, currentStrategy);
     }
   } catch { /* keep default opa3 */ }
 }
 async function onStrategyChange(val) {
   currentStrategy = val || 'opa3';
+  lsSet(LS_STRATEGY, currentStrategy);
   // Refresh strategy-scoped symbol dropdowns (contracts differ per strategy)
   await fetchRpnlSymbols();
   if (typeof posReady !== 'undefined' && posReady) await fetchPositionSymbols();
@@ -1117,6 +1164,7 @@ async function onStrategyChange(val) {
   if (name === 'bot'      && botReady)  loadBotStatus();
   if (name === 'data'     && dataReady) initData();
   if (name === 'reports'  && reportsReady) loadReports();
+  if (name === 'balances' && balancesReady) loadBalances();
   checkHealth();
 }
 
@@ -2081,6 +2129,7 @@ async function loadRpnl(keepRange) {
     const hedgeFilled = barsAlignReady(hedgeRaw, bucketSecs);
 
     let bars = [];
+    let candleNote = '';
     if (ohlcSeries && cR.ok) {
       const cd = await cR.json();
       bars = dedupeTimes((cd.candles || []).map(b => ({
@@ -2088,6 +2137,10 @@ async function loadRpnl(keepRange) {
         open: b.open, high: b.high, low: b.low, close: b.close,
         volume: Number(b.volume) || 0,
       })));
+      if (!bars.length) candleNote = ' · no OHLC from ' + (cd.quote_label || cd.venue || 'venue');
+    } else if (ohlcSeries && !cR.ok) {
+      const body = await cR.json().catch(() => ({}));
+      candleNote = ' · candles failed: ' + (body.detail || cR.statusText);
     }
     ohlcBarsCache = bars;
     if (ohlcSeries) ohlcSeries.setData(bars);
@@ -2130,7 +2183,8 @@ async function loadRpnl(keepRange) {
     }
 
     if (filled.length === 0 && !hedgeRaw.length && !bars.length) {
-      setStatus('rpnlStatus', '<span>No fills found for <b>' + d.contract + '</b> in the last ' + hours + 'h. Try a longer window.</span>');
+      setStatus('rpnlStatus', '<span>No fills found for <b>' + d.contract + '</b> in the last ' + hours + 'h. Try a longer window.</span>' +
+        (candleNote ? '<span style="color:var(--muted)">' + escHtml(candleNote) + '</span>' : ''));
       return;
     }
 
@@ -2149,7 +2203,8 @@ async function loadRpnl(keepRange) {
         ? ' · ' + rpnlMeta.hedge_label + ' <b style="color:#ff9800">' + inrFmtDec(hedgeV, 0) + '</b>' +
           ' · Net <b style="color:' + col + '">' + inrFmtDec(netV, 0) + '</b>'
         : ' · <span style="color:var(--muted)">no hedge</span>') +
-      ' · IST ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}), 'ok');
+      ' · IST ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}) +
+      (candleNote ? '<span style="color:var(--muted)">' + escHtml(candleNote) + '</span>' : ''), 'ok');
   } catch(e) {
     console.error('[rPnL] fetch threw:', e);
     showRpnlError('Network or parse error', e.message);
@@ -2884,6 +2939,82 @@ function setupReportsAuto() {
   if (document.getElementById('reportsAuto').checked) reportsTimer = setInterval(loadReports, 30000);
 }
 
+// Balances page
+let balTimer;
+
+function initBalances() { loadBalances(); setupBalAuto(); }
+
+async function loadBalances() {
+  const empty = document.getElementById('balEmpty');
+  const shell = document.getElementById('balShell');
+  empty.style.display = 'block';
+  empty.textContent = 'Loading balances…';
+  try {
+    const r = await fetch(withStrategy('/api/balances'));
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error(b.detail || r.statusText);
+    }
+    const d = await r.json();
+    const accts = d.accounts || [];
+    const exch = d.exchanges || [];
+    const tot = d.totals || {};
+    document.getElementById('balCount').textContent =
+      accts.length + ' account' + (accts.length === 1 ? '' : 's') + ' · ' + (d.strategy || '');
+    if (!accts.length) {
+      empty.innerHTML = 'No accounts found for this strategy.';
+      shell.style.display = 'none';
+      return;
+    }
+    empty.style.display = 'none';
+    shell.style.display = 'block';
+    document.getElementById('balHero').innerHTML =
+      '<div class="hero-top"><div><div class="hero-label">Total equity</div>' +
+        '<div class="hero-bal">' + (tot.balance == null ? '—' : rptMoney(tot.balance)) + '</div>' +
+        '<div class="hero-sub">' + escHtml((d.strategy || '') + ' · latest snapshot per account') + '</div></div></div>' +
+      '<div class="rpt-kpis"><div class="rpt-kpi"><div class="k">Accounts</div><div class="v">' +
+        (tot.accounts || accts.length) + '</div></div>' +
+        exch.map(function (e) {
+          return '<div class="rpt-kpi"><div class="k">' + escHtml(e.label || e.exchange) + '</div>' +
+            '<div class="v">' + rptMoney(e.balance) + '</div></div>';
+        }).join('') + '</div>';
+    document.getElementById('balExch').innerHTML = exch.map(function (e) {
+      return '<div class="rpt-exchip"><div class="el rpnl-venue ' + rpnlVenueClass(e.exchange) + '">' +
+        escHtml(e.label || e.exchange) + '</div><div class="ev">' + rptMoney(e.balance) + '</div></div>';
+    }).join('');
+    const head = '<tr><th>Account</th>' + exch.map(function (e) {
+      return '<th>' + escHtml(e.label || e.exchange) + '</th>';
+    }).join('') + '<th>Total</th><th>Updated</th></tr>';
+    const body = accts.map(function (a) {
+      const name = a.account_name && a.account_name !== a.account ? a.account_name : (a.account || 'unattributed');
+      const idBit = a.account && a.account !== a.account_name
+        ? '<div class="aid">' + escHtml(a.account) + '</div>' : '';
+      const cells = exch.map(function (c) {
+        const v = (a.venues || {})[c.exchange];
+        return v == null ? '<td style="color:var(--muted)">—</td>' : '<td>' + rptMoney(v) + '</td>';
+      }).join('');
+      return '<tr><td><div class="an">' + escHtml(name) + '</div>' + idBit + '</td>' + cells +
+        '<td>' + (a.total == null ? '—' : rptMoney(a.total)) + '</td>' +
+        '<td>' + (a.time ? fmtIST(a.time) : '—') + '</td></tr>';
+    }).join('');
+    const foot = '<tr><td>Total</td>' + exch.map(function (e) {
+      return '<td>' + rptMoney(e.balance) + '</td>';
+    }).join('') + '<td>' + rptMoney(tot.balance) + '</td><td></td></tr>';
+    document.getElementById('balMatrix').innerHTML =
+      '<table class="rpt-matrix"><thead>' + head + '</thead><tbody>' + body + '</tbody><tfoot>' + foot + '</tfoot></table>';
+  } catch (e) {
+    document.getElementById('balCount').textContent = 'Error';
+    empty.style.display = 'block';
+    empty.innerHTML = '<span style="color:var(--red)">Error: ' + escHtml(e.message) + '</span>';
+    shell.style.display = 'none';
+  }
+}
+
+function setupBalAuto() {
+  clearInterval(balTimer);
+  if (document.getElementById('balAuto').checked) balTimer = setInterval(loadBalances, 30000);
+}
+
 // ══════════════════════════════════════════════════════════
 // Data explorer page
 // ══════════════════════════════════════════════════════════
@@ -3428,6 +3559,8 @@ function setupLgAuto() {
   await fetchStrategies();
   await fetchRpnlSymbols();
   checkHealth();
+  const lastPage = lsGet(LS_PAGE, 'home');
+  if (lastPage && lastPage !== 'home' && PAGE_IDS.includes(lastPage)) showPage(lastPage);
 })();
 </script>
 </body>

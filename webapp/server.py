@@ -12,6 +12,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -204,7 +205,7 @@ def _base_asset(name: str) -> str:
     if u.startswith("B-") and "_" in u:
         return u[2:].split("_", 1)[0]
     u = u.replace("-", "")
-    for suffix in ("USDTM", "PERPINTX", "USDT", "USDC", "USD"):
+    for suffix in ("USDTM", "PERPINTX", "PERP", "USDT", "USDC", "USD"):
         if u.endswith(suffix) and len(u) > len(suffix):
             return u[: -len(suffix)]
     return u
@@ -232,8 +233,8 @@ def _venue_symbol(cfg: _SymbolConfig | None, venue: str, contract: str) -> str:
         return f"B-{base}_USDT"
     if venue == "coinbase":
         u = (contract or "").upper().replace("-", "").replace("_", "")
-        if u.endswith("PERPINTX") or "PERP" in u:
-            return f"{base}-PERP-INTX"
+        if u.endswith("PERPINTX") or u.endswith("PERP") or "PERP" in u:
+            return f"{base}-PERP"
         return f"{base}-USD"
     return (contract or "").upper()
 
@@ -886,60 +887,211 @@ async def _bybit_kline_range(
 
 
 _COINBASE_GRANULARITY = {
-    "1m": "ONE_MINUTE", "5m": "FIVE_MINUTE", "15m": "FIFTEEN_MINUTE",
-    "30m": "THIRTY_MINUTE", "1h": "ONE_HOUR", "2h": "TWO_HOUR", "6h": "SIX_HOUR",
-    "1d": "ONE_DAY",
+    "1m": "ONE_MINUTE", "3m": "FIVE_MINUTE", "5m": "FIVE_MINUTE",
+    "15m": "FIFTEEN_MINUTE", "30m": "THIRTY_MINUTE",
+    "1h": "ONE_HOUR", "2h": "TWO_HOUR", "4h": "ONE_HOUR",
+    "6h": "SIX_HOUR", "1d": "ONE_DAY",
+}
+_COINBASE_GRAN_SECS = {
+    "ONE_MINUTE": 60, "FIVE_MINUTE": 300, "FIFTEEN_MINUTE": 900,
+    "THIRTY_MINUTE": 1800, "ONE_HOUR": 3600, "TWO_HOUR": 7200,
+    "SIX_HOUR": 21600, "ONE_DAY": 86400,
 }
 
 
 def _coinbase_product(symbol: str) -> str:
-    s = (symbol or "").strip().upper()
+    s = (symbol or "").strip().upper().replace("_", "-")
+    if s.endswith("-PERP-INTX"):
+        return s[: -len("-INTX")]
     if "-" in s:
         return s
+    if s.endswith("PERPINTX") and len(s) > 8:
+        return f"{s[:-8]}-PERP"
+    if s.endswith("PERP") and len(s) > 4:
+        return f"{s[:-4]}-PERP"
     for quote in ("USDC", "USDT", "USD", "EUR", "GBP"):
         if s.endswith(quote) and len(s) > len(quote):
             return f"{s[:-len(quote)]}-{quote}"
     return s
 
 
-async def _fetch_coinbase_ohlc(symbol: str, interval: str, lookback_secs: int) -> list[dict]:
-    """Public Advanced Trade candles."""
-    gran = _COINBASE_GRANULARITY.get(interval, "FIVE_MINUTE")
-    pid = _coinbase_product(symbol)
-    end = int(time.time())
-    start = end - int(lookback_secs)
+def _coinbase_product_candidates(symbol: str) -> list[str]:
+    primary = _coinbase_product(symbol)
+    base = _base_asset(symbol)
+    out = [primary]
+    u = (symbol or "").upper().replace("-", "").replace("_", "")
+    perp = "PERP" in u or u.endswith("INTX")
+    if base:
+        if perp:
+            out.extend([f"{base}-PERP", f"{base}-PERP-INTX"])
+        else:
+            out.extend([f"{base}-USD", f"{base}-USDC", f"{base}-USDT"])
+    seen, ordered = set(), []
+    for pid in out:
+        p = (pid or "").strip().upper()
+        if p and p not in seen:
+            seen.add(p)
+            ordered.append(p)
+    return ordered
+
+
+def _unix_from_any(v) -> int:
+    if v is None:
+        return 0
+    if isinstance(v, datetime):
+        return int(v.timestamp())
+    if isinstance(v, (int, float)):
+        n = int(v)
+        return n // 1000 if n > 10_000_000_000 else n
+    s = str(v).strip()
+    if not s:
+        return 0
+    try:
+        if s.replace(".", "", 1).isdigit():
+            return _unix_from_any(float(s))
+    except ValueError:
+        pass
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return int(datetime.fromisoformat(s).timestamp())
+    except ValueError:
+        return 0
+
+
+def _iso_utc(ts: int) -> str:
+    return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _ohlc_bar(ts: int, open_: float, high: float, low: float, close: float, volume: float) -> dict | None:
+    if ts <= 0 or close <= 0:
+        return None
+    return {"time": ts, "open": open_, "high": high, "low": low, "close": close, "volume": volume}
+
+
+def _resample_ohlc(bars: list[dict], bucket_secs: int) -> list[dict]:
+    if bucket_secs <= 0:
+        return bars
+    buckets: dict[int, dict] = {}
+    for b in bars:
+        t = (int(b["time"]) // bucket_secs) * bucket_secs
+        slot = buckets.get(t)
+        if slot is None:
+            buckets[t] = {
+                "time": t, "open": b["open"], "high": b["high"], "low": b["low"],
+                "close": b["close"], "volume": _num(b.get("volume")),
+            }
+        else:
+            slot["high"] = max(slot["high"], b["high"])
+            slot["low"] = min(slot["low"], b["low"])
+            slot["close"] = b["close"]
+            slot["volume"] = _num(slot.get("volume")) + _num(b.get("volume"))
+    return sorted(buckets.values(), key=lambda x: x["time"])
+
+
+def _parse_coinbase_rows(rows: list) -> dict[int, dict]:
     bars: dict[int, dict] = {}
-    async with httpx.AsyncClient(base_url="https://api.coinbase.com", timeout=20) as client:
-        t1 = end
-        for _ in range(12):
+    for row in rows or []:
+        if isinstance(row, dict):
+            ts = _unix_from_any(row.get("start") or row.get("time") or row.get("timestamp"))
+            bar = _ohlc_bar(
+                ts, _num(row.get("open")), _num(row.get("high")),
+                _num(row.get("low")), _num(row.get("close")), _num(row.get("volume")),
+            )
+        elif isinstance(row, (list, tuple)) and len(row) >= 5:
+            ts = _unix_from_any(row[0])
+            bar = _ohlc_bar(ts, _num(row[1]), _num(row[2]), _num(row[3]), _num(row[4]),
+                            _num(row[5] if len(row) > 5 else 0))
+        else:
+            bar = None
+        if bar:
+            bars[bar["time"]] = bar
+    return bars
+
+
+async def _fetch_coinbase_adv_ohlc(pid: str, gran: str, start: int, end: int) -> list[dict]:
+    bars: dict[int, dict] = {}
+    t1 = end
+    async with httpx.AsyncClient(base_url=settings.coinbase_rest_url, timeout=20) as client:
+        for _ in range(16):
             if t1 <= start:
                 break
             resp = await client.get(
-                f"/api/v3/brokerage/market/products/{pid}/candles",
+                f"/api/v3/brokerage/market/products/{quote(pid, safe='-')}/candles",
                 params={"start": str(start), "end": str(t1), "granularity": gran},
             )
-            resp.raise_for_status()
-            rows = (resp.json() or {}).get("candles") or []
+            if resp.status_code >= 400:
+                raise RuntimeError(f"{pid} adv {resp.status_code} {resp.text[:180]}")
+            payload = resp.json() or {}
+            rows = payload.get("candles") or payload.get("data") or []
             if not rows:
                 break
-            oldest = t1
-            for row in rows:
-                ts = int(float(row.get("start") or 0))
-                if ts <= 0:
-                    continue
-                bars[ts] = {
-                    "time": ts,
-                    "open": _num(row.get("open")),
-                    "high": _num(row.get("high")),
-                    "low": _num(row.get("low")),
-                    "close": _num(row.get("close")),
-                    "volume": _num(row.get("volume")),
-                }
-                oldest = min(oldest, ts)
-            if oldest <= start or len(rows) < 100:
+            chunk = _parse_coinbase_rows(rows)
+            if not chunk:
+                break
+            bars.update(chunk)
+            oldest = min(chunk)
+            if oldest <= start or len(rows) < 80:
                 break
             t1 = oldest - 1
     return sorted(bars.values(), key=lambda p: p["time"])
+
+
+async def _fetch_coinbase_intx_ohlc(pid: str, gran: str, start: int, end: int) -> list[dict]:
+    """Coinbase International perps (ETH-PERP), ISO timestamps."""
+    bars: dict[int, dict] = {}
+    t0 = start
+    step = _COINBASE_GRAN_SECS.get(gran, 300) * 300
+    async with httpx.AsyncClient(base_url=settings.coinbase_intx_url, timeout=20) as client:
+        for _ in range(16):
+            if t0 >= end:
+                break
+            t1 = min(end, t0 + step)
+            resp = await client.get(
+                f"/api/v1/instruments/{quote(pid, safe='-')}/candles",
+                params={"granularity": gran, "start": _iso_utc(t0), "end": _iso_utc(t1)},
+            )
+            if resp.status_code >= 400:
+                raise RuntimeError(f"{pid} intx {resp.status_code} {resp.text[:180]}")
+            payload = resp.json() or {}
+            if isinstance(payload, list):
+                rows = payload
+            else:
+                rows = payload.get("aggregations") or payload.get("candles") or payload.get("data") or []
+            chunk = _parse_coinbase_rows(rows)
+            bars.update(chunk)
+            if t1 >= end:
+                break
+            t0 = t1
+    return sorted(bars.values(), key=lambda p: p["time"])
+
+
+async def _fetch_coinbase_ohlc(symbol: str, interval: str, lookback_secs: int) -> list[dict]:
+    """Advanced Trade spot/perps, then International Exchange (INTX) perps."""
+    gran = _COINBASE_GRANULARITY.get(interval, "FIVE_MINUTE")
+    end = int(time.time())
+    start = end - int(lookback_secs)
+    u = (symbol or "").upper().replace("-", "").replace("_", "")
+    perp = "PERP" in u or u.endswith("INTX")
+    errors: list[str] = []
+    for pid in _coinbase_product_candidates(symbol):
+        fetchers = (
+            (_fetch_coinbase_intx_ohlc, _fetch_coinbase_adv_ohlc)
+            if perp else
+            (_fetch_coinbase_adv_ohlc, _fetch_coinbase_intx_ohlc)
+        )
+        for fetch in fetchers:
+            try:
+                bars = await fetch(pid, gran, start, end)
+            except Exception as exc:
+                errors.append(f"{pid}:{exc}")
+                continue
+            if bars:
+                if interval == "4h":
+                    bars = _resample_ohlc(bars, 14400)
+                return bars
+    detail = "; ".join(errors[-6:]) if errors else "no rows"
+    raise RuntimeError(f"no Coinbase candles for {symbol}: {detail}")
 
 
 @app.get("/api/candles")
@@ -1383,6 +1535,17 @@ async def reports_overview(
         "hours": hours,
         "generated_at": int(datetime.now(timezone.utc).timestamp()),
     })
+    return out
+
+
+@app.get("/api/balances")
+async def balances_board(strategy: str = Query("opa3")) -> dict:
+    """Latest wallet snapshot for every account on the strategy."""
+    if _db is None or not _db.pool:
+        raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
+    out = await _db.get_balances_board(strategy=strategy)
+    out["strategy"] = strategy
+    out["generated_at"] = int(datetime.now(timezone.utc).timestamp())
     return out
 
 
