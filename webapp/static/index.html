@@ -98,13 +98,14 @@
     padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
   }
   .ctrl-bar label { font-size: 12px; color: var(--muted); }
-  select, button.btn, input.dinp, input[type="date"] {
+  select, button.btn, input.dinp, input[type="date"], input[type="time"] {
     background: #1e2230; color: var(--text);
     border: 1px solid var(--border2); border-radius: 4px;
     padding: 5px 10px; font-size: 13px;
   }
   input.dinp { min-width: 120px; }
   input[type="date"] { color-scheme: dark; min-width: 138px; }
+  input[type="time"] { color-scheme: dark; min-width: 108px; }
   button.btn { cursor: pointer; }
   button.btn:hover { background: #2a3040; }
   button.btn:disabled { opacity: .45; cursor: default; }
@@ -892,8 +893,9 @@
   <div class="dpanel" id="dpanel-tables">
     <div class="dctrl">
       <button class="btn" onclick="loadDbTables()">Refresh tables</button>
-      <button class="btn" id="dbtExportBtn" onclick="exportDbTable()" disabled>Export CSV</button>
-      <button class="btn" id="dbtCopyBtn" onclick="copyDbTablePage()" disabled>Copy page</button>
+      <button class="btn" id="dbtExportBtn" onclick="exportDbTable()" disabled title="Download every row matching the current filters and sort">Export CSV</button>
+      <button class="btn" id="dbtExportPageBtn" onclick="exportDbTablePage()" disabled title="Download the rows on this page">Export page</button>
+      <button class="btn" id="dbtCopyBtn" onclick="copyDbTablePage()" disabled title="Copy this page as TSV">Copy page</button>
       <span id="dbtStatus" style="margin-left:auto;"></span>
     </div>
     <div class="tables-duo">
@@ -909,8 +911,14 @@
               <option value="90d">Last 90 days</option>
             </select>
           </label>
-          <label data-need="time">From <input type="date" id="dbtFrom" onchange="document.getElementById('dbtPreset').value=''" /></label>
-          <label data-need="time">To <input type="date" id="dbtTo" onchange="document.getElementById('dbtPreset').value=''" /></label>
+          <label data-need="time">From
+            <input type="date" id="dbtFrom" onchange="document.getElementById('dbtPreset').value=''" />
+            <input type="time" id="dbtFromTime" step="60" title="IST" onchange="document.getElementById('dbtPreset').value=''" />
+          </label>
+          <label data-need="time">To
+            <input type="date" id="dbtTo" onchange="document.getElementById('dbtPreset').value=''" />
+            <input type="time" id="dbtToTime" step="60" title="IST" onchange="document.getElementById('dbtPreset').value=''" />
+          </label>
           <label data-need="contract">Contract
             <input class="dinp" id="dbtContract" list="dbtContractList" placeholder="any" onkeydown="dbtFilterKey(event)" />
           </label>
@@ -953,7 +961,7 @@
           </label>
           <button class="btn" onclick="dbtApply()">Apply</button>
           <button class="btn" onclick="dbtClearFilters()">Clear</button>
-          <span style="font-size:11px;opacity:.75;">Click a column to sort. Export is the filtered set, IST times, max 100k rows. Click a row for full JSON.</span>
+          <span style="font-size:11px;opacity:.75;">Times are IST. Export CSV = every row matching these filters (max 100k). Export page = this screen. Click a column to sort, a row for JSON.</span>
           <datalist id="dbtContractList"></datalist>
           <datalist id="dbtAccountList"></datalist>
           <datalist id="dbtExchangeList"></datalist>
@@ -3684,7 +3692,7 @@ async function loadDbTables() {
 }
 
 function dbtClearFilterInputs() {
-  ['dbtFrom','dbtTo','dbtContract','dbtAccount','dbtExchange','dbtStrategy','dbtService','dbtPair','dbtStatusCol','dbtOrderId','dbtQ'].forEach(id => {
+  ['dbtFrom','dbtFromTime','dbtTo','dbtToTime','dbtContract','dbtAccount','dbtExchange','dbtStrategy','dbtService','dbtPair','dbtStatusCol','dbtOrderId','dbtQ'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -3703,6 +3711,7 @@ function openDbTable(name) {
   document.getElementById('dbtPeek').style.display = 'none';
   dbtSyncFilterVisibility(DBT_COL_HINTS[name] || dbtColumns);
   document.getElementById('dbtExportBtn').disabled = false;
+  document.getElementById('dbtExportPageBtn').disabled = false;
   document.getElementById('dbtCopyBtn').disabled = false;
   loadDbFacets(name);
   renderDbTable();
@@ -3729,8 +3738,18 @@ function dbtApplyPreset() {
   const p = document.getElementById('dbtPreset').value;
   const from = document.getElementById('dbtFrom');
   const to = document.getElementById('dbtTo');
-  if (!p) { from.value = ''; to.value = ''; dbtApply(); return; }
+  const fromT = document.getElementById('dbtFromTime');
+  const toT = document.getElementById('dbtToTime');
+  if (!p) {
+    from.value = ''; to.value = '';
+    if (fromT) fromT.value = '';
+    if (toT) toT.value = '';
+    dbtApply();
+    return;
+  }
   to.value = istYMD(0);
+  if (fromT) fromT.value = '00:00';
+  if (toT) toT.value = '23:59';
   if (p === 'today') from.value = istYMD(0);
   else if (p === '7d') from.value = istYMD(-6);
   else if (p === '30d') from.value = istYMD(-29);
@@ -3755,11 +3774,21 @@ function dbtSyncFilterVisibility(cols) {
     el.style.display = (need === 'time' ? hasTime : set.has(need)) ? '' : 'none';
   });
 }
+function dbtIstBound(dateId, timeId, isEnd) {
+  const d = (document.getElementById(dateId)?.value || '').trim();
+  if (!d) return '';
+  let t = (document.getElementById(timeId)?.value || '').trim();
+  if (!t) t = isEnd ? '23:59' : '00:00';
+  if (t.length === 5) t += ':00';
+  return d + 'T' + t;
+}
 function dbtFilterParams() {
   const val = id => (document.getElementById(id)?.value || '').trim();
   const p = {};
-  if (val('dbtFrom')) p.since = val('dbtFrom');
-  if (val('dbtTo')) p.until = val('dbtTo');
+  const since = dbtIstBound('dbtFrom', 'dbtFromTime', false);
+  const until = dbtIstBound('dbtTo', 'dbtToTime', true);
+  if (since) p.since = since;
+  if (until) p.until = until;
   if (val('dbtContract')) p.contract = val('dbtContract');
   const acct = val('dbtAccount');
   if (acct) p.account = acct === '(blank)' ? '__blank__' : acct;
@@ -3880,6 +3909,12 @@ async function renderDbTable() {
     document.getElementById('dbtFirst').disabled = dbtOffset <= 0;
     document.getElementById('dbtNext').disabled = dbtOffset + limit >= dbtTotal;
     document.getElementById('dbtLast').disabled = dbtOffset + limit >= dbtTotal;
+    const exp = document.getElementById('dbtExportBtn');
+    const expPage = document.getElementById('dbtExportPageBtn');
+    const copyBtn = document.getElementById('dbtCopyBtn');
+    if (exp) exp.disabled = !dbtTotal;
+    if (expPage) expPage.disabled = !dbtPageRows.length;
+    if (copyBtn) copyBtn.disabled = !dbtPageRows.length;
     const stats = document.getElementById('dbtStats');
     if (d.stats && dbtTotal) {
       stats.style.display = 'grid';
@@ -3905,18 +3940,66 @@ async function renderDbTable() {
 
 async function exportDbTable() {
   if (!dbtName) return;
-  if (dbtTotal > 100000) toast('Exporting first 100,000 of ' + dbtTotal.toLocaleString() + ' rows — narrow filters for a full dump', '');
-  document.getElementById('dbtStatus').textContent = 'Exporting…';
+  const n = Math.min(Math.max(dbtTotal, 1), 100000);
+  if (dbtTotal > 100000) toast('Exporting first 100,000 of ' + dbtTotal.toLocaleString() + ' matching rows', '');
+  document.getElementById('dbtStatus').textContent = 'Exporting ' + n.toLocaleString() + ' matching rows…';
   try {
+    const params = { ...dbtFilterParams(), limit: n };
     await downloadNamedCsv(
-      '/api/db/table/' + encodeURIComponent(dbtName) + '/export?' + qsObj(dbtFilterParams()),
-      dbtName + '.csv'
+      '/api/db/table/' + encodeURIComponent(dbtName) + '/export?' + qsObj(params),
+      dbtExportFilename(false)
     );
-    document.getElementById('dbtStatus').textContent = 'Exported ' + dbtName;
+    document.getElementById('dbtStatus').textContent = 'Exported ' + n.toLocaleString() + ' matching rows';
+    toast('Exported ' + n.toLocaleString() + ' rows', 'ok');
   } catch(e) {
     toast('Export failed: ' + e.message, 'err');
     document.getElementById('dbtStatus').innerHTML = '<span style="color:var(--red)">Export: ' + esc(e.message) + '</span>';
   }
+}
+
+function dbtExportFilename(pageOnly) {
+  const p = dbtFilterParams();
+  const bits = [dbtName];
+  if (p.since) bits.push('from-' + p.since.replace(/[:T]/g, '').slice(0, 12));
+  if (p.until) bits.push('to-' + p.until.replace(/[:T]/g, '').slice(0, 12));
+  if (p.contract) bits.push(p.contract);
+  if (p.account && p.account !== '__blank__') bits.push(p.account);
+  if (p.exchange) bits.push(p.exchange);
+  if (p.strategy) bits.push(p.strategy);
+  if (p.side) bits.push(p.side);
+  if (pageOnly) bits.push('page');
+  return bits.join('_').replace(/[^\w.\-]+/g, '_') + '.csv';
+}
+function dbtCsvEsc(v) {
+  const s = String(v ?? '');
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+function dbtCellText(col, v) {
+  if (v == null) return '';
+  if ((col === 'created_at' || col === 'updated_at') && typeof v === 'number') return fmtISTs(v);
+  return String(v);
+}
+function dbtRowsCsv(rows) {
+  const cols = dbtColumns;
+  return [cols.map(dbtCsvEsc).join(',')].concat(
+    rows.map(row => cols.map(c => dbtCsvEsc(dbtCellText(c, row[c]))).join(','))
+  ).join('\n');
+}
+function downloadTextFile(name, text, mime) {
+  const blob = new Blob([text], { type: mime || 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+function exportDbTablePage() {
+  if (!dbtName || !dbtPageRows.length) { toast('Nothing on this page to export', 'err'); return; }
+  downloadTextFile(dbtExportFilename(true), dbtRowsCsv(dbtPageRows), 'text/csv;charset=utf-8');
+  toast('Exported ' + dbtPageRows.length + ' on-screen rows', 'ok');
 }
 
 async function copyDbTablePage() {

@@ -1618,8 +1618,9 @@ def _qi(name: str) -> str:
 def _parse_bound(value: str | None, *, end: bool = False) -> datetime | None:
     """Unix seconds, ISO datetime, or YYYY-MM-DD as an IST calendar day.
 
-    `end=True` on a date-only value is exclusive (next IST midnight), so
-    `until=2026-09-11` includes that whole day.
+    Naive datetimes are IST. `end=True` is exclusive:
+    date-only `until=2026-09-11` includes that whole day; a minute-precision
+    datetime includes that whole minute.
     """
     if value is None:
         return None
@@ -1637,10 +1638,14 @@ def _parse_bound(value: str | None, *, end: bool = False) -> datetime | None:
             if end:
                 ist = ist + timedelta(days=1)
             return ist.astimezone(timezone.utc)
-        iso = s.replace("Z", "+00:00")
+        iso = s.replace("Z", "+00:00").replace(" ", "T", 1)
         dt = datetime.fromisoformat(iso)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=_IST)
+        if end and dt.second == 0 and dt.microsecond == 0:
+            dt = dt + timedelta(minutes=1)
+        elif end:
+            dt = dt + timedelta(seconds=1)
         return dt.astimezone(timezone.utc)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"invalid timestamp '{value}'")
@@ -1849,7 +1854,15 @@ async def _csv_streaming_response(
     params.append(limit)
     sql = f"SELECT * FROM {_qi(name)} {where_sql} {order_sql} LIMIT ${len(params)}"
     stamp = datetime.now(_IST).strftime("%Y%m%d_%H%M")
-    filename = f"{name}_{stamp}.csv"
+    bits = [name]
+    if since:
+        bits.append("from" + re.sub(r"[^\d]", "", str(since))[:12])
+    if until:
+        bits.append("to" + re.sub(r"[^\d]", "", str(until))[:12])
+    if contract:
+        bits.append(re.sub(r"[^\w.\-]+", "", contract)[:24])
+    bits.append(stamp)
+    filename = "_".join(b for b in bits if b) + ".csv"
 
     async def generate():
         buf = io.StringIO()
