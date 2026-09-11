@@ -7,8 +7,12 @@ Report (safe, read-only):
 Delete one contract+account group (destructive, needs --yes):
     python -m scripts.fills_audit --delete --contract LISTAUSD --account 12345 --yes
 
-Every rPnL pill on the dashboard is one (contract, account) group, so deleting a
-group removes exactly one pill.
+Delete quote fills with a blank account (the leftover REST / insufficient-balance
+rows that show up as rPnL pills with no account id). Hedge fills with a blank
+account are kept — those still fold onto the real quote pill.
+
+    python -m scripts.fills_audit --delete-empty-quote --yes
+    python -m scripts.fills_audit --delete-empty-quote --strategy stack --yes
 """
 from __future__ import annotations
 
@@ -190,6 +194,54 @@ async def delete_group(
     print(f"deleted: {deleted}")
 
 
+QUOTE_BOTS = ("stack", "belt", "lean", "touch", "edge", "wing", "harvest", "shop")
+
+
+async def delete_empty_quote(
+    conn: asyncpg.Connection, strategy: str | None, yes: bool,
+) -> None:
+    """Drop Delta (quote) fills whose account id was never written.
+
+    Does not touch hedge/coindcx/aster rows with a blank account — those are
+    folded onto the matching contract's real pill.
+    """
+    args: list = []
+    sql = """
+        FROM fills
+        WHERE (account IS NULL OR TRIM(account::text) = '')
+          AND LOWER(exchange) = 'delta'
+    """
+    if strategy:
+        args.append(strategy)
+        sql += f" AND strategy::text = ${len(args)}"
+    else:
+        args.append(list(QUOTE_BOTS))
+        sql += f" AND strategy::text = ANY(${len(args)}::text[])"
+
+    rows = await conn.fetch(
+        f"""
+        SELECT contract, strategy::text AS strategy, COUNT(*)::int AS n,
+               COALESCE(SUM(rpnl), 0)::float AS rpnl
+        {sql}
+        GROUP BY 1, 2
+        ORDER BY n DESC
+        """,
+        *args,
+    )
+    total = sum(r["n"] for r in rows)
+    print(f"empty-account delta fills: {total}")
+    for r in rows:
+        print(f"  {r['contract']:<16} {r['strategy']:<8} n={r['n']:<6} rpnl={r['rpnl']:.4f}")
+    if not total:
+        print("nothing to delete")
+        return
+    if not yes:
+        print("dry run — re-run with --yes to delete")
+        return
+    deleted = await conn.execute(f"DELETE {sql}", *args)
+    print(f"deleted: {deleted}")
+
+
 async def dedupe_exact(
     conn: asyncpg.Connection, contract: str | None, strategy: str | None, yes: bool,
 ) -> None:
@@ -223,6 +275,11 @@ async def main() -> int:
     ap.add_argument("--strategy", help="limit to one strategy tag, e.g. opa3")
     ap.add_argument("--schema", action="store_true", help="dump the fills columns and their values")
     ap.add_argument("--delete", action="store_true", help="delete one contract+account group")
+    ap.add_argument(
+        "--delete-empty-quote",
+        action="store_true",
+        help="delete Delta fills with a blank account (quote bots by default)",
+    )
     ap.add_argument("--dedupe-exact", action="store_true", help="drop re-ingested identical fills")
     ap.add_argument("--yes", action="store_true", help="actually write (otherwise dry run)")
     args = ap.parse_args()
@@ -241,6 +298,8 @@ async def main() -> int:
                 print("--delete needs --contract", file=sys.stderr)
                 return 2
             await delete_group(conn, args.contract, args.account, args.strategy, args.yes)
+        elif args.delete_empty_quote:
+            await delete_empty_quote(conn, args.strategy, args.yes)
         elif args.dedupe_exact:
             await dedupe_exact(conn, args.contract, args.strategy, args.yes)
         else:

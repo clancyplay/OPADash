@@ -98,13 +98,16 @@
     padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
   }
   .ctrl-bar label { font-size: 12px; color: var(--muted); }
-  select, button.btn {
+  select, button.btn, input.dinp, input[type="date"] {
     background: #1e2230; color: var(--text);
     border: 1px solid var(--border2); border-radius: 4px;
     padding: 5px 10px; font-size: 13px;
   }
+  input.dinp { min-width: 120px; }
+  input[type="date"] { color-scheme: dark; min-width: 138px; }
   button.btn { cursor: pointer; }
   button.btn:hover { background: #2a3040; }
+  button.btn:disabled { opacity: .45; cursor: default; }
 
   /* Status bar */
   .status-bar { padding: 6px 20px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); min-height: 28px; display: flex; align-items: center; gap: 8px; }
@@ -352,6 +355,16 @@
   table.rpt-matrix td { padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
   table.rpt-matrix tr:hover td { background: rgba(255,255,255,.025); }
   table.rpt-matrix tr.rpt-click { cursor: pointer; }
+  table.rpt-matrix tr.rpt-click:hover td { background: rgba(41,98,255,.08); }
+  .rpt-acct.flash { box-shadow: 0 0 0 2px rgba(41,98,255,.65); }
+  .bal-cchips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .bal-cchip {
+    background: #1e2230; color: var(--muted); border: 1px solid var(--border2);
+    border-radius: 10px; padding: 2px 8px; font-size: 10.5px; cursor: pointer;
+  }
+  .bal-cchip:hover { color: #fff; border-color: var(--accent); }
+  .rpt-xtable tr.rpt-click { cursor: pointer; }
+  .rpt-xtable tr.rpt-click:hover td { background: rgba(41,98,255,.08); }
   table.rpt-matrix .an { font-weight: 700; color: #fff; }
   table.rpt-matrix .aid { font-size: 11px; color: var(--muted); font-weight: 400; }
   table.rpt-matrix tfoot td { font-weight: 700; border-top: 1px solid var(--border2); background: #151926; }
@@ -406,7 +419,7 @@
   .pos-pos  { color: var(--green); }
 
   /* ── Data explorer ────────────────────────────────── */
-  #data { padding: 20px; max-width: 1280px; margin: 0 auto; }
+  #data { padding: 20px; max-width: 1680px; margin: 0 auto; }
   .dtabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
   .dtab {
     background: #1e2230; color: var(--muted); border: 1px solid var(--border2);
@@ -435,6 +448,13 @@
     padding: 7px 10px; font-weight: 600; font-size: 10.5px; text-transform: uppercase;
     letter-spacing: .4px; border-bottom: 1px solid var(--border); z-index: 2; white-space: nowrap;
   }
+  .dtable th.sortable { cursor: pointer; user-select: none; }
+  .dtable th.sortable:hover { color: var(--text); }
+  .dtable th.sorted { color: #fff; }
+  .dtable th.sortable .sa { margin-left: 4px; opacity: .35; font-size: 9px; }
+  .dtable th.sorted .sa { opacity: 1; color: var(--accent); }
+  .dtable td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .dtable tr.selected td { background: rgba(41,98,255,.16); }
   .dtable td { padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
   .dtable tr:hover td { background: rgba(255,255,255,.025); }
   .dtable tr.matched td { background: rgba(41,98,255,.18); }
@@ -453,6 +473,21 @@
   .tbl-item.active { background: rgba(41,98,255,.15); color: #fff; }
   .tbl-item .cnt { color: var(--muted); font-size: 11px; }
   .tbl-grid-wrap { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; overflow: auto; max-height: 70vh; }
+
+  .dbt-filters {
+    display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center;
+    background: var(--surface); border: 1px solid var(--border2); border-radius: 10px;
+    padding: 10px 12px; margin-bottom: 10px; font-size: 12px; color: var(--muted);
+  }
+  .dbt-filters label { display: flex; align-items: center; gap: 6px; }
+  .dbt-filters .dinp { font-size: 12px; padding: 4px 8px; }
+  .dbt-peek {
+    margin-top: 10px; background: #0a0d13; border: 1px solid var(--border2);
+    border-radius: 10px; padding: 12px 14px; font-family: ui-monospace, Consolas, monospace;
+    font-size: 11.5px; line-height: 1.5; max-height: 240px; overflow: auto; white-space: pre-wrap;
+    word-break: break-word; color: var(--text);
+  }
+  .dbt-peek .peek-h { display: flex; justify-content: space-between; color: var(--muted); font-family: inherit; font-size: 11px; margin-bottom: 8px; }
 
   .pos-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px; margin-bottom: 14px; }
   .pos-card { background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; padding: 14px 16px; }
@@ -675,6 +710,7 @@
       <div class="rpt-matrix-wrap">
         <h4>Accounts × exchange wallets</h4>
         <div class="rpt-matrix-scroll" id="balMatrix"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;">Click an account to open it in Reports. Click a contract chip to open its rPnL chart.</div>
       </div>
     </div>
   </div>
@@ -856,18 +892,91 @@
   <div class="dpanel" id="dpanel-tables">
     <div class="dctrl">
       <button class="btn" onclick="loadDbTables()">Refresh tables</button>
+      <button class="btn" id="dbtExportBtn" onclick="exportDbTable()" disabled>Export CSV</button>
+      <button class="btn" id="dbtCopyBtn" onclick="copyDbTablePage()" disabled>Copy page</button>
       <span id="dbtStatus" style="margin-left:auto;"></span>
     </div>
     <div class="tables-duo">
       <div class="tbl-list" id="dbtList"></div>
       <div>
+        <div class="dbt-filters" id="dbtFilters" style="display:none;">
+          <label data-need="time">Range
+            <select id="dbtPreset" onchange="dbtApplyPreset()">
+              <option value="">Custom / all</option>
+              <option value="today">Today (IST)</option>
+              <option value="7d">Last 7 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="90d">Last 90 days</option>
+            </select>
+          </label>
+          <label data-need="time">From <input type="date" id="dbtFrom" onchange="document.getElementById('dbtPreset').value=''" /></label>
+          <label data-need="time">To <input type="date" id="dbtTo" onchange="document.getElementById('dbtPreset').value=''" /></label>
+          <label data-need="contract">Contract
+            <input class="dinp" id="dbtContract" list="dbtContractList" placeholder="any" onkeydown="dbtFilterKey(event)" />
+          </label>
+          <label data-need="account">Account
+            <input class="dinp" id="dbtAccount" list="dbtAccountList" placeholder="id or (blank)" onkeydown="dbtFilterKey(event)" />
+          </label>
+          <label data-need="exchange">Exchange
+            <input class="dinp" id="dbtExchange" list="dbtExchangeList" placeholder="any" onkeydown="dbtFilterKey(event)" />
+          </label>
+          <label data-need="side">Side
+            <select id="dbtSide" onchange="dbtApply()">
+              <option value="">All</option>
+              <option value="buy">buy</option>
+              <option value="sell">sell</option>
+            </select>
+          </label>
+          <label data-need="strategy">Strategy
+            <input class="dinp" id="dbtStrategy" list="dbtStrategyList" placeholder="all" onkeydown="dbtFilterKey(event)" />
+          </label>
+          <label data-need="service">Service
+            <input class="dinp" id="dbtService" list="dbtServiceList" placeholder="any" onkeydown="dbtFilterKey(event)" />
+          </label>
+          <label data-need="level">Level
+            <select id="dbtLevel" onchange="dbtApply()">
+              <option value="">All</option>
+              <option>INFO</option><option>WARNING</option><option>ERROR</option>
+            </select>
+          </label>
+          <label data-need="pair">Pair
+            <input class="dinp" id="dbtPair" list="dbtPairList" placeholder="any" onkeydown="dbtFilterKey(event)" />
+          </label>
+          <label data-need="status">Status
+            <input class="dinp" id="dbtStatusCol" list="dbtStatusList" placeholder="any" onkeydown="dbtFilterKey(event)" />
+          </label>
+          <label data-need="order_id">Order id
+            <input class="dinp" id="dbtOrderId" placeholder="contains…" onkeydown="dbtFilterKey(event)" />
+          </label>
+          <label>Search
+            <input class="dinp" id="dbtQ" placeholder="text…" style="min-width:160px;" onkeydown="dbtFilterKey(event)" />
+          </label>
+          <button class="btn" onclick="dbtApply()">Apply</button>
+          <button class="btn" onclick="dbtClearFilters()">Clear</button>
+          <span style="font-size:11px;opacity:.75;">Click a column to sort. Export is the filtered set, IST times, max 100k rows. Click a row for full JSON.</span>
+          <datalist id="dbtContractList"></datalist>
+          <datalist id="dbtAccountList"></datalist>
+          <datalist id="dbtExchangeList"></datalist>
+          <datalist id="dbtStrategyList"></datalist>
+          <datalist id="dbtServiceList"></datalist>
+          <datalist id="dbtPairList"></datalist>
+          <datalist id="dbtStatusList"></datalist>
+        </div>
+        <div class="insights-bar" id="dbtStats" style="display:none;"></div>
         <div class="dctrl" id="dbtPager" style="display:none;">
+          <button class="btn" id="dbtFirst" onclick="dbtGoto(0)">« First</button>
           <button class="btn" id="dbtPrev" onclick="dbtPage(-1)">‹ Prev</button>
           <span id="dbtPageInfo"></span>
           <button class="btn" id="dbtNext" onclick="dbtPage(1)">Next ›</button>
-          <label style="margin-left:auto;">Rows <select id="dbtLimit" onchange="dbtGoto(0)"><option>50</option><option selected>100</option><option>200</option></select></label>
+          <button class="btn" id="dbtLast" onclick="dbtLastPage()">Last »</button>
+          <label style="margin-left:auto;">Rows
+            <select id="dbtLimit" onchange="dbtGoto(0)">
+              <option>50</option><option selected>100</option><option>200</option><option>500</option>
+            </select>
+          </label>
         </div>
         <div class="tbl-grid-wrap" id="dbtGrid"><div style="padding:20px;color:var(--muted);">Select a table on the left.</div></div>
+        <div class="dbt-peek" id="dbtPeek" style="display:none;"></div>
       </div>
     </div>
   </div>
@@ -885,7 +994,9 @@
           <option value="">All</option><option>INFO</option><option>WARNING</option><option>ERROR</option>
         </select>
       </label>
-      <label>Search <input type="text" id="lgSearch" placeholder="text..." style="background:#1e2230;color:var(--text);border:1px solid var(--border2);border-radius:6px;padding:5px 9px;font-size:12px;" onchange="loadLogsX(true)" /></label>
+      <label>Search <input type="text" id="lgSearch" class="dinp" placeholder="text..." onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
+      <label>From <input type="date" id="lgFrom" onchange="loadLogsX(true)" /></label>
+      <label>To <input type="date" id="lgTo" onchange="loadLogsX(true)" /></label>
       <label>Load
         <select id="lgLimit" onchange="loadLogsX(true)">
           <option value="300">300</option><option value="1000" selected>1000</option>
@@ -894,6 +1005,7 @@
       </label>
       <button class="btn" onclick="loadOlderLogs()">↑ Older</button>
       <button class="btn" onclick="loadLogsX(true)">Refresh</button>
+      <button class="btn" onclick="exportLogsCsv()">Export CSV</button>
       <label><input type="checkbox" id="lgAuto" checked onchange="setupLgAuto()" /> Live (3s)</label>
       <label><input type="checkbox" id="lgScroll" checked /> Auto-scroll</label>
       <span id="lgStatus" style="margin-left:auto;"></span>
@@ -1032,6 +1144,7 @@
 const PAGE_IDS = ['home', 'bot', 'balances', 'reports', 'markprice', 'rpnl', 'position', 'data'];
 const NAV_IDS  = { home: 'navHome', bot: 'navBot', balances: 'navBalances', reports: 'navReports', markprice: 'navMarkprice', rpnl: 'navRpnl', position: 'navPosition', data: 'navData' };
 let mpReady = false, rpnlReady = false, posReady = false, botReady = false, reportsReady = false, balancesReady = false, dataReady = false;
+let pendingRpnlKey = null, pendingReportAcct = null, pendingReportWiden = false;
 
 const LS_STRATEGY = 'opadash.strategy';
 const LS_PAGE = 'opadash.page';
@@ -1061,6 +1174,13 @@ function showPage(name) {
     if (!reportsReady) { initReports(); reportsReady = true; }
     else { loadReports(); requestAnimationFrame(resizeReportChart); }
   }
+  if (name === 'rpnl' && pendingRpnlKey) {
+    const k = pendingRpnlKey;
+    pendingRpnlKey = null;
+    const sel = document.getElementById('rpnlSymbol');
+    if (sel) { ensureRpnlOption(k, k.replace('::', ' · ')); sel.value = k; }
+    if (rpnlReady) pickRpnlContract(k);
+  }
   if (name === 'data') {
     if (!dataReady) { initData(); dataReady = true; }
     else showDataTab(dataTab);
@@ -1069,6 +1189,42 @@ function showPage(name) {
   if (name === 'markprice' && markChart)  { requestAnimationFrame(resizeMpCharts); }
   if (name === 'rpnl'      && rpnlChart)  { requestAnimationFrame(resizeRpnlCharts); }
   if (name === 'position'  && posChart)   { requestAnimationFrame(() => posChart.applyOptions({ width: document.getElementById('posChart').clientWidth })); }
+}
+
+function goToReportAccount(accountId) {
+  const id = String(accountId || '').trim();
+  if (!id) return;
+  pendingReportAcct = id;
+  pendingReportWiden = false;
+  showPage('reports');
+}
+function goToRpnlChart(contract, account) {
+  if (!contract) return;
+  const key = contract + '::' + (account || '');
+  const wasReady = rpnlReady;
+  ensureRpnlOption(key, contract + (account ? ' · ' + account : ''));
+  const sel = document.getElementById('rpnlSymbol');
+  if (sel) sel.value = key;
+  pendingRpnlKey = wasReady ? key : null;
+  showPage('rpnl');
+}
+function focusReportAccount(accountId) {
+  const id = String(accountId || '').trim();
+  if (!id) return false;
+  const key = encodeURIComponent(id);
+  let el = document.getElementById('acct-' + key);
+  if (!el) {
+    el = [...document.querySelectorAll('.rpt-acct')].find(e =>
+      (e.getAttribute('data-filter') || '').indexOf(id) >= 0
+    );
+  }
+  if (!el) return false;
+  document.querySelectorAll('.rpt-acct').forEach(e => e.classList.remove('flash'));
+  const openKey = (el.id || '').replace(/^acct-/, '');
+  rptOpenAccts.add(openKey);
+  el.classList.add('open', 'flash');
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  return true;
 }
 
 function resizeMpCharts() {
@@ -2715,6 +2871,22 @@ async function loadReports() {
     drawReportDays(roll.by_day || []);
     filterReportAccts();
     requestAnimationFrame(resizeReportChart);
+    if (pendingReportAcct) {
+      const id = pendingReportAcct;
+      if (focusReportAccount(id)) {
+        pendingReportAcct = null;
+        pendingReportWiden = false;
+      } else if (!pendingReportWiden) {
+        pendingReportWiden = true;
+        const hours = document.getElementById('rptHours');
+        if (hours) hours.value = '';
+        loadReports();
+      } else {
+        pendingReportAcct = null;
+        pendingReportWiden = false;
+        toast('No report for account ' + id + ' in this strategy', 'err');
+      }
+    }
   } catch (e) {
     document.getElementById('reportsCount').textContent = 'Error';
     empty.style.display = 'block';
@@ -2855,7 +3027,10 @@ function renderReportAccounts(accts, snapshot, sharedPos) {
         return '<span class="rpnl-venue ' + rpnlVenueClass(v.exchange) + '">' + escHtml(v.label) + '</span> ' +
           '<span style="color:' + rptCol(v.rpnl) + '">' + rptSigned(v.rpnl) + '</span>';
       }).join(' · ');
-      return '<tr><td>' + escHtml(c.quote_symbol || c.contract) +
+      return '<tr class="rpt-click" data-contract="' + escHtml(c.contract || c.quote_symbol || '') +
+        '" data-account="' + escHtml(a.account || '') +
+        '" onclick="goToRpnlChart(this.dataset.contract, this.dataset.account)" title="Open rPnL chart">' +
+        '<td>' + escHtml(c.quote_symbol || c.contract) +
         (c.has_hedge ? ' <span style="color:var(--muted);font-size:11px">hedged</span>' : '') +
         '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + venueBits + '</div></td>' +
         '<td class="num" style="color:' + rptCol(c.rpnl) + '">' + rptSigned(c.rpnl) + '</td>' +
@@ -2877,7 +3052,7 @@ function renderReportAccounts(accts, snapshot, sharedPos) {
         '<div class="rpt-sec">Exchanges</div>' +
         '<table class="rpt-xtable"><thead><tr><th>Exchange</th><th class="num">rPnL</th><th class="num">Fees</th><th class="num">Fills</th></tr></thead><tbody>' +
           exchRows + '</tbody></table>' +
-        '<div class="rpt-sec">Contracts</div>' +
+        '<div class="rpt-sec">Contracts <span style="font-weight:400;text-transform:none;letter-spacing:0">· click to open rPnL</span></div>' +
         '<table class="rpt-xtable"><thead><tr><th>Contract</th><th class="num">Quote</th><th class="num">Hedge</th><th class="num">Net</th><th class="num">Fills</th></tr></thead><tbody>' +
           conRows + '</tbody></table>' +
         ((a.positions && a.positions.length) ? '<div class="rpt-sec">Open positions</div>' + posTable(a.positions) : '') +
@@ -3000,11 +3175,23 @@ async function loadBalances() {
       const tags = (a.strategies || []).join(' · ');
       const idBit = (tags ? '<div class="aid">' + escHtml(tags) + '</div>' : '') +
         (a.account && a.account !== a.account_name ? '<div class="aid">' + escHtml(a.account) + '</div>' : '');
+      const contracts = a.contracts || [];
+      const shown = contracts.slice(0, 8);
+      const extra = contracts.length - shown.length;
+      const chips = shown.map(function (c) {
+        return '<button type="button" class="bal-cchip" data-contract="' + escHtml(c) +
+          '" data-account="' + escHtml(a.account || '') +
+          '" onclick="event.stopPropagation(); goToRpnlChart(this.dataset.contract, this.dataset.account)" title="Open rPnL chart">' +
+          escHtml(c) + '</button>';
+      }).join('') + (extra > 0 ? '<span class="aid">+' + extra + '</span>' : '');
       const cells = exch.map(function (c) {
         const v = (a.venues || {})[c.exchange];
         return (v == null || v === '') ? '<td style="color:var(--muted)">—</td>' : '<td>' + rptMoney(v) + '</td>';
       }).join('');
-      return '<tr><td><div class="an">' + escHtml(name) + '</div>' + idBit + '</td>' + cells +
+      return '<tr class="rpt-click" data-account="' + escHtml(a.account || '') +
+        '" onclick="goToReportAccount(this.dataset.account)" title="Open in Reports">' +
+        '<td><div class="an">' + escHtml(name) + '</div>' + idBit +
+        (chips ? '<div class="bal-cchips">' + chips + '</div>' : '') + '</td>' + cells +
         '<td>' + (a.total == null ? '—' : rptMoney(a.total)) + '</td>' +
         '<td>' + (a.time ? fmtIST(a.time) : '—') + '</td></tr>';
     }).join('');
@@ -3435,6 +3622,50 @@ function setupPxAuto() {
 
 // ── Generic table browser ─────────────────────────────────
 let dbtName = null, dbtOffset = 0, dbtTotal = 0;
+let dbtSort = '', dbtDir = 'desc';
+let dbtColumns = [];
+let dbtTypes = {};
+let dbtPageRows = [];
+let dbtPeekIdx = -1;
+const dbtFacetsCache = {};
+const DBT_COL_HINTS = {
+  fills: ['created_at','contract','account','exchange','side','strategy','order_id'],
+  orders: ['created_at','contract','account','exchange','side','strategy','status','order_id'],
+  logs: ['created_at','service','level'],
+  events: ['created_at','contract','strategy'],
+  positions: ['created_at','contract','strategy'],
+  account_balances: ['created_at','account','exchange','strategy'],
+  coindcx_transactions: ['created_at','pair'],
+};
+
+function qsObj(p) {
+  return Object.entries(p).filter(([, v]) => v !== '' && v != null && v !== false)
+    .map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
+}
+function istYMD(offsetDays) {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit'
+  });
+  const today = fmt.format(new Date());
+  if (!offsetDays) return today;
+  const [y, m, d] = today.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + offsetDays));
+  return dt.getUTCFullYear() + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-' + String(dt.getUTCDate()).padStart(2, '0');
+}
+async function downloadNamedCsv(url, fallbackName) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  const blob = await r.blob();
+  const cd = r.headers.get('Content-Disposition') || '';
+  const m = cd.match(/filename="([^"]+)"/);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (m && m[1]) || fallbackName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
 
 async function loadDbTables() {
   document.getElementById('dbtStatus').textContent = 'Loading...';
@@ -3452,45 +3683,256 @@ async function loadDbTables() {
   }
 }
 
-function openDbTable(name) { dbtName = name; dbtOffset = 0; renderDbTable(); }
+function dbtClearFilterInputs() {
+  ['dbtFrom','dbtTo','dbtContract','dbtAccount','dbtExchange','dbtStrategy','dbtService','dbtPair','dbtStatusCol','dbtOrderId','dbtQ'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const side = document.getElementById('dbtSide'); if (side) side.value = '';
+  const level = document.getElementById('dbtLevel'); if (level) level.value = '';
+  const preset = document.getElementById('dbtPreset'); if (preset) preset.value = '';
+}
+
+function openDbTable(name) {
+  dbtName = name;
+  dbtOffset = 0;
+  dbtSort = '';
+  dbtDir = 'desc';
+  dbtPeekIdx = -1;
+  dbtClearFilterInputs();
+  document.getElementById('dbtPeek').style.display = 'none';
+  dbtSyncFilterVisibility(DBT_COL_HINTS[name] || dbtColumns);
+  document.getElementById('dbtExportBtn').disabled = false;
+  document.getElementById('dbtCopyBtn').disabled = false;
+  loadDbFacets(name);
+  renderDbTable();
+}
 function dbtPage(dir) {
   const limit = parseInt(document.getElementById('dbtLimit').value);
   dbtOffset = Math.max(0, dbtOffset + dir * limit);
   renderDbTable();
 }
-function dbtGoto(offset) { dbtOffset = offset; renderDbTable(); }
+function dbtGoto(offset) { dbtOffset = Math.max(0, offset); renderDbTable(); }
+function dbtLastPage() {
+  const limit = parseInt(document.getElementById('dbtLimit').value) || 100;
+  dbtGoto(Math.max(0, Math.floor(Math.max(dbtTotal - 1, 0) / limit) * limit));
+}
+function dbtFilterKey(ev) { if (ev.key === 'Enter') { ev.preventDefault(); dbtApply(); } }
+function dbtApply() { dbtOffset = 0; renderDbTable(); }
+function dbtClearFilters() {
+  dbtClearFilterInputs();
+  dbtSort = '';
+  dbtDir = 'desc';
+  dbtApply();
+}
+function dbtApplyPreset() {
+  const p = document.getElementById('dbtPreset').value;
+  const from = document.getElementById('dbtFrom');
+  const to = document.getElementById('dbtTo');
+  if (!p) { from.value = ''; to.value = ''; dbtApply(); return; }
+  to.value = istYMD(0);
+  if (p === 'today') from.value = istYMD(0);
+  else if (p === '7d') from.value = istYMD(-6);
+  else if (p === '30d') from.value = istYMD(-29);
+  else if (p === '90d') from.value = istYMD(-89);
+  dbtApply();
+}
+function dbtSortBy(col) {
+  if (dbtSort === col) dbtDir = dbtDir === 'desc' ? 'asc' : 'desc';
+  else {
+    dbtSort = col;
+    dbtDir = (col === 'id' || col === 'created_at' || col === 'updated_at') ? 'desc' : 'asc';
+  }
+  dbtOffset = 0;
+  renderDbTable();
+}
+function dbtSyncFilterVisibility(cols) {
+  const set = new Set(cols || []);
+  const hasTime = set.has('created_at') || set.has('updated_at') || set.has('time');
+  document.getElementById('dbtFilters').style.display = dbtName ? 'flex' : 'none';
+  document.querySelectorAll('#dbtFilters [data-need]').forEach(el => {
+    const need = el.getAttribute('data-need');
+    el.style.display = (need === 'time' ? hasTime : set.has(need)) ? '' : 'none';
+  });
+}
+function dbtFilterParams() {
+  const val = id => (document.getElementById(id)?.value || '').trim();
+  const p = {};
+  if (val('dbtFrom')) p.since = val('dbtFrom');
+  if (val('dbtTo')) p.until = val('dbtTo');
+  if (val('dbtContract')) p.contract = val('dbtContract');
+  const acct = val('dbtAccount');
+  if (acct) p.account = acct === '(blank)' ? '__blank__' : acct;
+  if (val('dbtExchange')) p.exchange = val('dbtExchange');
+  if (val('dbtStrategy')) p.strategy = val('dbtStrategy');
+  if (val('dbtSide')) p.side = val('dbtSide');
+  if (val('dbtService')) p.service = val('dbtService');
+  if (val('dbtLevel')) p.level = val('dbtLevel');
+  if (val('dbtPair')) p.pair = val('dbtPair');
+  if (val('dbtStatusCol')) p.status = val('dbtStatusCol');
+  if (val('dbtOrderId')) p.order_id = val('dbtOrderId');
+  if (val('dbtQ')) p.q = val('dbtQ');
+  if (dbtSort) p.sort = dbtSort;
+  if (dbtDir) p.dir = dbtDir;
+  return p;
+}
+async function loadDbFacets(name) {
+  if (dbtFacetsCache[name]) { dbtFillFacets(dbtFacetsCache[name]); return; }
+  try {
+    const r = await fetch('/api/db/table/' + encodeURIComponent(name) + '/facets');
+    if (!r.ok) return;
+    const d = await r.json();
+    dbtFacetsCache[name] = d.facets || {};
+    dbtFillFacets(dbtFacetsCache[name]);
+  } catch {}
+}
+function dbtFillFacets(facets) {
+  const map = {
+    contract: 'dbtContractList', account: 'dbtAccountList', exchange: 'dbtExchangeList',
+    strategy: 'dbtStrategyList', service: 'dbtServiceList', pair: 'dbtPairList', status: 'dbtStatusList',
+  };
+  Object.entries(map).forEach(([col, id]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = (facets[col] || []).map(v => '<option value="' + String(v).replace(/"/g, '&quot;') + '">').join('');
+  });
+}
+function dbtIsNum(col, types) {
+  const t = (types && types[col]) || '';
+  return /int|numeric|double|real|decimal|float/.test(t);
+}
+function dbtShowPeek(i) {
+  dbtPeekIdx = i;
+  document.querySelectorAll('#dbtGrid tbody tr').forEach((tr, idx) => tr.classList.toggle('selected', idx === i));
+  const row = dbtPageRows[i];
+  const peek = document.getElementById('dbtPeek');
+  if (!row) { peek.style.display = 'none'; return; }
+  const lines = Object.entries(row).map(([k, v]) => {
+    let shown = v;
+    if (v == null) shown = '∅';
+    else if ((k === 'created_at' || k === 'updated_at') && typeof v === 'number') shown = fmtISTs(v);
+    else if (typeof v === 'string' && (v.startsWith('{') || v.startsWith('['))) {
+      try { shown = JSON.stringify(JSON.parse(v), null, 2); } catch {}
+    }
+    return esc(k) + ': ' + esc(String(shown));
+  });
+  peek.style.display = 'block';
+  peek.innerHTML = '<div class="peek-h"><span>Row ' + (dbtOffset + i + 1) + ' of ' + dbtTotal.toLocaleString() + '</span>' +
+    '<button class="btn" onclick="document.getElementById(\'dbtPeek\').style.display=\'none\'">Close</button></div>' +
+    lines.join('\n');
+}
 
 async function renderDbTable() {
   if (!dbtName) return;
   document.querySelectorAll('.tbl-item').forEach(el => el.classList.toggle('active', el.id === 'dbt-' + dbtName));
   const limit = parseInt(document.getElementById('dbtLimit').value);
   const grid = document.getElementById('dbtGrid');
+  const filters = dbtFilterParams();
   grid.innerHTML = '<div style="padding:16px;color:var(--muted);">Loading ' + esc(dbtName) + '…</div>';
+  document.getElementById('dbtStatus').textContent = 'Loading ' + dbtName + '…';
   try {
-    const r = await fetch('/api/db/table/' + dbtName + '?limit=' + limit + '&offset=' + dbtOffset);
+    const r = await fetch('/api/db/table/' + encodeURIComponent(dbtName) + '?' + qsObj({ limit, offset: dbtOffset, ...filters }));
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
     const d = await r.json();
     dbtTotal = d.total;
+    dbtColumns = d.columns || [];
+    dbtTypes = d.types || {};
+    dbtSort = d.sort || dbtSort;
+    dbtDir = d.dir || dbtDir;
+    dbtSyncFilterVisibility(dbtColumns);
     const timeCols = new Set(['created_at', 'updated_at']);
-    grid.innerHTML = !d.rows.length
-      ? '<div style="padding:16px;color:var(--muted);">Empty table.</div>'
-      : '<table class="dtable"><thead><tr>' + d.columns.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr></thead><tbody>' +
-        d.rows.map(row => '<tr>' + row.map((v, ci) => {
+    dbtPageRows = (d.rows || []).map(row => {
+      const o = {};
+      dbtColumns.forEach((c, i) => { o[c] = row[i]; });
+      return o;
+    });
+    if (!d.rows.length) {
+      grid.innerHTML = '<div style="padding:16px;color:var(--muted);">No rows match these filters.</div>';
+    } else {
+      grid.innerHTML = '<table class="dtable"><thead><tr>' + d.columns.map(c => {
+        const on = dbtSort === c;
+        const arrow = on ? (dbtDir === 'asc' ? '▲' : '▼') : '↕';
+        return '<th class="sortable' + (on ? ' sorted' : '') + '" onclick="dbtSortBy(\'' + c + '\')">' +
+          esc(c) + '<span class="sa">' + arrow + '</span></th>';
+      }).join('') + '</tr></thead><tbody>' +
+        d.rows.map((row, ri) => '<tr class="clickable' + (ri === dbtPeekIdx ? ' selected' : '') + '" onclick="dbtShowPeek(' + ri + ')">' + row.map((v, ci) => {
           const col = d.columns[ci];
-          let s;
+          let s, extra = dbtIsNum(col, d.types) ? ' class="num"' : '';
           if (v == null) s = '<span style="color:var(--muted)">∅</span>';
           else if (timeCols.has(col) && typeof v === 'number') s = fmtISTs(v);
-          else { s = esc(String(v)); if (s.length > 120) s = '<span title="' + s.replace(/"/g, '&quot;') + '">' + s.slice(0, 120) + '…</span>'; }
-          return '<td>' + s + '</td>';
+          else if (col === 'side') {
+            const sl = String(v).toLowerCase();
+            extra = ' class="' + (sl === 'buy' ? 'side-buy' : sl === 'sell' ? 'side-sell' : '') + '"';
+            s = esc(String(v));
+          } else {
+            s = esc(String(v));
+            if (s.length > 120) s = '<span title="' + s.replace(/"/g, '&quot;') + '">' + s.slice(0, 120) + '…</span>';
+          }
+          return '<td' + extra + '>' + s + '</td>';
         }).join('') + '</tr>').join('') + '</tbody></table>';
+    }
     const pager = document.getElementById('dbtPager');
     pager.style.display = 'flex';
+    const from = dbtTotal ? (dbtOffset + 1) : 0;
     document.getElementById('dbtPageInfo').textContent =
-      (dbtOffset + 1) + '–' + Math.min(dbtOffset + limit, dbtTotal) + ' of ' + dbtTotal.toLocaleString();
+      from + '–' + Math.min(dbtOffset + limit, dbtTotal) + ' of ' + dbtTotal.toLocaleString();
     document.getElementById('dbtPrev').disabled = dbtOffset <= 0;
+    document.getElementById('dbtFirst').disabled = dbtOffset <= 0;
     document.getElementById('dbtNext').disabled = dbtOffset + limit >= dbtTotal;
+    document.getElementById('dbtLast').disabled = dbtOffset + limit >= dbtTotal;
+    const stats = document.getElementById('dbtStats');
+    if (d.stats && dbtTotal) {
+      stats.style.display = 'grid';
+      const n = (x) => (x == null ? '—' : Number(x).toLocaleString(undefined, { maximumFractionDigits: 4 }));
+      stats.innerHTML =
+        '<div class="ins-cell"><div class="k">Filtered rows</div><div class="v">' + dbtTotal.toLocaleString() + '</div></div>' +
+        '<div class="ins-cell"><div class="k">Sum rPnL (stored)</div><div class="v">' + n(d.stats.rpnl) + '</div></div>' +
+        '<div class="ins-cell"><div class="k">Sum fee (stored)</div><div class="v">' + n(d.stats.fee) + '</div></div>' +
+        '<div class="ins-cell"><div class="k">Sum cost (stored)</div><div class="v">' + n(d.stats.cost) + '</div></div>';
+    } else {
+      stats.style.display = 'none';
+      stats.innerHTML = '';
+    }
+    document.getElementById('dbtStatus').textContent =
+      dbtTotal.toLocaleString() + ' rows' + (dbtSort ? ' · ' + dbtSort + ' ' + dbtDir : '');
+    if (dbtPeekIdx >= 0 && dbtPeekIdx < dbtPageRows.length) dbtShowPeek(dbtPeekIdx);
+    else document.getElementById('dbtPeek').style.display = 'none';
   } catch(e) {
     grid.innerHTML = '<div style="padding:16px;color:var(--red)">Error: ' + esc(e.message) + '</div>';
+    document.getElementById('dbtStatus').innerHTML = '<span style="color:var(--red)">Error: ' + esc(e.message) + '</span>';
+  }
+}
+
+async function exportDbTable() {
+  if (!dbtName) return;
+  if (dbtTotal > 100000) toast('Exporting first 100,000 of ' + dbtTotal.toLocaleString() + ' rows — narrow filters for a full dump', '');
+  document.getElementById('dbtStatus').textContent = 'Exporting…';
+  try {
+    await downloadNamedCsv(
+      '/api/db/table/' + encodeURIComponent(dbtName) + '/export?' + qsObj(dbtFilterParams()),
+      dbtName + '.csv'
+    );
+    document.getElementById('dbtStatus').textContent = 'Exported ' + dbtName;
+  } catch(e) {
+    toast('Export failed: ' + e.message, 'err');
+    document.getElementById('dbtStatus').innerHTML = '<span style="color:var(--red)">Export: ' + esc(e.message) + '</span>';
+  }
+}
+
+async function copyDbTablePage() {
+  if (!dbtPageRows.length) return;
+  const cols = dbtColumns;
+  const lines = [cols.join('\t')].concat(dbtPageRows.map(row => cols.map(c => {
+    const v = row[c];
+    if (v == null) return '';
+    if ((c === 'created_at' || c === 'updated_at') && typeof v === 'number') return fmtISTs(v);
+    return String(v).replace(/\t/g, ' ').replace(/\n/g, ' ');
+  }).join('\t')));
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'));
+    toast('Copied ' + dbtPageRows.length + ' rows', 'ok');
+  } catch {
+    toast('Clipboard blocked', 'err');
   }
 }
 
@@ -3505,23 +3947,28 @@ function lgRenderLine(l) {
     '<span style="color:#6b768e">' + esc(l.name || '') + '</span> ' + esc(l.message) + '</div>';
 }
 
-async function loadLogsX(reset) {
+function lgFilterParams(extra) {
   const service = document.getElementById('lgService').value;
   const level   = document.getElementById('lgLevel').value;
   const search  = document.getElementById('lgSearch').value.trim();
+  const since   = document.getElementById('lgFrom').value;
+  const until   = document.getElementById('lgTo').value;
+  return { service, level, search, since, until, ...(extra || {}) };
+}
+
+async function loadLogsX(reset) {
   const initLim = parseInt(document.getElementById('lgLimit').value) || 1000;
   const box     = document.getElementById('lgBox');
-  const qs = (p) => Object.entries(p).filter(([, v]) => v).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
   try {
     let lines;
     if (reset || !lgLastId) {
-      const r = await fetch('/api/logs?' + qs({ limit: initLim, service, level, search }));
+      const r = await fetch('/api/logs?' + qsObj(lgFilterParams({ limit: initLim })));
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
       lines = (await r.json()).reverse(); // oldest first for display
       box.innerHTML = '';
       lgFirstId = lines.length ? lines[0].id : 0;
     } else {
-      const r = await fetch('/api/logs?' + qs({ limit: 500, service, level, search, after_id: lgLastId }));
+      const r = await fetch('/api/logs?' + qsObj(lgFilterParams({ limit: 500, after_id: lgLastId })));
       if (!r.ok) return;
       lines = await r.json(); // already ascending in tail mode
       if (!lines.length) return;
@@ -3540,14 +3987,10 @@ async function loadLogsX(reset) {
 
 async function loadOlderLogs() {
   if (!lgFirstId) return;
-  const service = document.getElementById('lgService').value;
-  const level   = document.getElementById('lgLevel').value;
-  const search  = document.getElementById('lgSearch').value.trim();
   const chunk   = parseInt(document.getElementById('lgLimit').value) || 1000;
   const box     = document.getElementById('lgBox');
-  const qs = (p) => Object.entries(p).filter(([, v]) => v).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
   try {
-    const r = await fetch('/api/logs?' + qs({ limit: chunk, service, level, search, before_id: lgFirstId }));
+    const r = await fetch('/api/logs?' + qsObj(lgFilterParams({ limit: chunk, before_id: lgFirstId })));
     if (!r.ok) return;
     const lines = (await r.json()).reverse(); // oldest first
     if (!lines.length) { document.getElementById('lgStatus').textContent = 'no older logs'; return; }
@@ -3557,6 +4000,16 @@ async function loadOlderLogs() {
     box.scrollTop = box.scrollHeight - prevH; // keep viewport anchored
     document.getElementById('lgStatus').textContent = box.children.length + ' shown · from id ' + lgFirstId;
   } catch(e) { /* ignore */ }
+}
+
+async function exportLogsCsv() {
+  document.getElementById('lgStatus').textContent = 'Exporting…';
+  try {
+    await downloadNamedCsv('/api/logs/export?' + qsObj(lgFilterParams({ limit: 50000 })), 'logs.csv');
+    document.getElementById('lgStatus').textContent = 'Exported logs';
+  } catch(e) {
+    document.getElementById('lgStatus').innerHTML = '<span style="color:var(--red)">Export: ' + esc(e.message) + '</span>';
+  }
 }
 
 function setupLgAuto() {

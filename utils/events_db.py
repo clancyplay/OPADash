@@ -1208,6 +1208,8 @@ class EventsDB:
         search: Optional[str] = None,
         after_id: Optional[int] = None,
         before_id: Optional[int] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
     ) -> list[dict]:
         """Recent log lines, newest first (or oldest-first after `after_id` for tailing).
 
@@ -1233,6 +1235,12 @@ class EventsDB:
             if before_id:
                 params.append(before_id)
                 wheres.append(f"id < ${len(params)}")
+            if since:
+                params.append(since)
+                wheres.append(f"created_at >= ${len(params)}")
+            if until:
+                params.append(until)
+                wheres.append(f"created_at < ${len(params)}")
             params.append(limit)
             order = "ASC" if after_id else "DESC"
             async with self.pool.acquire() as conn:
@@ -1610,6 +1618,10 @@ class EventsDB:
                 # hold them aside so they can be folded onto the real pill.
                 if not item["account"] and not item["venue_fills"].get("delta"):
                     venue_only[item["contract"]] = item
+                elif not item["account"]:
+                    # Quote fills with a blank account are leftover REST /
+                    # insufficient-balance rows — they are not a real subaccount.
+                    continue
                 else:
                     out.append(item)
             used = set()
@@ -1872,7 +1884,8 @@ class EventsDB:
                     SELECT COALESCE(account::text, '') AS account,
                            COALESCE(MAX(details->>'account_name'), '') AS account_name,
                            ARRAY_AGG(DISTINCT strategy::text) AS strategies,
-                           ARRAY_AGG(DISTINCT LOWER(exchange)) AS exchanges
+                           ARRAY_AGG(DISTINCT LOWER(exchange)) AS exchanges,
+                           ARRAY_AGG(DISTINCT contract) AS contracts
                     FROM fills
                     WHERE COALESCE(account::text, '') <> ''
                 """
@@ -1891,6 +1904,7 @@ class EventsDB:
                         "account": aid,
                         "account_name": "",
                         "strategies": [],
+                        "contracts": [],
                         "venues": {},
                         "venue_times": {},
                         "time": None,
@@ -1912,6 +1926,10 @@ class EventsDB:
                 for e in (r["exchanges"] or []):
                     if e:
                         row["venues"].setdefault(e, None)
+                for c in (r["contracts"] or []):
+                    cc = canon_contract(c) if c else ""
+                    if cc and cc not in row["contracts"]:
+                        row["contracts"].append(cc)
 
             as_of = None
             snap_n = 0
@@ -1957,6 +1975,7 @@ class EventsDB:
                 if not acct["account_name"]:
                     acct["account_name"] = acct["account"]
                 acct["strategies"] = sorted(acct["strategies"])
+                acct["contracts"] = sorted(acct.get("contracts") or [])
                 acct.pop("venue_times", None)
                 for k, v in known.items():
                     exchanges[k] = exchanges.get(k, 0.0) + v

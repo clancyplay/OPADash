@@ -5,8 +5,11 @@
 """
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import os
+import re
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -482,6 +485,9 @@ async def rpnl_symbols(
             entry["counts"][venue] = entry["counts"].get(venue, 0) + int(r["n"] or 0)
         out = []
         for entry in merged.values():
+            counts = entry["counts"]
+            if not entry["account"] and counts.get("delta"):
+                continue
             meta = venue_meta(entry["contract"], entry.pop("counts"))
             name = entry["account"]
             out.append({
@@ -1594,11 +1600,283 @@ def _jsonable(v):
     return v
 
 
+_IST = timezone(timedelta(hours=5, minutes=30))
+_IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
+_TEXT_TYPES = {
+    "text", "character varying", "character", "citext", "name",
+    "json", "jsonb", "uuid",
+}
+_EXPORT_MAX = 100_000
+
+
+def _qi(name: str) -> str:
+    if not _IDENT_RE.fullmatch(name):
+        raise HTTPException(status_code=400, detail=f"invalid identifier '{name}'")
+    return f'"{name}"'
+
+
+def _parse_bound(value: str | None, *, end: bool = False) -> datetime | None:
+    """Unix seconds, ISO datetime, or YYYY-MM-DD as an IST calendar day.
+
+    `end=True` on a date-only value is exclusive (next IST midnight), so
+    `until=2026-09-11` includes that whole day.
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    if s.isdigit():
+        ts = int(s)
+        if ts > 10_000_000_000:
+            ts //= 1000
+        return datetime.fromtimestamp(ts, tz=timezone.utc)
+    try:
+        if len(s) == 10 and s[4] == "-" and s[7] == "-":
+            ist = datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=_IST)
+            if end:
+                ist = ist + timedelta(days=1)
+            return ist.astimezone(timezone.utc)
+        iso = s.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_IST)
+        return dt.astimezone(timezone.utc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"invalid timestamp '{value}'")
+
+
 async def _public_tables(conn) -> list[str]:
     rows = await conn.fetch(
         "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
     )
     return [r["tablename"] for r in rows]
+
+
+async def _table_meta(conn, name: str) -> tuple[list[str], dict[str, str]]:
+    cols = await conn.fetch(
+        "SELECT column_name, data_type FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position",
+        name,
+    )
+    names = [c["column_name"] for c in cols]
+    types = {c["column_name"]: c["data_type"] for c in cols}
+    return names, types
+
+
+def _build_table_filters(
+    col_names: list[str],
+    col_types: dict[str, str],
+    *,
+    q: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    contract: str | None = None,
+    account: str | None = None,
+    exchange: str | None = None,
+    strategy: str | None = None,
+    side: str | None = None,
+    service: str | None = None,
+    level: str | None = None,
+    pair: str | None = None,
+    status: str | None = None,
+    order_id: str | None = None,
+) -> tuple[str, list]:
+    """Return SQL `WHERE ...` (or empty) plus bound parameters."""
+    wheres: list[str] = []
+    params: list = []
+    cols = set(col_names)
+
+    time_col = "created_at" if "created_at" in cols else ("updated_at" if "updated_at" in cols else None)
+    start = _parse_bound(since, end=False)
+    stop = _parse_bound(until, end=True)
+    if time_col and start:
+        params.append(start)
+        wheres.append(f"{_qi(time_col)} >= ${len(params)}")
+    if time_col and stop:
+        params.append(stop)
+        wheres.append(f"{_qi(time_col)} < ${len(params)}")
+
+    raw = {
+        "contract": contract, "account": account, "exchange": exchange,
+        "strategy": strategy, "side": side, "service": service, "level": level,
+        "pair": pair, "status": status, "order_id": order_id,
+    }
+    for key, val in raw.items():
+        if val is None or key not in cols:
+            continue
+        text = str(val).strip()
+        if text == "":
+            continue
+        ident = _qi(key)
+        if key == "contract":
+            aliases = contract_aliases(text)
+            params.append(aliases)
+            wheres.append(f"UPPER({ident}::text) = ANY(${len(params)}::text[])")
+        elif key == "account":
+            if text in ("__blank__", "(blank)"):
+                wheres.append(f"COALESCE(TRIM({ident}::text), '') = ''")
+            else:
+                params.append(text)
+                wheres.append(f"COALESCE({ident}::text, '') = ${len(params)}")
+        elif key in ("exchange", "side", "level", "service", "status"):
+            params.append(text.lower() if key != "level" else text.upper())
+            if key == "level":
+                wheres.append(f"UPPER({ident}::text) = ${len(params)}")
+            else:
+                wheres.append(f"LOWER({ident}::text) = ${len(params)}")
+        elif key == "order_id":
+            params.append(f"%{text}%")
+            wheres.append(f"{ident}::text ILIKE ${len(params)}")
+        else:
+            params.append(text)
+            wheres.append(f"{ident}::text = ${len(params)}")
+
+    needle = (q or "").strip()
+    if needle:
+        search_cols = [
+            c for c in col_names
+            if col_types.get(c) in _TEXT_TYPES or col_types.get(c) == "USER-DEFINED"
+        ][:8]
+        if search_cols:
+            params.append(f"%{needle}%")
+            idx = len(params)
+            parts = [f"{_qi(c)}::text ILIKE ${idx}" for c in search_cols]
+            wheres.append("(" + " OR ".join(parts) + ")")
+
+    if not wheres:
+        return "", params
+    return "WHERE " + " AND ".join(wheres), params
+
+
+def _order_sql(col_names: list[str], sort: str | None, direction: str | None) -> tuple[str, str, str]:
+    cols = set(col_names)
+    default = "id" if "id" in cols else ("created_at" if "created_at" in cols else (col_names[0] if col_names else None))
+    col = sort if sort in cols else default
+    if not col:
+        return "", "id", "desc"
+    d = "ASC" if str(direction or "desc").lower() == "asc" else "DESC"
+    return f"ORDER BY {_qi(col)} {d} NULLS LAST", col, d.lower()
+
+
+def _csvable(v) -> str:
+    import decimal
+    import json as _json
+    if v is None:
+        return ""
+    if isinstance(v, datetime):
+        return v.astimezone(_IST).strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(v, decimal.Decimal):
+        return format(v, "f")
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, (dict, list)):
+        s = _json.dumps(v, default=str)
+    elif isinstance(v, bytes):
+        s = v.decode("utf-8", "replace")
+    else:
+        s = str(v)
+    if s[:1] in ("=", "+", "@"):
+        return "'" + s
+    return s
+
+
+async def _prepare_table(
+    name: str,
+    *,
+    sort: str | None = None,
+    direction: str | None = None,
+    q: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    contract: str | None = None,
+    account: str | None = None,
+    exchange: str | None = None,
+    strategy: str | None = None,
+    side: str | None = None,
+    service: str | None = None,
+    level: str | None = None,
+    pair: str | None = None,
+    status: str | None = None,
+    order_id: str | None = None,
+):
+    _require_db()
+    if not _IDENT_RE.fullmatch(name):
+        raise HTTPException(status_code=404, detail=f"unknown table '{name}'")
+    async with _db.pool.acquire() as conn:
+        names = await _public_tables(conn)
+        if name not in names:
+            raise HTTPException(status_code=404, detail=f"unknown table '{name}'")
+        col_names, col_types = await _table_meta(conn, name)
+    where_sql, params = _build_table_filters(
+        col_names, col_types,
+        q=q, since=since, until=until, contract=contract, account=account,
+        exchange=exchange, strategy=strategy, side=side, service=service,
+        level=level, pair=pair, status=status, order_id=order_id,
+    )
+    order_sql, sort_col, sort_dir = _order_sql(col_names, sort, direction)
+    return col_names, col_types, where_sql, params, order_sql, sort_col, sort_dir
+
+
+async def _csv_streaming_response(
+    name: str,
+    *,
+    sort: str | None = None,
+    direction: str = "desc",
+    q: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    contract: str | None = None,
+    account: str | None = None,
+    exchange: str | None = None,
+    strategy: str | None = None,
+    side: str | None = None,
+    service: str | None = None,
+    level: str | None = None,
+    pair: str | None = None,
+    status: str | None = None,
+    order_id: str | None = None,
+    limit: int = _EXPORT_MAX,
+) -> StreamingResponse:
+    col_names, _types, where_sql, params, order_sql, _sc, _sd = await _prepare_table(
+        name, sort=sort, direction=direction, q=q, since=since, until=until,
+        contract=contract, account=account, exchange=exchange, strategy=strategy,
+        side=side, service=service, level=level, pair=pair, status=status, order_id=order_id,
+    )
+    params = list(params)
+    params.append(limit)
+    sql = f"SELECT * FROM {_qi(name)} {where_sql} {order_sql} LIMIT ${len(params)}"
+    stamp = datetime.now(_IST).strftime("%Y%m%d_%H%M")
+    filename = f"{name}_{stamp}.csv"
+
+    async def generate():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(col_names)
+        yield buf.getvalue()
+        buf.seek(0)
+        buf.truncate(0)
+        async with _db.pool.acquire() as conn:
+            async with conn.transaction():
+                n = 0
+                async for rec in conn.cursor(sql, *params):
+                    writer.writerow([_csvable(rec[c]) for c in col_names])
+                    n += 1
+                    if n % 250 == 0:
+                        yield buf.getvalue()
+                        buf.seek(0)
+                        buf.truncate(0)
+                leftover = buf.getvalue()
+                if leftover:
+                    yield leftover
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/db/tables")
@@ -1608,10 +1886,76 @@ async def db_tables() -> list[dict]:
     async with _db.pool.acquire() as conn:
         names = await _public_tables(conn)
         out = []
-        for name in names:
-            count = await conn.fetchval(f'SELECT COUNT(*) FROM "{name}"')
-            out.append({"name": name, "rows": int(count)})
+        for tname in names:
+            count = await conn.fetchval(f"SELECT COUNT(*) FROM {_qi(tname)}")
+            out.append({"name": tname, "rows": int(count)})
     return out
+
+
+@app.get("/api/db/table/{name}/facets")
+async def db_table_facets(name: str) -> dict:
+    """Distinct values for filter dropdowns (capped)."""
+    _require_db()
+    if not _IDENT_RE.fullmatch(name):
+        raise HTTPException(status_code=404, detail=f"unknown table '{name}'")
+    async with _db.pool.acquire() as conn:
+        names = await _public_tables(conn)
+        if name not in names:
+            raise HTTPException(status_code=404, detail=f"unknown table '{name}'")
+        col_names, _types = await _table_meta(conn, name)
+        cols = set(col_names)
+        out: dict[str, list[str]] = {}
+        for col in ("contract", "exchange", "strategy", "account", "side", "service", "level", "pair", "status"):
+            if col not in cols:
+                continue
+            ident = _qi(col)
+            time_clip = ""
+            if name in ("fills", "orders", "logs", "events", "positions") and "created_at" in cols:
+                time_clip = "AND created_at > NOW() - INTERVAL '365 days'"
+            rows = await conn.fetch(
+                f"SELECT DISTINCT TRIM({ident}::text) AS v FROM {_qi(name)} "
+                f"WHERE {ident} IS NOT NULL AND TRIM({ident}::text) <> '' {time_clip} "
+                f"ORDER BY 1 LIMIT 400"
+            )
+            vals = [r["v"] for r in rows if r["v"]]
+            if col == "account":
+                blank = await conn.fetchval(
+                    f"SELECT EXISTS(SELECT 1 FROM {_qi(name)} "
+                    f"WHERE COALESCE(TRIM({ident}::text), '') = '' {time_clip})"
+                )
+                if blank:
+                    vals = ["(blank)"] + vals
+            out[col] = vals
+    return {"table": name, "facets": out}
+
+
+@app.get("/api/db/table/{name}/export")
+async def db_table_export(
+    name: str,
+    sort: str | None = Query(None),
+    dir: str = Query("desc"),
+    q: str | None = Query(None),
+    since: str | None = Query(None, description="unix, ISO, or YYYY-MM-DD (IST)"),
+    until: str | None = Query(None, description="unix, ISO, or YYYY-MM-DD (IST, inclusive)"),
+    contract: str | None = Query(None),
+    account: str | None = Query(None),
+    exchange: str | None = Query(None),
+    strategy: str | None = Query(None, description="omit for all strategies"),
+    side: str | None = Query(None),
+    service: str | None = Query(None),
+    level: str | None = Query(None),
+    pair: str | None = Query(None),
+    status: str | None = Query(None),
+    order_id: str | None = Query(None),
+    limit: int = Query(_EXPORT_MAX, ge=1, le=_EXPORT_MAX),
+):
+    """CSV of the filtered table. Times are IST. Capped at 100k rows."""
+    return await _csv_streaming_response(
+        name, sort=sort, direction=dir, q=q, since=since, until=until,
+        contract=contract, account=account, exchange=exchange, strategy=strategy,
+        side=side, service=service, level=level, pair=pair, status=status,
+        order_id=order_id, limit=limit,
+    )
 
 
 @app.get("/api/db/table/{name}")
@@ -1619,27 +1963,63 @@ async def db_table(
     name: str,
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    sort: str | None = Query(None),
+    dir: str = Query("desc"),
+    q: str | None = Query(None, description="ILIKE across text columns"),
+    since: str | None = Query(None, description="unix, ISO, or YYYY-MM-DD (IST)"),
+    until: str | None = Query(None, description="unix, ISO, or YYYY-MM-DD (IST, inclusive)"),
+    contract: str | None = Query(None),
+    account: str | None = Query(None),
+    exchange: str | None = Query(None),
+    strategy: str | None = Query(None, description="omit for all strategies"),
+    side: str | None = Query(None),
+    service: str | None = Query(None),
+    level: str | None = Query(None),
+    pair: str | None = Query(None),
+    status: str | None = Query(None),
+    order_id: str | None = Query(None),
 ) -> dict:
-    """Generic paginated read-only view of one table, newest rows first."""
-    _require_db()
+    """Paginated read-only table view with sort + filters. Newest first by default."""
+    col_names, col_types, where_sql, params, order_sql, sort_col, sort_dir = await _prepare_table(
+        name, sort=sort, direction=dir, q=q, since=since, until=until,
+        contract=contract, account=account, exchange=exchange, strategy=strategy,
+        side=side, service=service, level=level, pair=pair, status=status, order_id=order_id,
+    )
+    tbl = _qi(name)
+    count_sql = f"SELECT COUNT(*) FROM {tbl} {where_sql}"
+    data_params = list(params)
+    data_params.extend([limit, offset])
+    data_sql = (
+        f"SELECT * FROM {tbl} {where_sql} {order_sql} "
+        f"LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}"
+    )
+    stats = None
+    cols = set(col_names)
     async with _db.pool.acquire() as conn:
-        names = await _public_tables(conn)
-        if name not in names:
-            raise HTTPException(status_code=404, detail=f"unknown table '{name}'")
-        cols = await conn.fetch(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position",
-            name,
-        )
-        col_names = [c["column_name"] for c in cols]
-        order = 'ORDER BY "id" DESC' if "id" in col_names else ""
-        total = await conn.fetchval(f'SELECT COUNT(*) FROM "{name}"')
-        rows = await conn.fetch(f'SELECT * FROM "{name}" {order} LIMIT $1 OFFSET $2', limit, offset)
+        total = int(await conn.fetchval(count_sql, *params) or 0)
+        rows = await conn.fetch(data_sql, *data_params)
+        if where_sql and {"rpnl", "fee", "cost"} <= cols:
+            agg = await conn.fetchrow(
+                f"SELECT COALESCE(SUM(rpnl), 0)::float AS rpnl, "
+                f"COALESCE(SUM(fee), 0)::float AS fee, "
+                f"COALESCE(SUM(cost), 0)::float AS cost "
+                f"FROM {tbl} {where_sql}",
+                *params,
+            )
+            stats = {
+                "rpnl": float(agg["rpnl"] or 0),
+                "fee": float(agg["fee"] or 0),
+                "cost": float(agg["cost"] or 0),
+            }
     return {
         "table":   name,
         "columns": col_names,
-        "total":   int(total),
+        "types":   col_types,
+        "total":   total,
         "offset":  offset,
+        "sort":    sort_col,
+        "dir":     sort_dir,
+        "stats":   stats,
         "rows":    [[_jsonable(r[c]) for c in col_names] for r in rows],
     }
 
@@ -1782,12 +2162,32 @@ async def logs_list(
     search: str | None = Query(None),
     after_id: int | None = Query(None, description="tail mode: only rows with id > after_id"),
     before_id: int | None = Query(None, description="load-older mode: only rows with id < before_id"),
+    since: str | None = Query(None, description="unix, ISO, or YYYY-MM-DD (IST)"),
+    until: str | None = Query(None, description="unix, ISO, or YYYY-MM-DD (IST, inclusive)"),
 ) -> list[dict]:
     """Live service logs streamed to the DB by bot and webapp."""
     _require_db()
     return await _db.get_logs(
         limit=limit, service=service, level=level, search=search,
         after_id=after_id, before_id=before_id,
+        since=_parse_bound(since, end=False),
+        until=_parse_bound(until, end=True),
+    )
+
+
+@app.get("/api/logs/export")
+async def logs_export(
+    service: str | None = Query(None),
+    level: str | None = Query(None),
+    search: str | None = Query(None),
+    since: str | None = Query(None),
+    until: str | None = Query(None),
+    limit: int = Query(50_000, ge=1, le=_EXPORT_MAX),
+):
+    """CSV export of filtered service logs. Times are IST."""
+    return await _csv_streaming_response(
+        "logs", sort="id", direction="desc", q=search,
+        since=since, until=until, service=service, level=level, limit=limit,
     )
 
 
