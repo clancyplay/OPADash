@@ -174,7 +174,7 @@
   .rpnl-pill {
     flex: 0 0 auto; cursor: pointer; border: 1px solid var(--border2);
     background: var(--surface); border-radius: 8px; padding: 7px 10px;
-    min-width: 128px; color: inherit; font-family: inherit; text-align: left;
+    min-width: 168px; max-width: 250px; color: inherit; font-family: inherit; text-align: left;
   }
   .rpnl-pill:hover { border-color: var(--accent); }
   .rpnl-pill.live { border-color: rgba(38,166,154,.45); }
@@ -197,6 +197,15 @@
   .rpnl-venue.coinbase { background: rgba(0,82,255,.18); color: #5b8cff; }
   .rpnl-pill .p-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
   .rpnl-pill .p-meta { font-size: 10px; color: var(--muted); margin-top: 1px; }
+  .rpnl-pill .p-cfg {
+    display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px;
+  }
+  .rpnl-pill .p-cfg span {
+    font-size: 9px; color: #9aa3b8; line-height: 1.3;
+    background: rgba(255,255,255,.045); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+  }
+  .rpnl-pill .p-cfg.none { color: var(--muted); font-size: 9px; margin-top: 5px; }
   #posChart      { width: 100%; height: 68vh; position: relative; }
 
   .chart-legend {
@@ -1546,10 +1555,51 @@ function inrFmt(n) {
   return sign + '₹' + Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
-function inrFmtDec(n, d) {
-  const v = Number(n) || 0;
-  const sign = v < 0 ? '−' : '+';
-  return sign + '₹' + Math.abs(v).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
+function fmtPct(frac) {
+  const p = Number(frac) * 100;
+  if (!isFinite(p)) return '';
+  if (Math.abs(p) < 0.01) return p.toFixed(3).replace(/0+$/, '').replace(/\.$/, '') + '%';
+  if (Math.abs(p) < 1) return p.toFixed(2).replace(/0+$/, '').replace(/\.$/, '') + '%';
+  return p.toFixed(1).replace(/\.0$/, '') + '%';
+}
+
+function rpnlCfgBits(s) {
+  if (!s) return [];
+  const bits = [];
+  if (s.quantity != null) bits.push(s.quantity + 'L');
+  if (s.max_position != null) bits.push('max ' + s.max_position + 'L');
+  bits.push(Number(s.hedge_ratio) > 0 ? ('hedge ' + Math.round(Number(s.hedge_ratio) * 100) + '%') : 'unhedged');
+  if (s.wide_offset_enabled) bits.push('wide ' + fmtPct(s.wide_offset_pct));
+  else bits.push('offset ' + (s.quote_offset_ticks ?? 0) + 't');
+  if (s.ladder_enabled) bits.push('ladder ' + (s.ladder_levels || 1) + '×' + (s.ladder_size_mult || 1));
+  if (s.delta_leverage) bits.push('Δ ' + s.delta_leverage + 'x');
+  if (Number(s.hedge_ratio) > 0 && s.hedge_leverage) {
+    bits.push((s.hedge_venue_label || s.hedge_venue || 'hedge') + ' ' + s.hedge_leverage + 'x');
+  }
+  if (s.stop_loss_enabled && Number(s.stop_loss_pct) > 0 && !s.wide_offset_enabled) bits.push('SL ' + fmtPct(s.stop_loss_pct));
+  else bits.push('SL off');
+  if (s.spread_gate_enabled && Number(s.min_spread_pct) > 0) bits.push('spread ' + fmtPct(s.min_spread_pct));
+  else if (s.spread_gate_enabled === false) bits.push('spread off');
+  if (Number(s.min_book_size) > 0) bits.push('book≥' + s.min_book_size);
+  if (Number(s.contract_value) > 0) bits.push('cv ' + s.contract_value);
+  if (Number(s.tick_size) > 0) bits.push('tick ' + s.tick_size);
+  return bits;
+}
+
+function rpnlCfgTitle(s) {
+  if (!s) return 'No SYMBOLS_JSON / .env config for this contract';
+  const skip = new Set(['coindcx_sl_tick']);
+  return Object.entries(s)
+    .filter(([k, v]) => !skip.has(k) && v !== '' && v != null && v !== false)
+    .map(([k, v]) => k + ': ' + v)
+    .join('\n');
+}
+
+function rpnlCfgHtml(s) {
+  const bits = rpnlCfgBits(s);
+  if (!bits.length) return '<div class="p-cfg none">no .env config</div>';
+  return '<div class="p-cfg" title="' + escHtml(rpnlCfgTitle(s)).replace(/\n/g, '&#10;') + '">' +
+    bits.map(b => '<span>' + escHtml(b) + '</span>').join('') + '</div>';
 }
 
 function renderRpnlSummary(rows) {
@@ -1596,6 +1646,7 @@ function renderRpnlSummary(rows) {
         : '') +
       '<div class="p-meta">' + (r.live ? 'live · ' : '') + escHtml(qlab) + ' ' + (r.fills || 0) + ' fills' +
         (hedged ? ' · ' + escHtml(hlab) + ' ' + r.hedge_fills : ' · no hedge') + '</div>' +
+      rpnlCfgHtml(r.settings) +
       '</button>';
   }).join('');
   // The pills carry authoritative keys — make sure each one is selectable even

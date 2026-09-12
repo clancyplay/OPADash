@@ -298,6 +298,28 @@ def _venue_side(exchange: str | None) -> str:
     return "both"
 
 
+def _hedge_venue_label(raw: str | None) -> str:
+    v = (raw or "").strip()
+    codes = {
+        "B": "Binance", "C": "CoinDCX", "K": "KuCoin", "A": "Aster",
+        "Y": "Bybit", "G": "Coinbase", "D": "Delta",
+        "binance": "Binance", "coindcx": "CoinDCX", "kucoin": "KuCoin",
+        "aster": "Aster", "bybit": "Bybit", "coinbase": "Coinbase", "delta": "Delta",
+    }
+    return codes.get(v, codes.get(v.lower(), v))
+
+
+def _cfg_public(cfg: _SymbolConfig | None) -> dict | None:
+    """SymbolConfig fields the user set in SYMBOLS_JSON / ACTIVE_SYMBOLS — no secrets."""
+    if cfg is None:
+        return None
+    from dataclasses import asdict
+    d = asdict(cfg)
+    d["quote_venue"] = _norm_quote_venue(d.get("quote_venue"))
+    d["hedge_venue_label"] = _hedge_venue_label(d.get("hedge_venue"))
+    return d
+
+
 def _annotate_rpnl_row(row: dict) -> dict:
     """Split a summary row into quote-venue vs hedge-venue rPnL."""
     counts = dict(row.get("venue_fills") or {})
@@ -313,6 +335,7 @@ def _annotate_rpnl_row(row: dict) -> dict:
     acct = row.get("account") or ""
     row["label"] = meta["label"] + (f" · {acct}" if acct else "")
     row["live"] = bool(row.get("live"))
+    row["settings"] = _cfg_public(_cfg_for_contract(row.get("contract") or ""))
     return row
 
 # Delta candle resolution -> seconds per candle, used to size the start/end window
