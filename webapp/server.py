@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import time
+import zipfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -19,7 +20,7 @@ from urllib.parse import quote
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -372,9 +373,10 @@ def _annotate_rpnl_row(
     strategy: str = "",
 ) -> dict:
     """Split a summary row into quote-venue vs hedge-venue rPnL."""
+    counts_all = dict(row.get("venue_fills_all") or row.get("venue_fills") or {})
     counts = dict(row.get("venue_fills") or {})
     rpnls = dict(row.get("venue_rpnl") or {})
-    meta = venue_meta(row.get("contract") or "", counts)
+    meta = venue_meta(row.get("contract") or "", counts_all)
     qv = meta["quote_venue"]
     row = dict(row)
     row.update(meta)
@@ -640,11 +642,13 @@ async def rpnl_chart(
 @app.get("/api/rpnl/summary")
 async def rpnl_summary(
     strategy: str = Query("opa3"),
+    hours: int | None = Query(None, ge=1, le=2160, description="lookback window; omit for all-time"),
 ) -> list[dict]:
-    """Per-contract realized PnL from fills (for the rPnL page table)."""
+    """Per-contract realized PnL from fills (for the rPnL page pills)."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
-    rows = await _db.get_contract_rpnl_summary(strategy=strategy)
+    since = datetime.now(timezone.utc) - timedelta(hours=hours) if hours else None
+    rows = await _db.get_contract_rpnl_summary(strategy=strategy, since=since)
     setups = await _db.get_bot_setups(strategy)
     return [_annotate_rpnl_row(r, setups, strategy) for r in rows]
 
@@ -1919,6 +1923,57 @@ async def _prepare_table(
     return _ordered_cols(name, col_names), col_types, where_sql, params, order_sql, sort_col, sort_dir
 
 
+def _export_filename(name: str, since: str | None, until: str | None, contract: str | None, ext: str = "csv") -> str:
+    stamp = datetime.now(_IST).strftime("%Y%m%d_%H%M")
+    bits = [name]
+    if since:
+        bits.append("from" + re.sub(r"[^\d]", "", str(since))[:12])
+    if until:
+        bits.append("to" + re.sub(r"[^\d]", "", str(until))[:12])
+    if contract:
+        bits.append(re.sub(r"[^\w.\-]+", "", contract)[:24])
+    bits.append(stamp)
+    return "_".join(b for b in bits if b) + "." + ext
+
+
+async def _table_csv_text(
+    name: str,
+    *,
+    sort: str | None = "created_at",
+    direction: str = "desc",
+    q: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    contract: str | None = None,
+    account: str | None = None,
+    exchange: str | None = None,
+    strategy: str | None = None,
+    side: str | None = None,
+    service: str | None = None,
+    level: str | None = None,
+    pair: str | None = None,
+    status: str | None = None,
+    order_id: str | None = None,
+    limit: int = _EXPORT_MAX,
+) -> tuple[str, str]:
+    col_names, _types, where_sql, params, order_sql, _sc, _sd = await _prepare_table(
+        name, sort=sort, direction=direction, q=q, since=since, until=until,
+        contract=contract, account=account, exchange=exchange, strategy=strategy,
+        side=side, service=service, level=level, pair=pair, status=status, order_id=order_id,
+    )
+    params = list(params)
+    params.append(limit)
+    sql = f"SELECT * FROM {_qi(name)} {where_sql} {order_sql} LIMIT ${len(params)}"
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(col_names)
+    async with _db.pool.acquire() as conn:
+        rows = await conn.fetch(sql, *params)
+    for rec in rows:
+        writer.writerow([_csvable(rec[c]) for c in col_names])
+    return _export_filename(name, since, until, contract), buf.getvalue()
+
+
 async def _csv_streaming_response(
     name: str,
     *,
@@ -1947,16 +2002,7 @@ async def _csv_streaming_response(
     params = list(params)
     params.append(limit)
     sql = f"SELECT * FROM {_qi(name)} {where_sql} {order_sql} LIMIT ${len(params)}"
-    stamp = datetime.now(_IST).strftime("%Y%m%d_%H%M")
-    bits = [name]
-    if since:
-        bits.append("from" + re.sub(r"[^\d]", "", str(since))[:12])
-    if until:
-        bits.append("to" + re.sub(r"[^\d]", "", str(until))[:12])
-    if contract:
-        bits.append(re.sub(r"[^\w.\-]+", "", contract)[:24])
-    bits.append(stamp)
-    filename = "_".join(b for b in bits if b) + ".csv"
+    filename = _export_filename(name, since, until, contract)
 
     async def generate():
         buf = io.StringIO()
@@ -2062,6 +2108,67 @@ async def db_table_export(
         contract=contract, account=account, exchange=exchange, strategy=strategy,
         side=side, service=service, level=level, pair=pair, status=status,
         order_id=order_id, limit=limit,
+    )
+
+
+_RPNL_PACK_KINDS = (
+    "fills", "logs", "orders", "events", "positions", "account_balances", "reports",
+)
+
+
+@app.get("/api/rpnl/export-pack")
+async def rpnl_export_pack(
+    since: str = Query(..., description="unix or IST ISO start"),
+    until: str = Query(..., description="unix or IST ISO end"),
+    strategy: str = Query("opa3"),
+    contract: str | None = Query(None),
+    account: str | None = Query(None),
+    exchange: str | None = Query(None),
+    kinds: str = Query("fills,logs,orders,events,positions,account_balances"),
+):
+    """ZIP of CSVs for the rPnL chart selection (same filters as the table browser)."""
+    _require_db()
+    wanted = [k.strip().lower() for k in (kinds or "").split(",") if k.strip()]
+    wanted = [k for k in wanted if k in _RPNL_PACK_KINDS]
+    if not wanted:
+        raise HTTPException(status_code=400, detail="no known export kinds")
+    buf = io.BytesIO()
+    note = [
+        f"strategy={strategy}",
+        f"contract={contract or '-'}",
+        f"account={account or '-'}",
+        f"exchange={exchange or '-'}",
+        f"since={since}",
+        f"until={until}",
+        f"kinds={','.join(wanted)}",
+    ]
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("README.txt", "\n".join(note) + "\n")
+        for kind in wanted:
+            filt = {
+                "since": since,
+                "until": until,
+                "strategy": strategy,
+                "account": account or None,
+                "exchange": exchange or None,
+            }
+            if kind in ("fills", "orders", "events", "positions"):
+                filt["contract"] = contract
+            elif kind == "logs":
+                filt = {"since": since, "until": until, "service": "bot"}
+                if contract:
+                    filt["q"] = contract
+            try:
+                fname, text = await _table_csv_text(kind, **filt)
+            except HTTPException as exc:
+                zf.writestr(f"{kind}_ERROR.txt", str(exc.detail))
+                continue
+            zf.writestr(fname, text)
+    pack_name = _export_filename("rpnl_pack", since, until, contract, ext="zip")
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{pack_name}"'},
     )
 
 

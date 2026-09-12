@@ -157,6 +157,35 @@
     font-size: 10px; letter-spacing: .4px; text-transform: uppercase;
     color: var(--muted); pointer-events: none; font-weight: 600;
   }
+  .rpnl-tools {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+    padding: 8px 16px 10px; border-bottom: 1px solid var(--border);
+    background: var(--surface); font-size: 12px;
+  }
+  .rpnl-tools label { color: var(--muted); font-size: 11px; display: flex; align-items: center; gap: 6px; }
+  .rpnl-tools input[type="datetime-local"] {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 6px; font-size: 12px;
+  }
+  .rpnl-tools .range-mode {
+    font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 4px; background: rgba(255,255,255,.05);
+    color: var(--muted); border: 1px solid var(--border);
+  }
+  .rpnl-tools .range-mode.pin { color: #90caf9; border-color: rgba(41,98,255,.45); }
+  .rpnl-tools .range-mode.sel { color: #ffb74d; border-color: rgba(255,183,77,.45); }
+  .rpnl-exports { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; align-items: center; }
+  .rpnl-exports .hint { font-size: 10px; color: var(--muted); margin-right: 4px; }
+  .rpnl-brush {
+    position: absolute; top: 0; bottom: 0; z-index: 5;
+    background: rgba(41,98,255,.16);
+    border-left: 1px solid #2962ff; border-right: 1px solid #2962ff;
+    pointer-events: none;
+  }
+  .rpnl-select-layer {
+    position: absolute; inset: 0; z-index: 7; cursor: col-resize;
+    background: rgba(41,98,255,.04);
+  }
   .rpnl-key {
     display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: center;
     padding: 8px 16px; font-size: 12px; border-bottom: 1px solid var(--border);
@@ -1172,6 +1201,26 @@
       <div class="rpnl-pane-label" id="rpnlPaneLabel">Cumulative rPnL (₹)</div>
       <div id="rpnlChart"></div>
       <div class="chart-legend" id="rpnlLegend"></div>
+      <div id="rpnlBrush" class="rpnl-brush" hidden></div>
+      <div id="rpnlSelectLayer" class="rpnl-select-layer" hidden></div>
+    </div>
+  </div>
+  <div class="rpnl-tools" id="rpnlTools">
+    <label>From <input type="datetime-local" id="rpnlFrom" step="60" title="IST" onchange="rpnlPinFromInputs()" /></label>
+    <label>To <input type="datetime-local" id="rpnlTo" step="60" title="IST" onchange="rpnlPinFromInputs()" /></label>
+    <span class="range-mode" id="rpnlRangeMode">chart view</span>
+    <button class="btn" onclick="rpnlFollowView()" title="Keep the export window locked to whatever is on screen">Follow view</button>
+    <button class="btn" id="rpnlSelectBtn" onclick="toggleRpnlSelect()" title="Drag on the rPnL chart to pick a window">Select on chart</button>
+    <button class="btn" onclick="rpnlJumpChartToRange()" title="Zoom the charts to the From/To times">Jump chart</button>
+    <div class="rpnl-exports">
+      <span class="hint">Export IST window</span>
+      <button class="btn" onclick="exportRpnlKind('fills')">Fills</button>
+      <button class="btn" onclick="exportRpnlKind('logs')">Logs</button>
+      <button class="btn" onclick="exportRpnlKind('orders')">Orders</button>
+      <button class="btn" onclick="exportRpnlKind('events')">Events</button>
+      <button class="btn" onclick="exportRpnlKind('positions')">Positions</button>
+      <button class="btn" onclick="exportRpnlKind('account_balances')">Balances</button>
+      <button class="btn" onclick="exportRpnlKind('all')" title="ZIP of every table above">All ZIP</button>
     </div>
   </div>
 </div>
@@ -1543,6 +1592,10 @@ function setupMpAuto() {
 
 // rPnL Chart
 let rpnlChart, rpnlSeries, rpnlHistSeries, rpnlHedgeSeries, rpnlNetSeries, rpnlTimer;
+let rpnlRangePinned = false;
+let rpnlSelectMode = false;
+let rpnlPinFrom = null;
+let rpnlPinTo = null;
 let ohlcChart, ohlcSeries, ohlcHedgeMarkerSeries, ohlcVolSeries;
 let rpnlView         = 'cumul';
 let rpnlPtsCache     = [];
@@ -1664,11 +1717,22 @@ function rpnlCfgHtml(s) {
     bits.map(b => '<span>' + escHtml(b) + '</span>').join('') + '</div>';
 }
 
-function renderRpnlSummary(rows) {
+function rpnlWindowLabel(hours) {
+  const h = Number(hours);
+  if (!h || !isFinite(h)) return '';
+  if (h >= 24 && h % 24 === 0) {
+    const d = h / 24;
+    return d === 1 ? '24h' : d + 'd';
+  }
+  return h + 'h';
+}
+
+function renderRpnlSummary(rows, hours) {
   const wrap = document.getElementById('rpnlSummaryWrap');
   if (!wrap) return;
   if (!rows || !rows.length) { wrap.innerHTML = ''; return; }
   const cur = document.getElementById('rpnlSymbol').value;
+  const win = rpnlWindowLabel(hours);
   // Two rows can share a contract + account name but sit on different account
   // ids — show the id so they are distinguishable instead of looking cloned.
   const nameCount = {};
@@ -1706,7 +1770,8 @@ function renderRpnlSummary(rows) {
             '<span style="color:#ff9800">' + escHtml(hlab) + ' ' + inrFmt(hedge) + '</span>' +
           '</div>'
         : '') +
-      '<div class="p-meta">' + (r.live ? 'live · ' : '') + escHtml(qlab) + ' ' + (r.fills || 0) + ' fills' +
+      '<div class="p-meta">' + (win ? escHtml(win) + ' · ' : '') + (r.live ? 'live · ' : '') +
+        escHtml(qlab) + ' ' + (r.fills || 0) + ' fills' +
         (hedged ? ' · ' + escHtml(hlab) + ' ' + r.hedge_fills : ' · no hedge') + '</div>' +
       rpnlCfgHtml(r.settings) +
       '</button>';
@@ -1836,6 +1901,8 @@ function onRpnlLogicalRange(chartId) {
     const src = chartId === 'ohlc' ? ohlcChart : rpnlChart;
     const timeRange = src.timeScale().getVisibleRange();
     if (timeRange) maybeExtendRpnl(timeRange);
+    if (!rpnlRangePinned && !rpnlSelectMode) rpnlSyncRangeFromView();
+    rpnlPaintBrush();
   };
 }
 
@@ -1902,6 +1969,7 @@ function applyRpnlFillMarkers() {
 
 function loadRpnlFresh() {
   rpnlCurrentHours = null;
+  rpnlFollowView();
   loadRpnl(false);
 }
 
@@ -2200,6 +2268,7 @@ function initRpnl() {
   rpnlChart.timeScale().subscribeVisibleLogicalRangeChange(onRpnlLogicalRange('rpnl'));
   ohlcChart.subscribeCrosshairMove((param) => syncCrosshair('ohlc', param));
   rpnlChart.subscribeCrosshairMove((param) => syncCrosshair('rpnl', param));
+  bindRpnlSelectLayer();
 
   window.addEventListener('resize', resizeRpnlCharts);
   loadRpnl(false);
@@ -2207,7 +2276,10 @@ function initRpnl() {
 
 function resizeRpnlCharts() {
   if (!rpnlChart || !ohlcChart) return;
-  requestAnimationFrame(() => syncRpnlTimeScale('ohlc'));
+  requestAnimationFrame(() => {
+    syncRpnlTimeScale('ohlc');
+    rpnlPaintBrush();
+  });
 }
 
 function barsAlignReady(pts, bucketSecs) {
@@ -2375,11 +2447,11 @@ async function loadRpnl(keepRange) {
       fetch(withStrategy(url)),
       fetch(withStrategy('/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + '&hours=' + hours + acctBit)),
       fetch(withStrategy(fillUrl + '&exchange=quote')),
-      fetch(withStrategy('/api/rpnl/summary')),
+      fetch(withStrategy('/api/rpnl/summary?hours=' + hours)),
       venue === 'quote' ? null : fetch(withStrategy(fillUrl + '&exchange=hedge')),
     ];
     const [r, cR, fR, sR, hFR] = await Promise.all(reqs);
-    if (sR.ok) renderRpnlSummary(await sR.json());
+    if (sR.ok) renderRpnlSummary(await sR.json(), hours);
     if (!r.ok) {
       const body = await r.json().catch(() => ({ detail: r.statusText }));
       showRpnlError('HTTP ' + r.status, body.detail || r.statusText);
@@ -2483,6 +2555,8 @@ async function loadRpnl(keepRange) {
         : ' · <span style="color:var(--muted)">no hedge</span>') +
       ' · IST ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}) +
       (candleNote ? '<span style="color:var(--muted)">' + escHtml(candleNote) + '</span>' : ''), 'ok');
+    if (!rpnlRangePinned) rpnlSyncRangeFromView();
+    rpnlPaintBrush();
   } catch(e) {
     console.error('[rPnL] fetch threw:', e);
     showRpnlError('Network or parse error', e.message);
@@ -2493,6 +2567,226 @@ async function loadRpnl(keepRange) {
 function setupRpnlAuto() {
   clearInterval(rpnlTimer);
   if (document.getElementById('rpnlAuto').checked) rpnlTimer = setInterval(() => loadRpnl(true), 10000);
+}
+
+function unixToDatetimeLocalIST(unix) {
+  if (unix == null || !isFinite(unix)) return '';
+  const n = Number(unix);
+  const s = new Date(n * 1000).toLocaleString('sv-SE', { timeZone: 'Asia/Kolkata' });
+  return s.replace(' ', 'T').slice(0, 16);
+}
+function datetimeLocalISTToUnix(s) {
+  if (!s) return null;
+  const iso = s.length === 16 ? s + ':00' : s;
+  const [date, time] = iso.split('T');
+  if (!date || !time) return null;
+  const [y, m, d] = date.split('-').map(Number);
+  const [hh, mm, ss] = time.split(':').map(Number);
+  return Math.floor(Date.UTC(y, m - 1, d, hh, mm, ss || 0) / 1000) - IST_OFFSET;
+}
+function rpnlVisibleUnixRange() {
+  if (!rpnlChart) return null;
+  try {
+    const r = rpnlChart.timeScale().getVisibleRange();
+    if (!r || r.from == null || r.to == null) return null;
+    return { from: Number(r.from), to: Number(r.to) };
+  } catch (e) { return null; }
+}
+function rpnlActiveRange() {
+  if (rpnlRangePinned && rpnlPinFrom != null && rpnlPinTo != null) {
+    const a = Math.min(rpnlPinFrom, rpnlPinTo);
+    const b = Math.max(rpnlPinFrom, rpnlPinTo);
+    return { from: a, to: b };
+  }
+  return rpnlVisibleUnixRange();
+}
+function rpnlSetRangeInputs(from, to, silent) {
+  const a = document.getElementById('rpnlFrom');
+  const b = document.getElementById('rpnlTo');
+  if (!a || !b || from == null || to == null) return;
+  const fv = unixToDatetimeLocalIST(from);
+  const tv = unixToDatetimeLocalIST(to);
+  if (silent) {
+    a.value = fv;
+    b.value = tv;
+    return;
+  }
+  if (a.value !== fv) a.value = fv;
+  if (b.value !== tv) b.value = tv;
+}
+function rpnlSetRangeMode() {
+  const el = document.getElementById('rpnlRangeMode');
+  if (!el) return;
+  el.className = 'range-mode' + (rpnlSelectMode ? ' sel' : rpnlRangePinned ? ' pin' : '');
+  el.textContent = rpnlSelectMode ? 'drag to select' : (rpnlRangePinned ? 'pinned' : 'chart view');
+}
+function rpnlSyncRangeFromView() {
+  const r = rpnlVisibleUnixRange();
+  if (!r) return;
+  rpnlSetRangeInputs(r.from, r.to, true);
+  rpnlSetRangeMode();
+}
+function rpnlFollowView() {
+  rpnlRangePinned = false;
+  rpnlPinFrom = rpnlPinTo = null;
+  setRpnlSelectMode(false);
+  rpnlSyncRangeFromView();
+  rpnlPaintBrush();
+}
+function rpnlPinFromInputs() {
+  const from = datetimeLocalISTToUnix(document.getElementById('rpnlFrom').value);
+  const to = datetimeLocalISTToUnix(document.getElementById('rpnlTo').value);
+  if (from == null || to == null || !(to > from)) {
+    toast('Need a valid From < To in IST', 'err');
+    return;
+  }
+  rpnlRangePinned = true;
+  rpnlPinFrom = from;
+  rpnlPinTo = to;
+  rpnlSetRangeMode();
+  rpnlPaintBrush();
+}
+function rpnlJumpChartToRange() {
+  const r = rpnlActiveRange();
+  if (!r || !rpnlChart || !ohlcChart) return;
+  rpnlSyncing = true;
+  try {
+    rpnlChart.timeScale().setVisibleRange({ from: r.from, to: r.to });
+    ohlcChart.timeScale().setVisibleRange({ from: r.from, to: r.to });
+  } catch (e) {}
+  rpnlSyncing = false;
+}
+function setRpnlSelectMode(on) {
+  rpnlSelectMode = !!on;
+  const layer = document.getElementById('rpnlSelectLayer');
+  const btn = document.getElementById('rpnlSelectBtn');
+  if (layer) layer.hidden = !rpnlSelectMode;
+  if (btn) {
+    btn.style.borderColor = rpnlSelectMode ? 'var(--accent)' : '';
+    btn.style.color = rpnlSelectMode ? '#fff' : '';
+  }
+  if (rpnlChart) {
+    rpnlChart.applyOptions({
+      handleScroll: { mouseWheel: true, pressedMouseMove: !rpnlSelectMode, horzTouchDrag: !rpnlSelectMode, vertTouchDrag: false },
+      handleScale: { axisPressedMouseMove: { time: !rpnlSelectMode, price: !rpnlSelectMode }, mouseWheel: !rpnlSelectMode, pinch: !rpnlSelectMode },
+    });
+  }
+  rpnlSetRangeMode();
+}
+function toggleRpnlSelect() {
+  setRpnlSelectMode(!rpnlSelectMode);
+  if (rpnlSelectMode) toast('Drag across the rPnL chart to pin a window', '');
+}
+function rpnlPaintBrush() {
+  const box = document.getElementById('rpnlBrush');
+  if (!box || !rpnlChart) return;
+  if (!rpnlRangePinned || rpnlPinFrom == null || rpnlPinTo == null) {
+    box.hidden = true;
+    return;
+  }
+  const ts = rpnlChart.timeScale();
+  let x1, x2;
+  try {
+    x1 = ts.timeToCoordinate(Math.min(rpnlPinFrom, rpnlPinTo));
+    x2 = ts.timeToCoordinate(Math.max(rpnlPinFrom, rpnlPinTo));
+  } catch (e) { box.hidden = true; return; }
+  if (x1 == null || x2 == null) { box.hidden = true; return; }
+  const left = Math.min(x1, x2);
+  const width = Math.max(2, Math.abs(x2 - x1));
+  box.hidden = false;
+  box.style.left = left + 'px';
+  box.style.width = width + 'px';
+}
+function bindRpnlSelectLayer() {
+  const layer = document.getElementById('rpnlSelectLayer');
+  if (!layer || layer.dataset.bound) return;
+  layer.dataset.bound = '1';
+  let startX = null;
+  const xToTime = (clientX) => {
+    const rect = (document.getElementById('rpnlChart') || layer).getBoundingClientRect();
+    const x = clientX - rect.left;
+    try { return rpnlChart.timeScale().coordinateToTime(x); } catch (e) { return null; }
+  };
+  layer.addEventListener('mousedown', (ev) => {
+    if (!rpnlSelectMode) return;
+    ev.preventDefault();
+    startX = ev.clientX;
+    const t = xToTime(ev.clientX);
+    if (t == null) return;
+    rpnlRangePinned = true;
+    rpnlPinFrom = rpnlPinTo = Number(t);
+    rpnlPaintBrush();
+  });
+  layer.addEventListener('mousemove', (ev) => {
+    if (startX == null) return;
+    const t = xToTime(ev.clientX);
+    if (t == null) return;
+    rpnlPinTo = Number(t);
+    rpnlSetRangeInputs(rpnlPinFrom, rpnlPinTo, true);
+    rpnlPaintBrush();
+  });
+  const endDrag = (ev) => {
+    if (startX == null) return;
+    startX = null;
+    const t = xToTime(ev.clientX);
+    if (t != null) rpnlPinTo = Number(t);
+    if (rpnlPinFrom != null && rpnlPinTo != null && rpnlPinFrom === rpnlPinTo) {
+      rpnlPinTo = rpnlPinFrom + 60;
+    }
+    rpnlSetRangeInputs(rpnlPinFrom, rpnlPinTo, true);
+    rpnlSetRangeMode();
+    rpnlPaintBrush();
+    setRpnlSelectMode(false);
+  };
+  layer.addEventListener('mouseup', endDrag);
+  layer.addEventListener('mouseleave', (ev) => { if (startX != null) endDrag(ev); });
+}
+function rpnlExportFilters() {
+  const r = rpnlActiveRange();
+  if (!r) throw new Error('No time range yet — load a chart first');
+  const picked = currentRpnlSel();
+  if (!picked.contract) throw new Error('Pick a contract pill first');
+  const venue = currentRpnlVenue();
+  const exchange = venue === 'quote' ? (rpnlMeta.quote_venue || '')
+    : venue === 'hedge' ? (rpnlMeta.hedge_venue || '') : '';
+  return {
+    since: String(Math.floor(r.from)),
+    until: String(Math.floor(r.to) + 1),
+    strategy: currentStrategy,
+    contract: picked.contract,
+    account: picked.account || '',
+    exchange,
+  };
+}
+async function exportRpnlKind(kind) {
+  try {
+    const f = rpnlExportFilters();
+    const params = { since: f.since, until: f.until, strategy: f.strategy };
+    if (f.account) params.account = f.account;
+    if (f.exchange) params.exchange = f.exchange;
+    const label = document.getElementById('rpnlStatus');
+    if (kind === 'all') {
+      if (label) setStatus('rpnlStatus', '<span>Exporting ZIP…</span>');
+      params.contract = f.contract;
+      params.kinds = 'fills,logs,orders,events,positions,account_balances';
+      await downloadNamedCsv('/api/rpnl/export-pack?' + qsObj(params), 'rpnl_pack.zip');
+      toast('Exported ZIP for ' + unixToDatetimeLocalIST(f.since) + ' → ' + unixToDatetimeLocalIST(Number(f.until) - 1), 'ok');
+      return;
+    }
+    if (kind === 'logs') {
+      params.q = f.contract;
+      params.service = 'bot';
+      delete params.account;
+      delete params.exchange;
+    } else if (['fills', 'orders', 'events', 'positions'].includes(kind)) {
+      params.contract = f.contract;
+    }
+    if (label) setStatus('rpnlStatus', '<span>Exporting ' + kind + '…</span>');
+    await downloadNamedCsv('/api/db/table/' + encodeURIComponent(kind) + '/export?' + qsObj(params), kind + '.csv');
+    toast('Exported ' + kind, 'ok');
+  } catch (e) {
+    toast('Export failed: ' + e.message, 'err');
+  }
 }
 
 // Position Chart

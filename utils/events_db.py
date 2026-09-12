@@ -1641,12 +1641,14 @@ class EventsDB:
             self.logger.warning("events_db: get_window_stats failed — %s", e)
             return {"rpnl": 0.0, "fills_buy": 0, "fills_sell": 0, "volume": 0.0}
 
-    async def get_contract_rpnl_summary(self, strategy: str = "opa3") -> list[dict]:
+    async def get_contract_rpnl_summary(
+        self, strategy: str = "opa3", since: "datetime | None" = None,
+    ) -> list[dict]:
         """Per-contract+account fill count + realized PnL (₹) for the dashboard.
 
-        Aggregated per exchange in Python rather than with a fixed set of SQL
-        FILTERs, so a venue that shows up in the fills table later (aster did)
-        is picked up without a code change.
+        Pills stay for every historical pair; `venue_rpnl` / `venue_fills` are
+        the lookback window (`since`). All-time counts stay in `venue_fills_all`
+        so quote vs hedge detection does not flip when a short window is empty.
         """
         if not self.pool:
             return []
@@ -1657,16 +1659,26 @@ class EventsDB:
                     SELECT contract,
                            COALESCE(account::text, '') AS account,
                            LOWER(exchange) AS exchange,
-                           COUNT(*)::int AS n,
-                           COALESCE(SUM(rpnl), 0)::float AS rpnl,
-                           COALESCE(SUM(fee), 0)::float AS fee,
+                           COUNT(*)::int AS n_all,
+                           COUNT(*) FILTER (
+                               WHERE $2::timestamptz IS NULL OR created_at >= $2
+                           )::int AS n,
+                           COALESCE(SUM(rpnl) FILTER (
+                               WHERE $2::timestamptz IS NULL OR created_at >= $2
+                           ), 0)::float AS rpnl,
+                           COALESCE(SUM(fee) FILTER (
+                               WHERE $2::timestamptz IS NULL OR created_at >= $2
+                           ), 0)::float AS fee,
                            MIN(created_at) AS first_at,
-                           MAX(created_at) AS last_at
+                           MAX(created_at) FILTER (
+                               WHERE $2::timestamptz IS NULL OR created_at >= $2
+                           ) AS last_at
                     FROM fills
                     WHERE strategy::text = $1
                     GROUP BY contract, COALESCE(account::text, ''), LOWER(exchange)
                     """,
                     strategy,
+                    since,
                 )
             live_keys = await self.get_live_ping_keys(strategy)
             # Keyed on the account id — the id is what the fills queries filter
@@ -1679,12 +1691,16 @@ class EventsDB:
                     "contract": contract,
                     "account": account,
                     "venue_fills": {},
+                    "venue_fills_all": {},
                     "venue_rpnl": {},
                     "venue_fees": {},
                     "first_at": None,
                     "last_at": None,
                 })
                 venue = (r["exchange"] or "delta").lower()
+                item["venue_fills_all"][venue] = (
+                    item["venue_fills_all"].get(venue, 0) + int(r["n_all"] or 0)
+                )
                 item["venue_fills"][venue] = item["venue_fills"].get(venue, 0) + int(r["n"] or 0)
                 item["venue_rpnl"][venue] = round(
                     item["venue_rpnl"].get(venue, 0.0)
@@ -1706,7 +1722,7 @@ class EventsDB:
             for item in grouped.values():
                 # Hedge fills are logged without the quote venue's account id —
                 # hold them aside so they can be folded onto the real pill.
-                if not item["account"] and not item["venue_fills"].get("delta"):
+                if not item["account"] and not item["venue_fills_all"].get("delta"):
                     venue_only[item["contract"]] = item
                 elif not item["account"]:
                     # Quote fills with a blank account are leftover REST /
@@ -1717,8 +1733,8 @@ class EventsDB:
             used = set()
             for item in out:
                 h = venue_only.get(item["contract"])
-                if h and set(item["venue_fills"]) <= {"delta"}:
-                    for field in ("venue_fills", "venue_rpnl", "venue_fees"):
+                if h and set(item["venue_fills_all"]) <= {"delta"}:
+                    for field in ("venue_fills", "venue_fills_all", "venue_rpnl", "venue_fees"):
                         for venue, val in h[field].items():
                             if venue != "delta":
                                 item[field][venue] = val
