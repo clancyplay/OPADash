@@ -1555,6 +1555,12 @@ function inrFmt(n) {
   return sign + '₹' + Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
+function inrFmtDec(n, d) {
+  const v = Number(n) || 0;
+  const sign = v < 0 ? '−' : '+';
+  return sign + '₹' + Math.abs(v).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
 function fmtPct(frac) {
   const p = Number(frac) * 100;
   if (!isFinite(p)) return '';
