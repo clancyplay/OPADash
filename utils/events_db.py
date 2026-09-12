@@ -313,6 +313,16 @@ class EventsDB:
                 CREATE INDEX IF NOT EXISTS idx_bot_ping_live
                     ON bot_ping (strategy, pinged_at DESC);
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bot_setup (
+                    strategy    VARCHAR(40) NOT NULL,
+                    account     VARCHAR(40) NOT NULL DEFAULT '',
+                    contract    VARCHAR(80) NOT NULL,
+                    setup       JSONB NOT NULL DEFAULT '{}',
+                    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (strategy, account, contract)
+                );
+            """)
 
     async def update_live_state(self, symbol: str, data: dict) -> None:
         """Upsert per-symbol live state (positions, orders, book). Called by quoter every sync."""
@@ -384,6 +394,45 @@ class EventsDB:
         except Exception as e:
             self.logger.debug("events_db: get_live_ping_keys failed — %s", e)
             return set()
+
+    async def get_bot_setups(self, strategy: str) -> dict[tuple[str, str], dict]:
+        """Last known strategy knobs keyed by (canon_contract, account)."""
+        if not self.pool:
+            return {}
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT contract, COALESCE(account, '') AS account, setup
+                    FROM bot_setup
+                    WHERE strategy::text = $1
+                    """,
+                    strategy,
+                )
+            out: dict[tuple[str, str], dict] = {}
+            for r in rows:
+                raw = r["setup"]
+                if isinstance(raw, str):
+                    try:
+                        raw = json.loads(raw)
+                    except Exception:
+                        raw = {}
+                if not isinstance(raw, dict) or not raw:
+                    continue
+                acct = r["account"] or ""
+                names = [ping_contract(r["contract"])]
+                for alias in contract_aliases(r["contract"]):
+                    names.append(ping_contract(alias))
+                seen = set()
+                for name in names:
+                    if not name or name in seen:
+                        continue
+                    seen.add(name)
+                    out[(name, acct)] = raw
+            return out
+        except Exception as e:
+            self.logger.debug("events_db: get_bot_setups failed — %s", e)
+            return {}
 
     async def log_deposit_withdrawal(self, amount: float, note: str = "", recorded_by: str = "webapp", at: "datetime | None" = None) -> int | None:
         """Log a deposit (positive) or withdrawal (negative). Returns new row id.

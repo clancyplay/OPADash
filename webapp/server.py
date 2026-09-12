@@ -309,18 +309,68 @@ def _hedge_venue_label(raw: str | None) -> str:
     return codes.get(v, codes.get(v.lower(), v))
 
 
+_SETUP_KEYS = (
+    "hem", "span", "step", "fit_auto", "vol_gate", "vol_stable",
+    "orders", "live_orders", "max_pos", "max_usd", "ignore", "ignore_usd",
+    "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
+)
+_SYMBOL_STRATS = {"opa3", "opa4"}
+
+
 def _cfg_public(cfg: _SymbolConfig | None) -> dict | None:
     """SymbolConfig fields the user set in SYMBOLS_JSON / ACTIVE_SYMBOLS — no secrets."""
     if cfg is None:
         return None
     from dataclasses import asdict
     d = asdict(cfg)
+    d["kind"] = "symbol"
     d["quote_venue"] = _norm_quote_venue(d.get("quote_venue"))
     d["hedge_venue_label"] = _hedge_venue_label(d.get("hedge_venue"))
     return d
 
 
-def _annotate_rpnl_row(row: dict) -> dict:
+def _setup_public(setup: dict | None) -> dict | None:
+    """OPA6 live knobs (hem/span/FIT_AUTO/MAX_POSITION) — same payload Telegram uses."""
+    if not isinstance(setup, dict) or not setup:
+        return None
+    out: dict = {"kind": "setup"}
+    for key in _SETUP_KEYS:
+        if key not in setup or setup[key] is None:
+            continue
+        val = setup[key]
+        if isinstance(val, bool):
+            out[key] = val
+        elif isinstance(val, (int, float)):
+            out[key] = int(val) if isinstance(val, int) or (isinstance(val, float) and val.is_integer()) else float(val)
+        elif isinstance(val, str) and val.lower() in ("true", "false", "on", "off", "1", "0"):
+            out[key] = val.lower() in ("true", "on", "1")
+        elif isinstance(val, str):
+            try:
+                out[key] = float(val) if "." in val else int(val)
+            except ValueError:
+                continue
+    if "max_usd" in out:
+        out.pop("max_pos", None)
+    return out if len(out) > 1 else None
+
+
+def _lookup_setup(
+    setups: dict[tuple[str, str], dict], contract: str, account: str,
+) -> dict | None:
+    c = canon_contract(contract)
+    a = account or ""
+    if (c, a) in setups:
+        return setups[(c, a)]
+    if a and (c, "") in setups:
+        return setups[(c, "")]
+    return None
+
+
+def _annotate_rpnl_row(
+    row: dict,
+    setups: dict[tuple[str, str], dict] | None = None,
+    strategy: str = "",
+) -> dict:
     """Split a summary row into quote-venue vs hedge-venue rPnL."""
     counts = dict(row.get("venue_fills") or {})
     rpnls = dict(row.get("venue_rpnl") or {})
@@ -335,7 +385,13 @@ def _annotate_rpnl_row(row: dict) -> dict:
     acct = row.get("account") or ""
     row["label"] = meta["label"] + (f" · {acct}" if acct else "")
     row["live"] = bool(row.get("live"))
-    row["settings"] = _cfg_public(_cfg_for_contract(row.get("contract") or ""))
+    setup = _setup_public(_lookup_setup(setups or {}, row.get("contract") or "", acct))
+    if setup:
+        row["settings"] = setup
+    elif (strategy or "").strip().lower() in _SYMBOL_STRATS:
+        row["settings"] = _cfg_public(_cfg_for_contract(row.get("contract") or ""))
+    else:
+        row["settings"] = None
     return row
 
 # Delta candle resolution -> seconds per candle, used to size the start/end window
@@ -589,7 +645,8 @@ async def rpnl_summary(
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
     rows = await _db.get_contract_rpnl_summary(strategy=strategy)
-    return [_annotate_rpnl_row(r) for r in rows]
+    setups = await _db.get_bot_setups(strategy)
+    return [_annotate_rpnl_row(r, setups, strategy) for r in rows]
 
 
 @app.get("/api/rpnl/rollup")

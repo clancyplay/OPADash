@@ -1569,8 +1569,36 @@ function fmtPct(frac) {
   return p.toFixed(1).replace(/\.0$/, '') + '%';
 }
 
-function rpnlCfgBits(s) {
-  if (!s) return [];
+function fmtG(v) {
+  const n = Number(v);
+  if (!isFinite(n)) return String(v);
+  if (Number.isInteger(n)) return String(n);
+  return String(parseFloat(n.toPrecision(6)));
+}
+
+function rpnlSetupBits(s) {
+  const bits = [];
+  const on = v => v === true || v === 'true' || v === 'on' || v === 1 || v === '1';
+  if (s.edge != null) bits.push('edge ' + fmtG(s.edge) + '%');
+  if (s.k != null) bits.push('k ' + fmtG(s.k) + '%');
+  if (s.k_ticks != null) bits.push('k ' + fmtG(s.k_ticks) + 't');
+  if (s.hem != null) bits.push('hem ' + fmtG(s.hem) + '%');
+  if (s.span != null) bits.push('span ' + fmtG(s.span) + '%');
+  if (s.step != null) bits.push('step ' + fmtG(s.step) + '%');
+  if (s.fit_auto != null) bits.push('fit auto ' + (on(s.fit_auto) ? 'on' : 'off'));
+  if (s.vol_gate != null) bits.push('vol gate ' + (on(s.vol_gate) ? 'on' : 'off'));
+  if (s.flow_gate != null) bits.push('flow gate ' + (on(s.flow_gate) ? 'on' : 'off'));
+  if (s.flatten != null) bits.push('flatten ' + fmtG(s.flatten) + '%');
+  if (s.stop_pause != null) bits.push('pause ' + fmtG(s.stop_pause) + 's');
+  if (s.live_orders != null && s.orders != null) bits.push('orders ' + s.live_orders + '/' + s.orders);
+  else if (s.orders != null) bits.push('orders ' + s.orders);
+  if (s.max_usd != null) bits.push('max $' + fmtG(s.max_usd));
+  else if (s.max_pos != null) bits.push('max ' + fmtG(s.max_pos));
+  if (s.ignore != null) bits.push((s.ignore_usd ? 'ignore $' : 'ignore ') + fmtG(s.ignore));
+  return bits;
+}
+
+function rpnlSymbolBits(s) {
   const bits = [];
   if (s.quantity != null) bits.push(s.quantity + 'L');
   if (s.max_position != null) bits.push('max ' + s.max_position + 'L');
@@ -1592,18 +1620,26 @@ function rpnlCfgBits(s) {
   return bits;
 }
 
+function rpnlCfgBits(s) {
+  if (!s) return [];
+  if (s.kind === 'setup' || s.hem != null || s.fit_auto != null || s.max_usd != null || s.k != null || s.edge != null) {
+    return rpnlSetupBits(s);
+  }
+  return rpnlSymbolBits(s);
+}
+
 function rpnlCfgTitle(s) {
-  if (!s) return 'No SYMBOLS_JSON / .env config for this contract';
-  const skip = new Set(['coindcx_sl_tick']);
+  if (!s) return 'No live bot setup for this contract yet — restart the strategy so it can write hem/span/max';
+  const skip = new Set(['coindcx_sl_tick', 'kind']);
   return Object.entries(s)
-    .filter(([k, v]) => !skip.has(k) && v !== '' && v != null && v !== false)
+    .filter(([k, v]) => !skip.has(k) && v !== '' && v != null)
     .map(([k, v]) => k + ': ' + v)
     .join('\n');
 }
 
 function rpnlCfgHtml(s) {
   const bits = rpnlCfgBits(s);
-  if (!bits.length) return '<div class="p-cfg none">no .env config</div>';
+  if (!bits.length) return '<div class="p-cfg none">no bot setup yet</div>';
   return '<div class="p-cfg" title="' + escHtml(rpnlCfgTitle(s)).replace(/\n/g, '&#10;') + '">' +
     bits.map(b => '<span>' + escHtml(b) + '</span>').join('') + '</div>';
 }
