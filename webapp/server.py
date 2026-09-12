@@ -403,6 +403,26 @@ _RESOLUTION_SECONDS = {
 }
 
 
+def _ist_midnight_utc() -> datetime:
+    now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return start - timedelta(hours=5, minutes=30)
+
+
+def _window_since(hours: int | None, today: bool = False) -> datetime | None:
+    if today:
+        return _ist_midnight_utc()
+    if hours:
+        return datetime.now(timezone.utc) - timedelta(hours=hours)
+    return None
+
+
+def _window_lookback_secs(hours: int | None, today: bool = False) -> int:
+    if today:
+        return max(60, int((datetime.now(timezone.utc) - _ist_midnight_utc()).total_seconds()))
+    return max(60, int(hours or 24) * 3600)
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
@@ -594,6 +614,7 @@ async def rpnl_symbols(
 async def rpnl_chart(
     symbol: str = Query(..., description="Contract name (e.g. LABUSD) or symbol key (e.g. LAB)"),
     hours: int = Query(24, ge=1, le=2160, description="Lookback window in hours"),
+    today: bool = Query(False, description="Restrict to IST calendar day"),
     bucket: int = Query(5, ge=1, le=60, description="Bucket size in minutes"),
     strategy: str = Query("opa3", description="strategy tag, e.g. opa3 | opa4"),
     account: str | None = Query(None, description="Delta account id; omit to merge all"),
@@ -607,7 +628,7 @@ async def rpnl_chart(
     meta = await resolve_venues(contract, strategy=strategy, account=account)
     qv = meta["quote_venue"]
     want = _venue_side(exchange)
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    since = _window_since(hours, today)
     try:
         points: list[dict] = []
         hedge_points: list[dict] = []
@@ -626,8 +647,9 @@ async def rpnl_chart(
         logger.error("webapp: rpnl query failed for %s: %s", contract, e)
         raise HTTPException(status_code=500, detail=f"query failed: {e}") from e
     logger.info(
-        "webapp: rpnl %s quote=%s account=%s exch=%s %dh -> %d points hedge=%d",
-        contract, qv, account or "-", exchange, hours, len(points), len(hedge_points),
+        "webapp: rpnl %s quote=%s account=%s exch=%s %s -> %d points hedge=%d",
+        contract, qv, account or "-", exchange, "today" if today else f"{hours}h",
+        len(points), len(hedge_points),
     )
     return {
         "contract": contract,
@@ -643,11 +665,12 @@ async def rpnl_chart(
 async def rpnl_summary(
     strategy: str = Query("opa3"),
     hours: int | None = Query(None, ge=1, le=2160, description="lookback window; omit for all-time"),
+    today: bool = Query(False, description="Restrict to IST calendar day"),
 ) -> list[dict]:
     """Per-contract realized PnL from fills (for the rPnL page pills)."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
-    since = datetime.now(timezone.utc) - timedelta(hours=hours) if hours else None
+    since = _window_since(hours, today)
     rows = await _db.get_contract_rpnl_summary(strategy=strategy, since=since)
     setups = await _db.get_bot_setups(strategy)
     return [_annotate_rpnl_row(r, setups, strategy) for r in rows]
@@ -662,12 +685,7 @@ async def rpnl_rollup(
     """Quote vs hedge rPnL totals, per symbol and per IST day."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
-    if today:
-        since = _ist_midnight_utc()
-    elif hours:
-        since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    else:
-        since = None
+    since = _window_since(hours, today)
     rows = await _db.get_rpnl_rollup(strategy=strategy, since=since)
 
     # Decide each contract's quote venue once, from its fills across the window.
@@ -716,6 +734,7 @@ async def rpnl_rollup(
 async def rpnl_fills(
     symbol: str = Query(...),
     hours: int = Query(24, ge=1, le=2160),
+    today: bool = Query(False, description="Restrict to IST calendar day"),
     strategy: str = Query("opa3"),
     account: str | None = Query(None),
     exchange: str = Query("quote", description="quote | hedge"),
@@ -728,7 +747,7 @@ async def rpnl_fills(
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
     meta = await resolve_venues(contract, strategy=strategy, account=account)
     side = _venue_side(exchange)
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    since = _window_since(hours, today)
     fills: list[dict] = []
     if side != "hedge" or meta["has_hedge"]:
         fills = await _db.get_fill_markers(
@@ -1189,6 +1208,7 @@ async def candles(
     symbol: str = Query(..., description="Contract name e.g. LABUSD"),
     interval: str = Query("5m"),
     hours: int = Query(24, ge=1, le=2160),
+    today: bool = Query(False, description="Restrict to IST calendar day"),
     strategy: str = Query("opa3"),
     account: str | None = Query(None),
 ) -> dict:
@@ -1198,7 +1218,7 @@ async def candles(
     if interval not in _RESOLUTION_SECONDS:
         raise HTTPException(status_code=400, detail=f"unknown interval '{interval}'")
     meta = await resolve_venues(contract, strategy=strategy, account=account)
-    lookback = hours * 3600
+    lookback = _window_lookback_secs(hours, today)
     qv = meta["quote_venue"]
     quote_symbol = meta.get("quote_symbol") or contract
     try:
@@ -1365,12 +1385,6 @@ async def recent_events(
 
 
 # ── Reports ───────────────────────────────────────────────────────────────────
-
-def _ist_midnight_utc() -> datetime:
-    now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return start - timedelta(hours=5, minutes=30)
-
 
 def _touch_range(dst: dict, first: int | None, last: int | None) -> None:
     if first and (not dst.get("first_at") or first < dst["first_at"]):
@@ -1607,14 +1621,12 @@ async def reports_overview(
     """Per-account, per-exchange realized PnL plus latest balances/positions."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
+    since = _window_since(hours, today)
     if today:
-        since = _ist_midnight_utc()
         window = "today"
     elif hours:
-        since = datetime.now(timezone.utc) - timedelta(hours=hours)
         window = f"{hours}h"
     else:
-        since = None
         window = "all"
     raw = await _db.get_accounts_overview(strategy=strategy, since=since)
     live_keys = await _db.get_live_ping_keys(strategy)

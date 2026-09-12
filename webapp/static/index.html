@@ -1140,6 +1140,7 @@
     <label>Symbol</label><select id="rpnlSymbol" onchange="loadRpnlFresh()"></select>
     <label>Window</label>
     <select id="rpnlHours" onchange="loadRpnlFresh()">
+      <option value="today">Today (IST)</option>
       <option value="1">1h</option>
       <option value="3">3h</option>
       <option value="6">6h</option>
@@ -1718,6 +1719,7 @@ function rpnlCfgHtml(s) {
 }
 
 function rpnlWindowLabel(hours) {
+  if (hours === 'today') return 'today';
   const h = Number(hours);
   if (!h || !isFinite(h)) return '';
   if (h >= 24 && h % 24 === 0) {
@@ -1725,6 +1727,23 @@ function rpnlWindowLabel(hours) {
     return d === 1 ? '24h' : d + 'd';
   }
   return h + 'h';
+}
+
+function rpnlHoursSel() {
+  return (document.getElementById('rpnlHours') || {}).value || '24';
+}
+
+function rpnlWindowQuery() {
+  if (rpnlCurrentHours !== null) return '&hours=' + rpnlCurrentHours;
+  const v = rpnlHoursSel();
+  if (v === 'today') return '&today=true';
+  return '&hours=' + encodeURIComponent(v);
+}
+
+function rpnlWindowTag() {
+  if (rpnlCurrentHours !== null) return rpnlWindowLabel(rpnlCurrentHours);
+  const v = rpnlHoursSel();
+  return v === 'today' ? 'today' : rpnlWindowLabel(v);
 }
 
 function renderRpnlSummary(rows, hours) {
@@ -2403,10 +2422,11 @@ function applyRpnlData(pts, keepRange) {
 
 async function extendRpnl() {
   if (rpnlLoadingMore || !rpnlPtsCache.length) return;
+  if (rpnlCurrentHours === null && rpnlHoursSel() === 'today') return;
   const currentH = rpnlCurrentHours !== null
     ? rpnlCurrentHours
-    : parseInt(document.getElementById('rpnlHours').value);
-  if (currentH >= 720) return;
+    : parseInt(rpnlHoursSel(), 10);
+  if (!isFinite(currentH) || currentH >= 720) return;
 
   rpnlLoadingMore = true;
   const visLogical = ohlcChart.timeScale().getVisibleLogicalRange();
@@ -2425,9 +2445,8 @@ async function loadRpnl(keepRange) {
   const picked = currentRpnlSel();
   const venue  = rpnlVenueParam();
   const sym    = picked.contract;
-  const hours  = rpnlCurrentHours !== null
-    ? rpnlCurrentHours
-    : parseInt(document.getElementById('rpnlHours').value);
+  const winQ   = rpnlWindowQuery();
+  const winLab = rpnlWindowTag();
   const bucket = document.getElementById('rpnlBucket').value;
   if (!sym) return;
   hideRpnlError();
@@ -2436,22 +2455,22 @@ async function loadRpnl(keepRange) {
     ? ohlcChart.timeScale().getVisibleLogicalRange()
     : null;
   const acctBit = '&account=' + encodeURIComponent(picked.account);
-  const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + (picked.account ? sym + ' · ' + picked.account : sym) + ' (' + hours + 'h)...';
+  const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + (picked.account ? sym + ' · ' + picked.account : sym) + ' (' + winLab + ')...';
   setLoading('rpnlStatus', loadingLabel);
   try {
     const candleIvl = (document.getElementById('rpnlCandle') || {}).value || '5m';
-    const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket + acctBit + '&exchange=' + venue;
-    const fillUrl = '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + '&hours=' + hours + '&bucket=' + bucket + acctBit;
+    const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit + '&exchange=' + venue;
+    const fillUrl = '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit;
     // Quote and hedge fills are separate requests so each side keeps its own venue.
     const reqs = [
       fetch(withStrategy(url)),
-      fetch(withStrategy('/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + '&hours=' + hours + acctBit)),
+      fetch(withStrategy('/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + winQ + acctBit)),
       fetch(withStrategy(fillUrl + '&exchange=quote')),
-      fetch(withStrategy('/api/rpnl/summary?hours=' + hours)),
+      fetch(withStrategy('/api/rpnl/summary' + (winQ ? '?' + winQ.slice(1) : ''))),
       venue === 'quote' ? null : fetch(withStrategy(fillUrl + '&exchange=hedge')),
     ];
     const [r, cR, fR, sR, hFR] = await Promise.all(reqs);
-    if (sR.ok) renderRpnlSummary(await sR.json(), hours);
+    if (sR.ok) renderRpnlSummary(await sR.json(), winLab === 'today' ? 'today' : (rpnlCurrentHours !== null ? rpnlCurrentHours : rpnlHoursSel()));
     if (!r.ok) {
       const body = await r.json().catch(() => ({ detail: r.statusText }));
       showRpnlError('HTTP ' + r.status, body.detail || r.statusText);
@@ -2533,7 +2552,9 @@ async function loadRpnl(keepRange) {
     }
 
     if (filled.length === 0 && !hedgeRaw.length && !bars.length) {
-      setStatus('rpnlStatus', '<span>No fills found for <b>' + d.contract + '</b> in the last ' + hours + 'h. Try a longer window.</span>' +
+      setStatus('rpnlStatus', '<span>No fills found for <b>' + d.contract + '</b> ' +
+        (winLab === 'today' ? 'today (IST midnight → now)' : 'in the last ' + winLab) +
+        '. Try a longer window.</span>' +
         (candleNote ? '<span style="color:var(--muted)">' + escHtml(candleNote) + '</span>' : ''));
       return;
     }
@@ -2547,7 +2568,7 @@ async function loadRpnl(keepRange) {
     setStatus('rpnlStatus',
       '<span style="font-weight:600;color:#fff;">' + (d.quote_symbol || d.contract) +
       ' · ' + (d.quote_label || '') + acctLab + '</span>' +
-      ' · ' + hours + 'h' +
+      ' · ' + winLab +
       ' · ' + (d.quote_label || 'Quote') + ' <b style="color:#26a69a">' + inrFmtDec(quoteV, 0) + '</b>' +
       (rpnlMeta.has_hedge
         ? ' · ' + rpnlMeta.hedge_label + ' <b style="color:#ff9800">' + inrFmtDec(hedgeV, 0) + '</b>' +
