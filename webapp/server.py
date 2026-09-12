@@ -1731,6 +1731,20 @@ def _parse_bound(value: str | None, *, end: bool = False) -> datetime | None:
         raise HTTPException(status_code=400, detail=f"invalid timestamp '{value}'")
 
 
+_LOG_COL_ORDER = (
+    "id", "created_at", "strategy", "account", "contract", "exchange",
+    "service", "level", "name", "message",
+)
+
+
+def _ordered_cols(name: str, col_names: list[str]) -> list[str]:
+    if name != "logs":
+        return col_names
+    head = [c for c in _LOG_COL_ORDER if c in col_names]
+    rest = [c for c in col_names if c not in _LOG_COL_ORDER]
+    return head + rest
+
+
 async def _public_tables(conn) -> list[str]:
     rows = await conn.fetch(
         "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
@@ -1902,7 +1916,7 @@ async def _prepare_table(
         level=level, pair=pair, status=status, order_id=order_id,
     )
     order_sql, sort_col, sort_dir = _order_sql(col_names, sort, direction)
-    return col_names, col_types, where_sql, params, order_sql, sort_col, sort_dir
+    return _ordered_cols(name, col_names), col_types, where_sql, params, order_sql, sort_col, sort_dir
 
 
 async def _csv_streaming_response(
@@ -2257,6 +2271,10 @@ async def logs_list(
     before_id: int | None = Query(None, description="load-older mode: only rows with id < before_id"),
     since: str | None = Query(None, description="unix, ISO, or YYYY-MM-DD (IST)"),
     until: str | None = Query(None, description="unix, ISO, or YYYY-MM-DD (IST, inclusive)"),
+    strategy: str | None = Query(None),
+    account: str | None = Query(None),
+    contract: str | None = Query(None),
+    exchange: str | None = Query(None),
 ) -> list[dict]:
     """Live service logs streamed to the DB by bot and webapp."""
     _require_db()
@@ -2265,6 +2283,7 @@ async def logs_list(
         after_id=after_id, before_id=before_id,
         since=_parse_bound(since, end=False),
         until=_parse_bound(until, end=True),
+        strategy=strategy, account=account, contract=contract, exchange=exchange,
     )
 
 
@@ -2275,12 +2294,18 @@ async def logs_export(
     search: str | None = Query(None),
     since: str | None = Query(None),
     until: str | None = Query(None),
+    strategy: str | None = Query(None),
+    account: str | None = Query(None),
+    contract: str | None = Query(None),
+    exchange: str | None = Query(None),
     limit: int = Query(50_000, ge=1, le=_EXPORT_MAX),
 ):
     """CSV export of filtered service logs. Times are IST."""
     return await _csv_streaming_response(
         "logs", sort="id", direction="desc", q=search,
-        since=since, until=until, service=service, level=level, limit=limit,
+        since=since, until=until, service=service, level=level,
+        strategy=strategy, account=account, contract=contract, exchange=exchange,
+        limit=limit,
     )
 
 

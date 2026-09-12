@@ -517,6 +517,11 @@
   .log-line:hover { background: rgba(255,255,255,.03); }
   .log-line .lt   { color: #5b657a; }
   .log-line .lsvc { color: #8b95ab; }
+  .log-line .lchip {
+    display: inline-block; font-size: 10px; color: #c5d0e6; line-height: 1.3;
+    background: rgba(255,255,255,.06); border: 1px solid var(--border);
+    border-radius: 4px; padding: 0 5px; margin: 0 3px 0 0; white-space: nowrap;
+  }
   .lv-INFO { color: #7ea6ff; }
   .lv-WARNING { color: #ffb74d; }
   .lv-ERROR, .lv-CRITICAL { color: #ef5350; font-weight: 700; }
@@ -1004,6 +1009,21 @@
       <label>Service
         <select id="lgService" onchange="loadLogsX(true)">
           <option value="">All</option><option value="bot">bot</option><option value="webapp">webapp</option>
+        </select>
+      </label>
+      <label>Strategy <input type="text" id="lgStrategy" class="dinp" placeholder="stack" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
+      <label>Contract <input type="text" id="lgContract" class="dinp" placeholder="LABUSD" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
+      <label>Account <input type="text" id="lgAccount" class="dinp" placeholder="id" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
+      <label>Exchange
+        <select id="lgExchange" onchange="loadLogsX(true)">
+          <option value="">All</option>
+          <option value="delta">delta</option>
+          <option value="binance">binance</option>
+          <option value="kucoin">kucoin</option>
+          <option value="bybit">bybit</option>
+          <option value="coinbase">coinbase</option>
+          <option value="aster">aster</option>
+          <option value="coindcx">coindcx</option>
         </select>
       </label>
       <label>Level
@@ -3732,7 +3752,7 @@ const dbtFacetsCache = {};
 const DBT_COL_HINTS = {
   fills: ['created_at','contract','account','exchange','side','strategy','order_id'],
   orders: ['created_at','contract','account','exchange','side','strategy','status','order_id'],
-  logs: ['created_at','service','level'],
+  logs: ['created_at','strategy','account','contract','exchange','service','level'],
   events: ['created_at','contract','strategy'],
   positions: ['created_at','contract','strategy'],
   account_balances: ['created_at','account','exchange','strategy'],
@@ -4116,20 +4136,34 @@ async function copyDbTablePage() {
 let lgLastId = 0;
 let lgFirstId = 0;   // oldest id currently shown (for "load older")
 
+function lgMeta(l) {
+  const bits = [l.strategy, l.contract, l.account, l.exchange].filter(Boolean);
+  if (!bits.length) return '';
+  return bits.map(b => '<span class="lchip">' + esc(b) + '</span>').join('');
+}
+
 function lgRenderLine(l) {
   return '<div class="log-line"><span class="lt">' + fmtISTs(l.time) + '</span> ' +
     '<span class="lsvc">[' + esc(l.service) + ']</span> ' +
     '<span class="lv-' + esc(l.level) + '">' + esc(l.level) + '</span> ' +
+    lgMeta(l) +
     '<span style="color:#6b768e">' + esc(l.name || '') + '</span> ' + esc(l.message) + '</div>';
 }
 
 function lgFilterParams(extra) {
-  const service = document.getElementById('lgService').value;
-  const level   = document.getElementById('lgLevel').value;
-  const search  = document.getElementById('lgSearch').value.trim();
-  const since   = document.getElementById('lgFrom').value;
-  const until   = document.getElementById('lgTo').value;
-  return { service, level, search, since, until, ...(extra || {}) };
+  const val = id => (document.getElementById(id)?.value || '').trim();
+  return {
+    service: val('lgService'),
+    level: val('lgLevel'),
+    search: val('lgSearch'),
+    since: val('lgFrom'),
+    until: val('lgTo'),
+    strategy: val('lgStrategy'),
+    contract: val('lgContract'),
+    account: val('lgAccount'),
+    exchange: val('lgExchange'),
+    ...(extra || {}),
+  };
 }
 
 async function loadLogsX(reset) {

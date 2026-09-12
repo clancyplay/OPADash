@@ -251,6 +251,18 @@ class EventsDB:
                 CREATE INDEX IF NOT EXISTS idx_logs_service ON logs(service);
             """)
             await conn.execute("""
+                ALTER TABLE logs ADD COLUMN IF NOT EXISTS strategy VARCHAR(40);
+                ALTER TABLE logs ADD COLUMN IF NOT EXISTS account  VARCHAR(40);
+                ALTER TABLE logs ADD COLUMN IF NOT EXISTS contract VARCHAR(80);
+                ALTER TABLE logs ADD COLUMN IF NOT EXISTS exchange VARCHAR(20);
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_logs_contract
+                    ON logs (contract) WHERE COALESCE(contract, '') <> '';
+                CREATE INDEX IF NOT EXISTS idx_logs_strategy
+                    ON logs (strategy) WHERE COALESCE(strategy, '') <> '';
+            """)
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bot_control (
                     id             INT PRIMARY KEY DEFAULT 1,
                     desired_state  VARCHAR(20) NOT NULL DEFAULT 'running',
@@ -1259,6 +1271,10 @@ class EventsDB:
         before_id: Optional[int] = None,
         since: Optional[datetime] = None,
         until: Optional[datetime] = None,
+        strategy: Optional[str] = None,
+        account: Optional[str] = None,
+        contract: Optional[str] = None,
+        exchange: Optional[str] = None,
     ) -> list[dict]:
         """Recent log lines, newest first (or oldest-first after `after_id` for tailing).
 
@@ -1275,9 +1291,28 @@ class EventsDB:
             if level:
                 params.append(level.upper())
                 wheres.append(f"level = ${len(params)}")
+            if strategy:
+                params.append(str(strategy).strip())
+                wheres.append(f"strategy = ${len(params)}")
+            if account:
+                params.append(str(account).strip())
+                wheres.append(f"COALESCE(account, '') = ${len(params)}")
+            if contract:
+                aliases = contract_aliases(contract)
+                params.append(aliases)
+                wheres.append(f"UPPER(COALESCE(contract, '')) = ANY(${len(params)}::text[])")
+            if exchange:
+                params.append(str(exchange).strip().lower())
+                wheres.append(f"LOWER(COALESCE(exchange, '')) = ${len(params)}")
             if search:
                 params.append(f"%{search}%")
-                wheres.append(f"(message ILIKE ${len(params)} OR name ILIKE ${len(params)})")
+                i = len(params)
+                wheres.append(
+                    f"(message ILIKE ${i} OR name ILIKE ${i} "
+                    f"OR COALESCE(contract, '') ILIKE ${i} "
+                    f"OR COALESCE(account, '') ILIKE ${i} "
+                    f"OR COALESCE(strategy, '') ILIKE ${i})"
+                )
             if after_id:
                 params.append(after_id)
                 wheres.append(f"id > ${len(params)}")
@@ -1294,18 +1329,24 @@ class EventsDB:
             order = "ASC" if after_id else "DESC"
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
-                    f"SELECT id, created_at, service, level, name, message FROM logs "
-                    f"WHERE {' AND '.join(wheres)} ORDER BY id {order} LIMIT ${len(params)}",
+                    f"""SELECT id, created_at, service, level, name, message,
+                               strategy, account, contract, exchange
+                        FROM logs
+                        WHERE {' AND '.join(wheres)} ORDER BY id {order} LIMIT ${len(params)}""",
                     *params,
                 )
             return [
                 {
-                    "id":      r["id"],
-                    "time":    int(r["created_at"].timestamp()),
-                    "service": r["service"],
-                    "level":   r["level"],
-                    "name":    r["name"],
-                    "message": r["message"],
+                    "id":       r["id"],
+                    "time":     int(r["created_at"].timestamp()),
+                    "service":  r["service"],
+                    "level":    r["level"],
+                    "name":     r["name"],
+                    "message":  r["message"],
+                    "strategy": r["strategy"] or "",
+                    "account":  r["account"] or "",
+                    "contract": r["contract"] or "",
+                    "exchange": r["exchange"] or "",
                 }
                 for r in rows
             ]
