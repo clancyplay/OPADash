@@ -272,7 +272,7 @@
   .rpnl-pill {
     flex: 0 0 auto; cursor: pointer; border: 1px solid var(--border2);
     background: var(--surface); border-radius: 8px; padding: 7px 10px;
-    min-width: 168px; max-width: 250px; color: inherit; font-family: inherit; text-align: left;
+    min-width: 168px; max-width: 280px; color: inherit; font-family: inherit; text-align: left;
   }
   .rpnl-pill:hover { border-color: var(--accent); }
   .rpnl-pill.live { border-color: rgba(38,166,154,.45); }
@@ -304,17 +304,29 @@
     border-radius: 4px; padding: 1px 5px; white-space: nowrap;
   }
   .rpnl-pill .p-cfg.none { color: var(--muted); font-size: 9px; margin-top: 5px; }
-  .rpnl-pill.mode-hot { border-color: rgba(240,198,116,.65); }
-  .rpnl-pill.mode-hot .p-live {
-    background: #f0c674;
-    box-shadow: 0 0 6px #f0c674;
+  .rpnl-pill .p-pos {
+    font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums;
+    margin-top: 5px; color: #c5cdd8;
   }
-  .rpnl-pill .p-cfg span.mode-hot {
-    color: #f0c674;
+  .rpnl-pill .p-pos.long { color: var(--green); }
+  .rpnl-pill .p-pos.short { color: var(--red); }
+  .rpnl-pill .p-acts {
+    display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;
+  }
+  .rpnl-pill .p-acts button {
+    font-size: 9px; font-weight: 700; letter-spacing: .2px;
+    padding: 3px 7px; border-radius: 4px; cursor: pointer;
+    border: 1px solid var(--border2); background: rgba(255,255,255,.06);
+    color: #c5cdd8; font-family: inherit;
+  }
+  .rpnl-pill .p-acts button:hover { border-color: var(--accent); color: #fff; }
+  .rpnl-pill .p-acts button.danger { color: #f07178; }
+  .rpnl-pill .p-acts button.danger:hover { border-color: #f07178; }
+  .rpnl-pill .p-acts button.on {
+    background: rgba(240,198,116,.16); color: #f0c674;
     border-color: rgba(240,198,116,.45);
-    background: rgba(240,198,116,.12);
-    font-weight: 700;
   }
+  .rpnl-pill .p-acts button:disabled { opacity: .4; cursor: default; }
   .chart-legend {
     position: absolute;
     top: 12px;
@@ -1517,6 +1529,54 @@ function rpnlModeText(s) {
   return '';
 }
 
+function rpnlPosHtml(s) {
+  if (!s || s.pos == null) return '';
+  const n = Number(s.pos);
+  if (!isFinite(n)) return '';
+  if (Math.abs(n) < 1e-12) return '<div class="p-pos">pos 0</div>';
+  const side = n > 0 ? 'long' : 'short';
+  let t = side + ' ' + fmtG(Math.abs(n));
+  if (s.entry != null && Number(s.entry) > 0) t += ' @ ' + fmtG(s.entry);
+  if (s.upnl != null && isFinite(Number(s.upnl))) t += ' · uPnL $' + fmtG(s.upnl);
+  return '<div class="p-pos ' + side + '">' + escHtml(t) + '</div>';
+}
+
+function rpnlActsHtml(r) {
+  if (!r.live) return '';
+  const held = !!(r.settings && (r.settings.hold || r.settings.mode === 'stopped'));
+  return '<div class="p-acts">' +
+    '<button type="button" data-bot-cmd="stop"' + (held ? ' class="on"' : '') + '>Stop</button>' +
+    '<button type="button" data-bot-cmd="resume">Resume</button>' +
+    '<button type="button" data-bot-cmd="cancel">Cancel</button>' +
+    '<button type="button" class="danger" data-bot-cmd="flatten">Close</button>' +
+    '</div>';
+}
+
+async function sendBotCmd(pill, cmd) {
+  const contract = pill.dataset.contract || '';
+  const account = pill.dataset.account || '';
+  const name = pill.dataset.qsym || contract;
+  if (!contract || !cmd) return;
+  if (cmd === 'flatten' && !confirm('Close ' + name + ' with a market flatten and stop quoting?')) return;
+  if (cmd === 'stop' && !confirm('Stop quoting ' + name + '? Open orders cancel; position stays.')) return;
+  try {
+    const r = await fetch(withStrategy('/api/bot/command'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: cmd, contract: contract, account: account, strategy: currentStrategy }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      toast((d && d.detail) || ('command failed ' + r.status), 'err');
+      return;
+    }
+    toast((cmd === 'flatten' ? 'closing ' : cmd + ' ') + name, 'ok');
+    setTimeout(() => { if (typeof loadRpnl === 'function') loadRpnl(true); }, 1200);
+  } catch (e) {
+    toast(String(e), 'err');
+  }
+}
+
 function rpnlSetupBits(s) {
   const bits = [];
   const on = v => v === true || v === 'true' || v === 'on' || v === 1 || v === '1';
@@ -1585,7 +1645,7 @@ function rpnlCfgHtml(s) {
   const mode = rpnlModeText(s);
   if (!bits.length && !mode) return '<div class="p-cfg none">no bot setup yet</div>';
   const spans = [];
-  if (mode) spans.push('<span class="mode-hot">' + escHtml(mode) + '</span>');
+  if (mode) spans.push('<span>' + escHtml(mode) + '</span>');
   bits.forEach(function (b) { spans.push('<span>' + escHtml(b) + '</span>'); });
   return '<div class="p-cfg" title="' + escHtml(rpnlCfgTitle(s)).replace(/\n/g, '&#10;') + '">' +
     spans.join('') + '</div>';
@@ -1680,7 +1740,6 @@ function renderRpnlSummary(rows, hours) {
     const active = key === cur ? ' active' : '';
     const liveCls = r.live ? ' live' : '';
     const modeTxt = rpnlModeText(r.settings);
-    const modeCls = modeTxt ? ' mode-hot' : '';
     const acct = rpnlAccountLabel(r);
     const qv = r.quote_venue || 'delta';
     const qlab = r.quote_label || 'Delta';
@@ -1695,7 +1754,10 @@ function renderRpnlSummary(rows, hours) {
     const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
     // Key goes in a data attribute, not an inline onclick string — account ids
     // can contain quotes/ampersands that would break the attribute.
-    return '<button type="button" class="rpnl-pill' + active + liveCls + modeCls + '" data-rpnl-key="' + escHtml(key) + '">' +
+    return '<div class="rpnl-pill' + active + liveCls + '" data-rpnl-key="' + escHtml(key) +
+      '" data-contract="' + escHtml(r.contract || '') +
+      '" data-account="' + escHtml(r.account || '') +
+      '" data-qsym="' + escHtml(qsym) + '">' +
       '<div class="p-name">' + (r.live ? '<span class="p-live" title="' + escHtml(modeTxt || 'bot running') + '"></span>' : '') +
         escHtml(name) +
         '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
@@ -1711,12 +1773,22 @@ function renderRpnlSummary(rows, hours) {
         (r.live ? (modeTxt ? escHtml(String((r.settings && r.settings.mode) || 'live')) + ' · ' : 'live · ') : '') +
         escHtml(qlab) + ' ' + (r.fills || 0) + ' fills' +
         (hedged ? ' · ' + escHtml(hlab) + ' ' + r.hedge_fills : ' · no hedge') + '</div>' +
+      rpnlPosHtml(r.settings) +
       rpnlCfgHtml(r.settings) +
-      '</button>';
+      rpnlActsHtml(r) +
+      '</div>';
   }).join('');
   if (!wrap.dataset.bound) {
     wrap.dataset.bound = '1';
     wrap.addEventListener('click', ev => {
+      const act = ev.target.closest('[data-bot-cmd]');
+      if (act) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const pill = act.closest('[data-rpnl-key]');
+        if (pill) sendBotCmd(pill, act.getAttribute('data-bot-cmd'));
+        return;
+      }
       const btn = ev.target.closest('[data-rpnl-key]');
       if (btn) pickRpnlContract(btn.dataset.rpnlKey);
     });

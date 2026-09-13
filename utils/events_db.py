@@ -276,6 +276,35 @@ class EventsDB:
                 ON CONFLICT (id) DO NOTHING;
             """)
             await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bot_command (
+                    id          BIGSERIAL PRIMARY KEY,
+                    strategy    VARCHAR(40) NOT NULL,
+                    account     VARCHAR(40) NOT NULL DEFAULT '',
+                    contract    VARCHAR(80) NOT NULL DEFAULT '',
+                    cmd         VARCHAR(32) NOT NULL,
+                    payload     JSONB NOT NULL DEFAULT '{}',
+                    status      VARCHAR(16) NOT NULL DEFAULT 'pending',
+                    error       TEXT,
+                    created_by  VARCHAR(40),
+                    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    taken_at    TIMESTAMPTZ,
+                    done_at     TIMESTAMPTZ
+                );
+                CREATE INDEX IF NOT EXISTS idx_bot_command_pending
+                    ON bot_command (strategy, account, status, id)
+                    WHERE status = 'pending';
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bot_hold (
+                    strategy    VARCHAR(40) NOT NULL,
+                    account     VARCHAR(40) NOT NULL DEFAULT '',
+                    contract    VARCHAR(80) NOT NULL,
+                    hold        BOOLEAN NOT NULL DEFAULT FALSE,
+                    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (strategy, account, contract)
+                );
+            """)
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS coindcx_transactions (
                     id              BIGSERIAL PRIMARY KEY,
                     synced_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1396,6 +1425,36 @@ class EventsDB:
         except Exception as e:
             self.logger.warning("events_db: get_bot_control failed — %s", e)
             return default
+
+    async def insert_bot_command(
+        self,
+        strategy: str,
+        account: str,
+        contract: str,
+        cmd: str,
+        created_by: str = "dashboard",
+    ) -> int | None:
+        """Queue a per-bot command for OPA6 (stop/resume/cancel/flatten)."""
+        if not self.pool:
+            return None
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO bot_command (strategy, account, contract, cmd, created_by)
+                    VALUES ($1, $2, $3, $4, $5)
+                    RETURNING id
+                    """,
+                    str(strategy or "").strip()[:40],
+                    str(account or "")[:40],
+                    str(contract or "").strip()[:80],
+                    str(cmd or "").strip().lower()[:32],
+                    str(created_by or "dashboard")[:40],
+                )
+                return int(row["id"]) if row else None
+        except Exception as e:
+            self.logger.warning("events_db: insert_bot_command failed — %s", e)
+            return None
 
     # ── Reports history ───────────────────────────────────────────────────────
 

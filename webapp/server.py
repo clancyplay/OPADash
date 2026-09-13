@@ -316,6 +316,7 @@ _SETUP_KEYS = (
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
     "mode", "mode_why", "pause_left", "size_pct",
     "min_spread", "spread_pad",
+    "pos", "entry", "upnl", "hold",
 )
 _SYMBOL_STRATS = {"opa3", "opa4"}
 
@@ -1313,6 +1314,54 @@ async def bot_control(req: BotControlRequest) -> dict:
     await _db.set_bot_control(state, note=req.note, updated_by="dashboard")
     logger.info("webapp: bot control set to %s", state)
     return {"ok": True, "desired_state": state}
+
+
+class BotCommandRequest(BaseModel):
+    cmd: str
+    contract: str
+    account: str = ""
+    strategy: str = ""
+    note: str = ""
+
+
+_BOT_CMDS = {
+    "stop": "stop",
+    "pause": "stop",
+    "halt": "stop",
+    "resume": "resume",
+    "start": "resume",
+    "run": "resume",
+    "cancel": "cancel",
+    "cancel_all": "cancel",
+    "flatten": "flatten",
+    "close": "flatten",
+}
+
+
+@app.post("/api/bot/command")
+async def bot_command(
+    req: BotCommandRequest,
+    strategy: str = Query(""),
+) -> dict:
+    """Queue stop / resume / cancel / flatten for a live OPA6 contract. Bot polls ~0.6s."""
+    if _db is None or not _db.pool:
+        raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
+    cmd = _BOT_CMDS.get(str(req.cmd or "").strip().lower())
+    if not cmd:
+        raise HTTPException(status_code=400, detail=f"unknown cmd '{req.cmd}'")
+    contract = str(req.contract or "").strip()
+    if not contract:
+        raise HTTPException(status_code=400, detail="contract required")
+    tag = (req.strategy or strategy or "").strip()
+    if not tag:
+        raise HTTPException(status_code=400, detail="strategy required")
+    cmd_id = await _db.insert_bot_command(
+        tag, req.account or "", contract, cmd, created_by="dashboard",
+    )
+    if cmd_id is None:
+        raise HTTPException(status_code=500, detail="failed to queue command")
+    logger.info("webapp: bot command %s %s %s %s id=%s", cmd, tag, contract, req.account or "-", cmd_id)
+    return {"ok": True, "id": cmd_id, "cmd": cmd, "strategy": tag, "contract": contract, "account": req.account or ""}
 
 
 class DepositWithdrawalRequest(BaseModel):
