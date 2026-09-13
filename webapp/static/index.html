@@ -303,6 +303,17 @@
     border-radius: 4px; padding: 1px 5px; white-space: nowrap;
   }
   .rpnl-pill .p-cfg.none { color: var(--muted); font-size: 9px; margin-top: 5px; }
+  .rpnl-pill.mode-hot { border-color: rgba(240,198,116,.65); }
+  .rpnl-pill.mode-hot .p-live {
+    background: #f0c674;
+    box-shadow: 0 0 6px #f0c674;
+  }
+  .rpnl-pill .p-cfg span.mode-hot {
+    color: #f0c674;
+    border-color: rgba(240,198,116,.45);
+    background: rgba(240,198,116,.12);
+    font-weight: 700;
+  }
   .chart-legend {
     position: absolute;
     top: 12px;
@@ -1485,6 +1496,24 @@ function fmtG(v) {
   return String(parseFloat(n.toPrecision(6)));
 }
 
+function rpnlModeText(s) {
+  if (!s) return '';
+  const mode = String(s.mode || '').trim();
+  const why = String(s.mode_why || '').trim();
+  let left = Number(s.pause_left);
+  if (!isFinite(left)) left = 0;
+  const size = s.size_pct == null ? NaN : Number(s.size_pct);
+  if (mode && mode !== 'quoting') {
+    let t = mode;
+    if (left > 0) t += ' ' + Math.round(left) + 's';
+    if (why) t += ' · ' + why;
+    if (isFinite(size) && size < 99.5) t += ' · size ' + fmtG(size) + '%';
+    return t;
+  }
+  if (isFinite(size) && size < 99.5) return 'size ' + fmtG(size) + '%';
+  return '';
+}
+
 function rpnlSetupBits(s) {
   const bits = [];
   const on = v => v === true || v === 'true' || v === 'on' || v === 1 || v === '1';
@@ -1531,7 +1560,7 @@ function rpnlSymbolBits(s) {
 
 function rpnlCfgBits(s) {
   if (!s) return [];
-  if (s.kind === 'setup' || s.hem != null || s.fit_auto != null || s.max_usd != null || s.k != null || s.edge != null) {
+  if (s.kind === 'setup' || s.hem != null || s.fit_auto != null || s.max_usd != null || s.k != null || s.edge != null || s.mode != null) {
     return rpnlSetupBits(s);
   }
   return rpnlSymbolBits(s);
@@ -1548,9 +1577,13 @@ function rpnlCfgTitle(s) {
 
 function rpnlCfgHtml(s) {
   const bits = rpnlCfgBits(s);
-  if (!bits.length) return '<div class="p-cfg none">no bot setup yet</div>';
+  const mode = rpnlModeText(s);
+  if (!bits.length && !mode) return '<div class="p-cfg none">no bot setup yet</div>';
+  const spans = [];
+  if (mode) spans.push('<span class="mode-hot">' + escHtml(mode) + '</span>');
+  bits.forEach(function (b) { spans.push('<span>' + escHtml(b) + '</span>'); });
   return '<div class="p-cfg" title="' + escHtml(rpnlCfgTitle(s)).replace(/\n/g, '&#10;') + '">' +
-    bits.map(b => '<span>' + escHtml(b) + '</span>').join('') + '</div>';
+    spans.join('') + '</div>';
 }
 
 function rpnlWindowLabel(hours) {
@@ -1598,6 +1631,8 @@ function renderRpnlSummary(rows, hours) {
     const key = rpnlOptionValue(r);
     const active = key === cur ? ' active' : '';
     const liveCls = r.live ? ' live' : '';
+    const modeTxt = rpnlModeText(r.settings);
+    const modeCls = modeTxt ? ' mode-hot' : '';
     const acct = rpnlAccountLabel(r);
     const qv = r.quote_venue || 'delta';
     const qlab = r.quote_label || 'Delta';
@@ -1612,8 +1647,8 @@ function renderRpnlSummary(rows, hours) {
     const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
     // Key goes in a data attribute, not an inline onclick string — account ids
     // can contain quotes/ampersands that would break the attribute.
-    return '<button type="button" class="rpnl-pill' + active + liveCls + '" data-rpnl-key="' + escHtml(key) + '">' +
-      '<div class="p-name">' + (r.live ? '<span class="p-live" title="bot running"></span>' : '') +
+    return '<button type="button" class="rpnl-pill' + active + liveCls + modeCls + '" data-rpnl-key="' + escHtml(key) + '">' +
+      '<div class="p-name">' + (r.live ? '<span class="p-live" title="' + escHtml(modeTxt || 'bot running') + '"></span>' : '') +
         escHtml(name) +
         '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
       '<div class="p-val" style="color:' + mainCol + '">' + inrFmt(main) +
@@ -1624,7 +1659,8 @@ function renderRpnlSummary(rows, hours) {
             '<span style="color:#ff9800">' + escHtml(hlab) + ' ' + inrFmt(hedge) + '</span>' +
           '</div>'
         : '') +
-      '<div class="p-meta">' + (win ? escHtml(win) + ' · ' : '') + (r.live ? 'live · ' : '') +
+      '<div class="p-meta">' + (win ? escHtml(win) + ' · ' : '') +
+        (r.live ? (modeTxt ? escHtml(String((r.settings && r.settings.mode) || 'live')) + ' · ' : 'live · ') : '') +
         escHtml(qlab) + ' ' + (r.fills || 0) + ' fills' +
         (hedged ? ' · ' + escHtml(hlab) + ' ' + r.hedge_fills : ' · no hedge') + '</div>' +
       rpnlCfgHtml(r.settings) +

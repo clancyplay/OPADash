@@ -314,6 +314,7 @@ _SETUP_KEYS = (
     "hem", "span", "step", "fit_auto", "vol_gate", "vol_stable",
     "orders", "live_orders", "max_pos", "max_usd", "ignore", "ignore_usd",
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
+    "mode", "mode_why", "pause_left", "size_pct",
 )
 _SYMBOL_STRATS = {"opa3", "opa4"}
 
@@ -349,7 +350,8 @@ def _setup_public(setup: dict | None) -> dict | None:
             try:
                 out[key] = float(val) if "." in val else int(val)
             except ValueError:
-                continue
+                if 0 < len(val) <= 160:
+                    out[key] = val
     if "max_usd" in out:
         out.pop("max_pos", None)
     return out if len(out) > 1 else None
