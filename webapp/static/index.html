@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#161a25" />
+<meta name="color-scheme" content="dark" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
 <title>OPADash</title>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
@@ -10,6 +14,7 @@
   :root {
     --bg: #0e1117;
     --surface: #161a25;
+    --surface2: #1a2030;
     --border: #262b3a;
     --border2: #303647;
     --text: #d1d4dc;
@@ -17,19 +22,48 @@
     --accent: #2962ff;
     --green: #26a69a;
     --red: #ef5350;
+    --nav-h: 48px;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --pad: 20px;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
   }
-  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, Segoe UI, Roboto, sans-serif; min-height: 100vh; }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    color-scheme: dark;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    padding-bottom: var(--safe-b);
+  }
+  button, a, .card, .dtab, .tbl-item, .rpnl-pill { -webkit-tap-highlight-color: transparent; }
+  button, .btn, .dtab, select { touch-action: manipulation; }
 
   /* Nav */
   nav {
     display: flex;
     align-items: center;
     flex-wrap: nowrap;
-    padding: 0 20px;
-    background: var(--surface);
+    padding: var(--safe-t) max(16px, var(--safe-r)) 0 max(16px, var(--safe-l));
+    background: rgba(22,26,37,.94);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border);
-    height: 48px;
+    height: calc(var(--nav-h) + var(--safe-t));
     overflow: hidden;
+    position: sticky;
+    top: 0;
+    z-index: 50;
   }
   nav .brand {
     font-weight: 700; font-size: 15px; margin-right: 12px; color: #fff;
@@ -38,7 +72,7 @@
   nav .nav-links {
     flex: 1;
     min-width: 0;
-    height: 100%;
+    height: var(--nav-h);
     display: flex;
     align-items: stretch;
     flex-wrap: nowrap;
@@ -52,15 +86,15 @@
   nav .nav-links::-webkit-scrollbar { display: none; }
   nav button {
     background: none; border: none; border-bottom: 3px solid transparent;
-    color: var(--muted); font-size: 13px; padding: 0 16px; height: 48px;
+    color: var(--muted); font-size: 13px; padding: 0 14px; height: var(--nav-h);
     cursor: pointer; transition: color .15s, border-color .15s;
     flex-shrink: 0; white-space: nowrap;
   }
-  nav button:hover  { color: var(--text); }
   nav button.active { color: #fff; border-bottom-color: var(--accent); }
   nav #strategy-select {
     margin-left: 8px;
     flex-shrink: 0;
+    max-width: 112px;
     background: var(--bg, #0e1117);
     color: var(--text, #d1d4dc);
     border: 1px solid var(--border);
@@ -87,30 +121,35 @@
   nav .db-badge.pend { background: rgba(127,133,152,.12); color: var(--muted); border: 1px solid var(--border2); }
 
   /* Pages */
-  .page { display: none; }
+  .page { display: none; min-width: 0; }
   .page.visible { display: block; }
 
   /* Home */
-  #home { padding: 56px 32px; max-width: 860px; margin: 0 auto; }
-  #home h1 { font-size: 28px; margin: 0 0 10px; font-weight: 700; }
-  #home p.sub { color: var(--muted); font-size: 14px; margin: 0 0 44px; line-height: 1.6; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
+  #home { padding: 48px 32px 56px; max-width: 980px; margin: 0 auto; }
+  #home h1 { font-size: 32px; margin: 0 0 10px; font-weight: 750; letter-spacing: -.4px; }
+  #home p.sub { color: var(--muted); font-size: 15px; margin: 0 0 36px; line-height: 1.6; max-width: 56ch; }
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
   .card {
     background: var(--surface); border: 1px solid var(--border2);
-    border-radius: 10px; padding: 28px 24px; cursor: pointer;
+    border-radius: var(--radius); padding: 24px 22px; cursor: pointer;
     transition: border-color .15s, transform .15s, box-shadow .15s;
+    min-width: 0;
   }
-  .card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,0,0,.4); }
-  .card .icon { font-size: 32px; margin-bottom: 14px; display: block; }
-  .card h3 { font-size: 16px; margin: 0 0 8px; font-weight: 600; }
-  .card p { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.6; }
-  .card .arrow { margin-top: 18px; font-size: 13px; color: var(--accent); font-weight: 500; }
+  @media (hover: hover) {
+    .card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 28px rgba(0,0,0,.35); }
+    nav button:hover  { color: var(--text); }
+  }
+  .card:active { transform: translateY(0); }
+  .card .icon { font-size: 28px; margin-bottom: 12px; display: block; }
+  .card h3 { font-size: 16px; margin: 0 0 8px; font-weight: 650; }
+  .card p { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.55; }
+  .card .arrow { margin-top: 16px; font-size: 13px; color: var(--accent); font-weight: 600; }
   .db-info-box {
-    margin-top: 36px;
-    padding: 16px 20px;
+    margin-top: 28px;
+    padding: 14px 16px;
     background: var(--surface);
     border: 1px solid var(--border2);
-    border-radius: 8px;
+    border-radius: var(--radius);
     font-size: 13px;
     line-height: 1.7;
   }
@@ -118,24 +157,35 @@
 
   /* Controls */
   .ctrl-bar {
-    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap;
+    padding: 10px max(16px, var(--safe-r)) 10px max(16px, var(--safe-l));
+    background: rgba(22,26,37,.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: calc(var(--nav-h) + var(--safe-t));
+    z-index: 40;
   }
-  .ctrl-bar label { font-size: 12px; color: var(--muted); }
-  select, button.btn, input.dinp, input[type="date"], input[type="time"] {
+  .ctrl-bar label { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  .ctrl-meta { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .ctrl-views { margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; }
+  select, button.btn, input.dinp, input[type="date"], input[type="time"], input[type="search"], input[type="text"] {
     background: #1e2230; color: var(--text);
-    border: 1px solid var(--border2); border-radius: 4px;
-    padding: 5px 10px; font-size: 13px;
+    border: 1px solid var(--border2); border-radius: 6px;
+    padding: 6px 10px; font-size: 13px; max-width: 100%;
   }
   input.dinp { min-width: 120px; }
   input[type="date"] { color-scheme: dark; min-width: 138px; }
   input[type="time"] { color-scheme: dark; min-width: 108px; }
-  button.btn { cursor: pointer; }
-  button.btn:hover { background: #2a3040; }
+  button.btn { cursor: pointer; min-height: 32px; }
+  @media (hover: hover) {
+    button.btn:hover { background: #2a3040; }
+  }
   button.btn:disabled { opacity: .45; cursor: default; }
 
   /* Status bar */
-  .status-bar { padding: 6px 20px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); min-height: 28px; display: flex; align-items: center; gap: 8px; }
+  .status-bar { padding: 6px max(16px, var(--safe-r)) 6px max(16px, var(--safe-l)); font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); min-height: 28px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .status-bar.error { color: var(--red); }
   .status-bar.ok    { color: var(--green); }
 
@@ -162,8 +212,8 @@
   .error-panel .err-title { font-weight: 600; color: var(--red); margin-bottom: 6px; }
   .error-panel code { background: rgba(0,0,0,.3); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
 
-  #rpnlChart   { width: 100%; height: 28vh; position: relative; }
-  #ohlcChart   { width: 100%; height: 42vh; position: relative; }
+  #rpnlChart   { width: 100%; height: 28vh; min-height: 180px; position: relative; }
+  #ohlcChart   { width: 100%; height: 42vh; min-height: 240px; position: relative; }
   .rpnl-stack { display: flex; flex-direction: column; min-height: 0; }
   .rpnl-pane { position: relative; }
   .rpnl-pane-label {
@@ -173,13 +223,14 @@
   }
   .rpnl-tools {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
-    padding: 8px 16px 10px; border-bottom: 1px solid var(--border);
+    padding: 10px max(16px, var(--safe-r)) calc(12px + var(--safe-b)) max(16px, var(--safe-l));
+    border-top: 1px solid var(--border);
     background: var(--surface); font-size: 12px;
   }
   .rpnl-tools label { color: var(--muted); font-size: 11px; display: flex; align-items: center; gap: 6px; }
   .rpnl-tools input[type="datetime-local"] {
     background: var(--bg); color: var(--text); border: 1px solid var(--border);
-    border-radius: 6px; padding: 4px 6px; font-size: 12px;
+    border-radius: 6px; padding: 4px 6px; font-size: 12px; color-scheme: dark; max-width: 100%;
   }
   .rpnl-tools .range-mode {
     font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
@@ -201,19 +252,22 @@
     background: rgba(41,98,255,.04);
   }
   .rpnl-key {
-    display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: center;
-    padding: 8px 16px; font-size: 12px; border-bottom: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+    padding: 8px max(16px, var(--safe-r)) 8px max(16px, var(--safe-l)); font-size: 12px; border-bottom: 1px solid var(--border);
     background: var(--surface);
   }
   .rpnl-key .kdot { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
   .rpnl-key .kitem { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  .rpnl-key .kitem-end { margin-left: auto; }
   .rpnl-key .kval { color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; }
   .rpnl-pill .p-split { display: flex; gap: 10px; margin-top: 4px; }
   .rpnl-pill .p-split span { font-size: 11px; font-variant-numeric: tabular-nums; }
   .rpnl-pills {
-    display: flex; gap: 8px; overflow-x: auto; padding: 8px 16px 10px;
-    border-bottom: 1px solid var(--border); scrollbar-width: thin;
+    display: flex; gap: 8px; overflow-x: auto; padding: 8px max(16px, var(--safe-r)) 10px max(16px, var(--safe-l));
+    border-bottom: 1px solid var(--border); scrollbar-width: none;
+    -webkit-overflow-scrolling: touch; touch-action: pan-x;
   }
+  .rpnl-pills::-webkit-scrollbar { display: none; }
   .rpnl-pill {
     flex: 0 0 auto; cursor: pointer; border: 1px solid var(--border2);
     background: var(--surface); border-radius: 8px; padding: 7px 10px;
@@ -280,18 +334,22 @@
   .empty-state code { background: var(--surface); padding: 3px 8px; border-radius: 4px; font-size: 12px; color: #aaa; }
 
   .toast {
-    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-    background: var(--surface); border: 1px solid var(--border2); border-radius: 8px;
-    padding: 12px 20px; font-size: 13px; z-index: 1000; box-shadow: 0 8px 30px rgba(0,0,0,.5);
+    position: fixed; bottom: calc(16px + var(--safe-b)); left: 50%; transform: translateX(-50%);
+    background: var(--surface); border: 1px solid var(--border2); border-radius: 10px;
+    padding: 12px 18px; font-size: 13px; z-index: 1000; box-shadow: 0 8px 30px rgba(0,0,0,.5);
     opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+    width: min(92vw, 420px); text-align: center;
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   .toast.ok   { border-color: rgba(38,166,154,.5); }
   .toast.err  { border-color: rgba(239,83,80,.5); color: #f48fb1; }
 
   /* ── Reports page ─────────────────────────────────────── */
-  #reports { padding: 20px; max-width: 1440px; margin: 0 auto; }
-  #reports-inner { padding: 4px; }
+  #reports { padding: 0; max-width: none; margin: 0; }
+  #reports-inner, .page-inner {
+    padding: 16px max(16px, var(--safe-r)) 28px max(16px, var(--safe-l));
+    max-width: 1440px; margin: 0 auto; min-width: 0;
+  }
   .rpt-hero {
     background: linear-gradient(135deg, #161a25 0%, #1a2032 100%);
     border: 1px solid var(--border2); border-radius: 14px;
@@ -308,7 +366,7 @@
   .rpt-exch { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
   .rpt-exchip {
     background: var(--surface); border: 1px solid var(--border2); border-radius: 10px;
-    padding: 8px 12px; min-width: 128px;
+    padding: 8px 12px; min-width: 128px; flex: 1 1 128px;
   }
   .rpt-exchip .el { font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; }
   .rpt-exchip .ev { font-size: 15px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
@@ -326,7 +384,8 @@
     background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
     margin-bottom: 14px; overflow: hidden;
   }
-  .rpt-matrix-scroll { overflow-x: auto; }
+  .rpt-matrix-wrap .hint { padding: 0 14px 12px; margin-top: 0; }
+  .rpt-matrix-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table.rpt-matrix { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; min-width: 640px; }
   table.rpt-matrix th {
     text-align: right; color: var(--muted); font-size: 10.5px; text-transform: uppercase;
@@ -353,7 +412,7 @@
   .rpt-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
   .rpt-tools input[type=search] {
     background: var(--surface); color: var(--text); border: 1px solid var(--border2);
-    border-radius: 8px; padding: 7px 10px; font-size: 12.5px; min-width: 200px;
+    border-radius: 8px; padding: 8px 12px; font-size: 13px; min-width: min(200px, 100%); flex: 1;
   }
   .rpt-accts { display: flex; flex-direction: column; gap: 12px; }
   .rpt-acct {
@@ -366,7 +425,7 @@
     padding: 12px 16px; cursor: pointer; border-bottom: 1px solid transparent;
   }
   .rpt-acct-h:hover { background: rgba(255,255,255,.02); }
-  .rpt-acct .aname { font-size: 15px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px; }
+  .rpt-acct .aname { font-size: 15px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
   .rpt-acct .aid { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .rpt-acct .anet { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
   .rpt-acct .ameta { font-size: 11px; color: var(--muted); text-align: right; }
@@ -379,11 +438,11 @@
     display: inline-block; width: 8px; height: 8px; border-radius: 50%;
     background: #26a69a; box-shadow: 0 0 0 3px rgba(38,166,154,.22);
   }
-  .rpt-acct-b { padding: 4px 16px 16px; display: none; }
+  .rpt-acct-b { padding: 4px 16px 16px; display: none; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .rpt-acct.open .rpt-acct-b { display: block; }
   .rpt-acct.open { border-color: rgba(41,98,255,.45); }
   .rpt-acct.open .rpt-acct-h { background: rgba(41,98,255,.06); border-bottom-color: var(--border); }
-  .rpt-xtable { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; margin-bottom: 12px; }
+  .rpt-xtable { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; margin-bottom: 12px; min-width: 420px; }
   .rpt-xtable th { text-align: left; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .4px; padding: 4px 8px; }
   .rpt-xtable td { padding: 6px 8px; border-top: 1px solid var(--border); }
   .rpt-xtable td.num, .rpt-xtable th.num { text-align: right; }
@@ -401,17 +460,27 @@
   .pos-pos  { color: var(--green); }
 
   /* ── Data explorer ────────────────────────────────── */
-  #data { padding: 20px; max-width: 1680px; margin: 0 auto; }
-  .dtabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  #data { padding: 12px max(16px, var(--safe-r)) 24px max(16px, var(--safe-l)); max-width: 1680px; margin: 0 auto; }
+  .dtabs {
+    display: flex; gap: 6px; margin: 0 -4px 14px; padding: 4px 4px 10px;
+    flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+    -webkit-overflow-scrolling: touch; touch-action: pan-x; scrollbar-width: none;
+  }
+  .dtabs::-webkit-scrollbar { display: none; }
   .dtab {
     background: #1e2230; color: var(--muted); border: 1px solid var(--border2);
-    border-radius: 20px; padding: 7px 16px; font-size: 12.5px; cursor: pointer; transition: all .15s;
+    border-radius: 20px; padding: 8px 14px; font-size: 12.5px; cursor: pointer; transition: all .15s;
+    flex-shrink: 0; white-space: nowrap;
   }
-  .dtab:hover { color: var(--text); }
+  @media (hover: hover) {
+    .dtab:hover { color: var(--text); }
+  }
   .dtab.active { color: #fff; border-color: var(--accent); background: rgba(41,98,255,.18); }
   .dpanel { display: none; }
   .dpanel.visible { display: block; }
-  .dctrl { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12.5px; color: var(--muted); }
+  .dctrl { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12.5px; color: var(--muted); }
+  .dctrl .ctrl-meta { width: auto; }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
 
   .insights-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; margin-bottom: 12px; }
   .ins-cell { background: var(--surface); border: 1px solid var(--border2); border-radius: 8px; padding: 8px 10px; }
@@ -420,9 +489,9 @@
 
   .fills-duo { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .fill-pane { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; overflow: hidden; }
-  .fill-pane h4 { margin: 0; padding: 10px 14px; font-size: 13px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .fill-pane h4 { margin: 0; padding: 10px 14px; font-size: 13px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
   .fill-pane h4 .sub { font-size: 11px; color: var(--muted); font-weight: 400; }
-  .fill-scroll { max-height: 62vh; overflow-y: auto; }
+  .fill-scroll { max-height: 62vh; overflow: auto; -webkit-overflow-scrolling: touch; }
 
   .dtable { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
   .dtable th {
@@ -454,7 +523,7 @@
   .tbl-item:hover { background: rgba(255,255,255,.03); }
   .tbl-item.active { background: rgba(41,98,255,.15); color: #fff; }
   .tbl-item .cnt { color: var(--muted); font-size: 11px; }
-  .tbl-grid-wrap { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; overflow: auto; max-height: 70vh; }
+  .tbl-grid-wrap { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; overflow: auto; max-height: 70vh; -webkit-overflow-scrolling: touch; max-width: 100%; }
 
   .dbt-filters {
     display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center;
@@ -471,7 +540,7 @@
   }
   .dbt-peek .peek-h { display: flex; justify-content: space-between; color: var(--muted); font-family: inherit; font-size: 11px; margin-bottom: 8px; }
 
-  .pos-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .pos-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(270px, 100%), 1fr)); gap: 12px; margin-bottom: 14px; }
   .pos-card { background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; padding: 14px 16px; }
   .pos-card h4 { margin: 0 0 8px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
   .pos-card h4 .ago { font-size: 11px; color: var(--muted); font-weight: 400; }
@@ -482,8 +551,9 @@
 
   .logs-box {
     background: #0a0d13; border: 1px solid var(--border2); border-radius: 10px;
-    padding: 8px 0; max-height: 68vh; overflow-y: auto;
+    padding: 8px 0; max-height: 68vh; overflow: auto;
     font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; line-height: 1.55;
+    -webkit-overflow-scrolling: touch;
   }
   .log-line { padding: 1px 14px; white-space: pre-wrap; word-break: break-word; }
   .log-line:hover { background: rgba(255,255,255,.03); }
@@ -500,35 +570,101 @@
   .lv-DEBUG { color: #9e9e9e; }
 
   /* ── Responsive ───────────────────────────────────────── */
+  @media (max-width: 960px) {
+    .cards { grid-template-columns: 1fr 1fr; }
+    .fills-duo { grid-template-columns: 1fr; }
+    .tables-duo { grid-template-columns: 1fr; }
+    .tbl-list {
+      display: flex; overflow-x: auto; -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .tbl-list::-webkit-scrollbar { display: none; }
+    .tbl-item { white-space: nowrap; border-bottom: none; border-right: 1px solid var(--border); flex-shrink: 0; }
+  }
+
   @media (max-width: 720px) {
-    nav { padding: 0 10px; height: 46px; overflow: hidden; }
-    nav .brand { margin-right: 8px; font-size: 14px; }
-    nav .nav-links { height: 46px; }
-    nav button { padding: 0 11px; height: 46px; font-size: 12px; }
+    :root { --nav-h: 46px; --pad: 12px; }
+    nav {
+      padding: var(--safe-t) max(8px, var(--safe-r)) 0 max(8px, var(--safe-l));
+      height: calc(var(--nav-h) + var(--safe-t));
+    }
+    nav .brand { margin-right: 6px; font-size: 13px; }
+    nav .nav-links { height: var(--nav-h); }
+    nav button { padding: 0 10px; height: var(--nav-h); font-size: 12px; }
     nav .db-badge { display: none; }
+    nav #strategy-select { max-width: 92px; font-size: 11px; padding: 3px 6px; min-height: 0; height: 28px; }
 
-    #home { padding: 28px 18px; }
-    #home h1 { font-size: 22px; }
-    #home p.sub { margin-bottom: 28px; }
+    #home { padding: 24px 16px 36px; }
+    #home h1 { font-size: 26px; }
+    #home p.sub { margin-bottom: 22px; font-size: 14px; }
+    .cards { grid-template-columns: 1fr; gap: 12px; }
+    .card { padding: 18px 16px; }
+    .card .icon { font-size: 24px; margin-bottom: 8px; }
 
-    .ctrl-bar { padding: 8px 12px; gap: 8px; }
-    select, button.btn { padding: 6px 9px; font-size: 12px; }
+    .ctrl-bar {
+      padding: 8px max(12px, var(--safe-r)) 8px max(12px, var(--safe-l));
+      gap: 8px;
+    }
+    .ctrl-meta { flex: 1 1 100%; margin-left: 0; }
+    .ctrl-views { margin-left: 0; width: 100%; }
+    .ctrl-views .btn { flex: 1; text-align: center; }
+    select, button.btn, input.dinp, input[type="date"], input[type="time"], input[type="search"], input[type="text"], input[type="datetime-local"] {
+      font-size: 16px; /* iOS: avoid zoom-on-focus */
+      min-height: 40px;
+      padding: 8px 10px;
+    }
     .status-bar { padding: 6px 12px; font-size: 11px; }
-    #rpnlChart { height: 28vh; }
-    #ohlcChart { height: 34vh; }
 
-    .rpt-hero .hero-bal { font-size: 28px; }
-    .rpt-acct-h { grid-template-columns: 1fr auto; }
+    #ohlcChart { height: 36vh; min-height: 200px; }
+    #rpnlChart { height: 24vh; min-height: 150px; }
+    .rpnl-pane-label { right: 8px; top: 6px; font-size: 9px; }
+    .rpnl-tools label { width: 100%; }
+    .rpnl-tools input[type="datetime-local"] { width: 100%; min-width: 0; }
+    .rpnl-exports { margin-left: 0; width: 100%; }
+    .rpnl-exports .btn { flex: 1 1 auto; }
+    .rpnl-pill { min-width: 150px; max-width: 220px; }
+    .chart-legend { font-size: 11px; min-width: 120px; padding: 6px 9px; left: 8px; top: 8px; }
+
+    .rpt-hero { padding: 16px; border-radius: 12px; }
+    .rpt-hero .hero-bal { font-size: 28px; word-break: break-word; }
+    .rpt-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .rpt-kpi .v { font-size: 16px; }
+    .rpt-acct-h { grid-template-columns: 1fr auto; gap: 8px; padding: 12px; }
     .rpt-acct .ameta, .rpt-vchips { grid-column: 1 / -1; text-align: left; }
-    #reports, #data { padding: 14px; }
-    .fills-duo, .tables-duo { grid-template-columns: 1fr; }
-    .fill-scroll { max-height: 44vh; }
-    .chart-legend { font-size: 11px; min-width: 130px; padding: 6px 9px; }
+    .rpt-acct .anet { font-size: 18px; }
+    .rpt-acct-b { padding: 4px 12px 14px; }
     #rptDayChart { height: 140px; }
+    .insights-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .fill-scroll { max-height: 42vh; }
+    .logs-box { max-height: 58vh; font-size: 11px; }
+    .log-line { padding: 2px 10px; }
+    .dtable { font-size: 11.5px; }
+    input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+    .hint { margin-bottom: 4px; }
+
+    .dctrl label, .dbt-filters label { flex: 1 1 160px; }
+    .dctrl .ctrl-meta { flex: 1 1 100%; margin-left: 0; }
+    .dctrl select, .dctrl .dinp, .dbt-filters .dinp, .dbt-filters select, .dbt-filters input {
+      width: 100%; min-width: 0;
+    }
+    input.dinp, input[type="date"], input[type="time"] { min-width: 0; }
+    .rpnl-key .kitem-end { margin-left: 0; flex: 1 1 100%; }
+    .fill-pane h4 { flex-wrap: wrap; gap: 4px; }
+
+    #reports-inner, .page-inner, #data {
+      padding: 12px max(12px, var(--safe-r)) 24px max(12px, var(--safe-l));
+    }
+    #data { padding-top: 8px; }
   }
 
   @media (max-width: 420px) {
-    nav .brand { display: none; }
+    nav .brand { font-size: 12px; letter-spacing: .2px; }
+    .rpt-hero .hero-bal { font-size: 24px; }
+    .rpt-kpis { gap: 8px; }
+  }
+
+  @media (min-width: 721px) {
+    .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 </style>
 </head>
@@ -552,7 +688,7 @@
 <!-- HOME -->
 <div id="home" class="page visible">
   <h1>OPADash</h1>
-  <p class="sub">Real-time market monitoring and PnL analytics across Delta Exchange and Binance futures.</p>
+  <p class="sub">Balances, reports, realized PnL and live data — on a phone or a monitor.</p>
   <div class="cards">
     <div class="card" onclick="showPage('balances')">
       <span class="icon">💰</span>
@@ -592,9 +728,9 @@
     <button class="btn" onclick="loadBalances()">Refresh</button>
     <label><input type="checkbox" id="balThisStrategy" onchange="loadBalances()" /> This strategy only</label>
     <label><input type="checkbox" id="balAuto" checked onchange="setupBalAuto()" /> Auto (30s)</label>
-    <span id="balCount" style="margin-left:auto;font-size:12px;color:var(--muted);"></span>
+    <span id="balCount" class="ctrl-meta"></span>
   </div>
-  <div id="balances-inner" style="padding:20px;max-width:1440px;margin:0 auto;">
+  <div id="balances-inner" class="page-inner">
     <div id="balEmpty" style="display:none;color:var(--muted);padding:24px;line-height:1.6;">Loading balances…</div>
     <div id="balShell" style="display:none;">
       <div class="rpt-hero" id="balHero"></div>
@@ -602,7 +738,7 @@
       <div class="rpt-matrix-wrap">
         <h4>Accounts × exchange wallets</h4>
         <div class="rpt-matrix-scroll" id="balMatrix"></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:8px;">Click an account to open it in Reports. Click a contract chip to open its rPnL chart.</div>
+        <div class="hint">Click an account to open it in Reports. Click a contract chip to open its rPnL chart.</div>
       </div>
     </div>
   </div>
@@ -622,7 +758,7 @@
     </label>
     <button class="btn" onclick="loadReports()">Refresh</button>
     <label><input type="checkbox" id="reportsAuto" onchange="setupReportsAuto()" /> Auto (30s)</label>
-    <span id="reportsCount" style="margin-left:auto;font-size:12px;color:var(--muted);"></span>
+    <span id="reportsCount" class="ctrl-meta"></span>
   </div>
   <div id="reports-inner">
     <div id="reportEmpty" style="display:none;color:var(--muted);padding:24px;line-height:1.6;">Loading accounts…</div>
@@ -649,14 +785,14 @@
 
 <!-- DATA EXPLORER -->
 <div id="data" class="page">
-  <div class="dtabs" style="padding-top:16px;">
-    <button class="dtab active" id="dtab-fills"     onclick="showDataTab('fills')">⚡ Fills Cross-Match</button>
-    <button class="dtab" id="dtab-orders"           onclick="showDataTab('orders')">🧾 Order History</button>
-    <button class="dtab" id="dtab-rsum"             onclick="showDataTab('rsum')">💰 rPnL Summary</button>
-    <button class="dtab" id="dtab-events"           onclick="showDataTab('events')">📡 Events</button>
-    <button class="dtab" id="dtab-positions"        onclick="showDataTab('positions')">📐 Positions</button>
-    <button class="dtab" id="dtab-tables"           onclick="showDataTab('tables')">🗄️ Tables</button>
-    <button class="dtab" id="dtab-logs"             onclick="showDataTab('logs')">🖥️ Live Logs</button>
+  <div class="dtabs">
+    <button class="dtab active" id="dtab-fills" onclick="showDataTab('fills')">Fills</button>
+    <button class="dtab" id="dtab-orders" onclick="showDataTab('orders')">Orders</button>
+    <button class="dtab" id="dtab-rsum" onclick="showDataTab('rsum')">Summary</button>
+    <button class="dtab" id="dtab-events" onclick="showDataTab('events')">Events</button>
+    <button class="dtab" id="dtab-positions" onclick="showDataTab('positions')">Positions</button>
+    <button class="dtab" id="dtab-tables" onclick="showDataTab('tables')">Tables</button>
+    <button class="dtab" id="dtab-logs" onclick="showDataTab('logs')">Logs</button>
   </div>
 
   <!-- Fills cross-match -->
@@ -676,7 +812,7 @@
       </label>
       <button class="btn" onclick="loadFillsX()">Refresh</button>
       <label><input type="checkbox" id="fxAuto" onchange="setupFxAuto()" /> Auto (15s)</label>
-      <span id="fxStatus" style="margin-left:auto;"></span>
+      <span id="fxStatus" class="ctrl-meta"></span>
     </div>
     <div class="insights-bar" id="fxInsights"></div>
     <div class="fills-duo">
@@ -689,7 +825,7 @@
         <div class="fill-scroll" id="fxHedgeScroll"></div>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-top:8px;">Tip: click any fill to jump to & highlight the nearest-in-time fill on the other side.</div>
+    <p class="hint">Click any fill to jump to the nearest fill on the other side.</p>
   </div>
 
   <!-- CoinDCX dedicated view -->
@@ -716,11 +852,11 @@
       </label>
       <button class="btn" onclick="loadOrdersX()">Refresh</button>
       <label><input type="checkbox" id="odAuto" onchange="setupOdAuto()" /> Auto (15s)</label>
-      <span id="odStatusMsg" style="margin-left:auto;"></span>
+      <span id="odStatusMsg" class="ctrl-meta"></span>
     </div>
     <div class="insights-bar" id="odInsights"></div>
     <div class="tbl-grid-wrap" id="odGrid"></div>
-    <div style="font-size:11px;color:var(--muted);margin-top:8px;">Delta rows are reconciled from Delta's authoritative order history — a partially-filled order that was later cancelled still shows its executed quantity, so its rPnL is counted.</div>
+    <p class="hint">Delta rows come from Delta order history. A partially filled order that was later cancelled still shows executed quantity, so its rPnL is counted.</p>
   </div>
 
   <!-- rPnL summary -->
@@ -734,7 +870,7 @@
       </label>
       <button class="btn" onclick="loadRsum()">Refresh</button>
       <label><input type="checkbox" id="rsAuto" onchange="setupRsAuto()" /> Auto (30s)</label>
-      <span id="rsStatusMsg" style="margin-left:auto;"></span>
+      <span id="rsStatusMsg" class="ctrl-meta"></span>
     </div>
     <div class="insights-bar" id="rsTotals"></div>
     <div class="fills-duo">
@@ -747,20 +883,20 @@
         <div class="tbl-grid-wrap" id="rsDayGrid"></div>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-top:8px;">Sums the realized PnL booked on every fill, in ₹. "Quote" is the exchange that trades each contract; "Hedge" is every other venue it traded on. Days are IST.</div>
+    <p class="hint">Sums realized PnL on every fill, in ₹. Quote is the exchange that trades the contract; Hedge is every other venue. Days are IST.</p>
   </div>
 
   <!-- Events -->
   <div class="dpanel" id="dpanel-events">
     <div class="dctrl">
       <label>Contract <select id="evContract"><option value="">All</option></select></label>
-      <label>Filter <input type="text" id="evFilter" placeholder="event type / text..." style="background:#1e2230;color:var(--text);border:1px solid var(--border2);border-radius:6px;padding:5px 9px;font-size:12px;" oninput="renderEventsX()" /></label>
+      <label>Filter <input type="text" id="evFilter" class="dinp" placeholder="event type / text…" oninput="renderEventsX()" /></label>
       <label>Limit
         <select id="evLimit"><option>100</option><option selected>200</option><option>300</option></select>
       </label>
       <button class="btn" onclick="loadEventsX()">Refresh</button>
       <label><input type="checkbox" id="evAuto" onchange="setupEvAuto()" /> Auto (10s)</label>
-      <span id="evStatus" style="margin-left:auto;"></span>
+      <span id="evStatus" class="ctrl-meta"></span>
     </div>
     <div class="tbl-grid-wrap" id="evGrid"></div>
   </div>
@@ -770,7 +906,7 @@
     <div class="dctrl">
       <button class="btn" onclick="loadPosX()">Refresh</button>
       <label><input type="checkbox" id="pxAuto" onchange="setupPxAuto()" /> Auto (15s)</label>
-      <span id="pxStatus" style="margin-left:auto;"></span>
+      <span id="pxStatus" class="ctrl-meta"></span>
     </div>
     <div class="pos-cards" id="pxCards"></div>
     <div class="dctrl">
@@ -787,7 +923,7 @@
       <button class="btn" id="dbtExportBtn" onclick="exportDbTable()" disabled title="Download every row matching the current filters and sort">Export CSV</button>
       <button class="btn" id="dbtExportPageBtn" onclick="exportDbTablePage()" disabled title="Download the rows on this page">Export page</button>
       <button class="btn" id="dbtCopyBtn" onclick="copyDbTablePage()" disabled title="Copy this page as TSV">Copy page</button>
-      <span id="dbtStatus" style="margin-left:auto;"></span>
+      <span id="dbtStatus" class="ctrl-meta"></span>
     </div>
     <div class="tables-duo">
       <div class="tbl-list" id="dbtList"></div>
@@ -848,11 +984,11 @@
             <input class="dinp" id="dbtOrderId" placeholder="contains…" onkeydown="dbtFilterKey(event)" />
           </label>
           <label>Search
-            <input class="dinp" id="dbtQ" placeholder="text…" style="min-width:160px;" onkeydown="dbtFilterKey(event)" />
+            <input class="dinp" id="dbtQ" placeholder="text…" onkeydown="dbtFilterKey(event)" />
           </label>
           <button class="btn" onclick="dbtApply()">Apply</button>
           <button class="btn" onclick="dbtClearFilters()">Clear</button>
-          <span style="font-size:11px;opacity:.75;">Times are IST. Export CSV = every row matching these filters (max 100k). Export page = this screen. Click a column to sort, a row for JSON.</span>
+          <span class="hint">Times are IST. Export CSV = every matching row (max 100k). Click a column to sort, a row for JSON.</span>
           <datalist id="dbtContractList"></datalist>
           <datalist id="dbtAccountList"></datalist>
           <datalist id="dbtExchangeList"></datalist>
@@ -868,7 +1004,7 @@
           <span id="dbtPageInfo"></span>
           <button class="btn" id="dbtNext" onclick="dbtPage(1)">Next ›</button>
           <button class="btn" id="dbtLast" onclick="dbtLastPage()">Last »</button>
-          <label style="margin-left:auto;">Rows
+          <label class="ctrl-meta">Rows
             <select id="dbtLimit" onchange="dbtGoto(0)">
               <option>50</option><option selected>100</option><option>200</option><option>500</option>
             </select>
@@ -922,7 +1058,7 @@
       <button class="btn" onclick="exportLogsCsv()">Export CSV</button>
       <label><input type="checkbox" id="lgAuto" checked onchange="setupLgAuto()" /> Live (3s)</label>
       <label><input type="checkbox" id="lgScroll" checked /> Auto-scroll</label>
-      <span id="lgStatus" style="margin-left:auto;"></span>
+      <span id="lgStatus" class="ctrl-meta"></span>
     </div>
     <div class="logs-box" id="lgBox"><div style="padding:12px;color:var(--muted);">Loading logs...</div></div>
   </div>
@@ -972,10 +1108,10 @@
     <button class="btn" onclick="loadRpnlFresh()">Refresh</button>
     <button class="btn" onclick="fitRpnlView()" title="Fit both charts to full window">Fit</button>
     <label><input type="checkbox" id="rpnlAuto" onchange="setupRpnlAuto()" /> Auto (10s)</label>
-    <div style="margin-left:auto;display:flex;gap:4px;">
+    <div class="ctrl-views">
       <button class="btn" id="viewCumul"  onclick="setRpnlView('cumul')">Cumulative</button>
       <button class="btn" id="viewBucket" onclick="setRpnlView('bucket')">Per Bucket</button>
-      <button class="btn" id="toggleAutoY" onclick="toggleAutoY()" style="border-color:var(--accent);color:#fff;" title="Toggle Y-axis auto-scale">Auto Y</button>
+      <button class="btn" id="toggleAutoY" onclick="toggleAutoY()" title="Toggle Y-axis auto-scale">Auto Y</button>
     </div>
   </div>
   <div class="status-bar" id="rpnlStatus"><span class="spinner"></span><span>Loading...</span></div>
@@ -985,7 +1121,7 @@
     <span class="kitem"><span class="kdot" style="background:#26a69a"></span><span id="rkDeltaLab">Quote</span> <span class="kval" id="rkDelta">—</span></span>
     <span class="kitem" id="rkHedgeItem"><span class="kdot" style="background:#ff9800"></span><span id="rkHedgeLab">Hedge</span> <span class="kval" id="rkHedge">—</span></span>
     <span class="kitem" id="rkNetItem"><span class="kdot" style="background:#90caf9"></span>Net <span class="kval" id="rkNet">—</span></span>
-    <span class="kitem" style="margin-left:auto" id="rkContract">Select a contract</span>
+    <span class="kitem kitem-end" id="rkContract">Select a contract</span>
   </div>
   <div class="rpnl-stack">
     <div class="rpnl-pane">
@@ -1999,6 +2135,18 @@ function resizeRpnlCharts() {
     rpnlPaintBrush();
   });
 }
+let _vpResizeTimer;
+function onViewportChange() {
+  clearTimeout(_vpResizeTimer);
+  _vpResizeTimer = setTimeout(() => {
+    const rpnl = document.getElementById('rpnl');
+    const reports = document.getElementById('reports');
+    if (rpnl && rpnl.classList.contains('visible')) resizeRpnlCharts();
+    if (reports && reports.classList.contains('visible') && typeof resizeReportChart === 'function') resizeReportChart();
+  }, 180);
+}
+window.addEventListener('orientationchange', onViewportChange);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', onViewportChange);
 
 function barsAlignReady(pts, bucketSecs) {
   return fillGaps(pts, bucketSecs);
