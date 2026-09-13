@@ -2795,9 +2795,10 @@ async function exportRpnlKind(kind) {
       return;
     }
     if (kind === 'logs') {
-      params.q = f.contract;
+      if (!f.account) throw new Error('This pill has no account id — logs stay scoped to one account');
+      params.account = f.account;
+      params.contract = f.contract;
       params.service = 'bot';
-      delete params.account;
       delete params.exchange;
     } else if (['fills', 'orders', 'events', 'positions'].includes(kind)) {
       params.contract = f.contract;

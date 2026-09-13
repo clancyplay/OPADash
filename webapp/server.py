@@ -2167,9 +2167,14 @@ async def rpnl_export_pack(
             if kind in ("fills", "orders", "events", "positions"):
                 filt["contract"] = contract
             elif kind == "logs":
-                filt = {"since": since, "until": until, "service": "bot"}
-                if contract:
-                    filt["q"] = contract
+                filt = {
+                    "since": since,
+                    "until": until,
+                    "service": "bot",
+                    "strategy": strategy,
+                    "account": account or None,
+                    "contract": contract,
+                }
             try:
                 fname, text = await _table_csv_text(kind, **filt)
             except HTTPException as exc:
