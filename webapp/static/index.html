@@ -212,9 +212,13 @@
   .error-panel .err-title { font-weight: 600; color: var(--red); margin-bottom: 6px; }
   .error-panel code { background: rgba(0,0,0,.3); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
 
-  #rpnlChart   { width: 100%; height: 28vh; min-height: 180px; position: relative; }
-  #ohlcChart   { width: 100%; height: 42vh; min-height: 240px; position: relative; }
-  .rpnl-stack { display: flex; flex-direction: column; min-height: 0; }
+  #rpnl.page.visible {
+    display: flex; flex-direction: column;
+    min-height: calc(100dvh - var(--nav-h) - var(--safe-t));
+  }
+  #rpnlChart   { width: 100%; height: 26vh; min-height: 170px; position: relative; }
+  #ohlcChart   { width: 100%; height: 40vh; min-height: 220px; position: relative; }
+  .rpnl-stack { display: flex; flex-direction: column; min-height: 0; flex: 1; }
   .rpnl-pane { position: relative; }
   .rpnl-pane-label {
     position: absolute; top: 8px; right: 84px; z-index: 8;
@@ -263,7 +267,7 @@
   .rpnl-pill .p-split { display: flex; gap: 10px; margin-top: 4px; }
   .rpnl-pill .p-split span { font-size: 11px; font-variant-numeric: tabular-nums; }
   .rpnl-pills {
-    display: flex; gap: 8px; overflow-x: auto; padding: 8px max(16px, var(--safe-r)) 10px max(16px, var(--safe-l));
+    display: flex; gap: 8px; overflow-x: auto; padding: 8px max(16px, var(--safe-r)) 8px max(16px, var(--safe-l));
     border-bottom: 1px solid var(--border); scrollbar-width: none;
     -webkit-overflow-scrolling: touch; touch-action: pan-x;
   }
@@ -271,8 +275,9 @@
   .rpnl-empty { padding: 12px 4px; color: var(--muted); font-size: 13px; }
   .rpnl-pill {
     flex: 0 0 auto; cursor: pointer; border: 1px solid var(--border2);
-    background: var(--surface); border-radius: 8px; padding: 7px 10px;
-    min-width: 168px; max-width: 280px; color: inherit; font-family: inherit; text-align: left;
+    background: var(--surface); border-radius: 10px; padding: 8px 12px;
+    min-width: 148px; color: inherit; font-family: inherit; text-align: left;
+    transition: border-color .15s, background .15s;
   }
   .rpnl-pill:hover { border-color: var(--accent); }
   .rpnl-pill.live { border-color: rgba(38,166,154,.45); }
@@ -282,6 +287,7 @@
     background: var(--green); box-shadow: 0 0 6px var(--green);
   }
   .rpnl-pill .p-name { font-size: 11px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px; }
+  .rpnl-pill .p-name .p-sym { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 148px; }
   .rpnl-venue {
     font-size: 9px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
     padding: 1px 5px; border-radius: 4px; flex-shrink: 0;
@@ -293,40 +299,59 @@
   .rpnl-venue.aster { background: rgba(155,109,255,.18); color: #9b6dff; }
   .rpnl-venue.bybit { background: rgba(247,166,0,.18); color: #f7a600; }
   .rpnl-venue.coinbase { background: rgba(0,82,255,.18); color: #5b8cff; }
-  .rpnl-pill .p-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
-  .rpnl-pill .p-meta { font-size: 10px; color: var(--muted); margin-top: 1px; }
-  .rpnl-pill .p-cfg {
-    display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px;
+  .rpnl-pill .p-val { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 4px; letter-spacing: -.2px; }
+  .rpnl-inspect {
+    display: none; flex-direction: column; gap: 8px;
+    padding: 8px max(16px, var(--safe-r)) 8px max(16px, var(--safe-l));
+    border-bottom: 1px solid var(--border); background: #12161f;
   }
-  .rpnl-pill .p-cfg span {
-    font-size: 9px; color: #9aa3b8; line-height: 1.3;
+  .rpnl-inspect.open { display: flex; }
+  .rpnl-inspect .ri-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px 16px; flex-wrap: wrap;
+  }
+  .rpnl-inspect .ri-stats {
+    display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; min-width: 0;
+    font-size: 12px; font-variant-numeric: tabular-nums;
+  }
+  .rpnl-inspect .ri-col { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+  .rpnl-inspect .ri-chip { color: var(--muted); font-size: 11px; }
+  .rpnl-inspect .ri-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .rpnl-inspect .ri-pos { font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rpnl-inspect .ri-pos.long { color: var(--green); }
+  .rpnl-inspect .ri-pos.short { color: var(--red); }
+  .rpnl-inspect .ri-split { display: flex; gap: 12px; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .rpnl-inspect .ri-extra { border-top: 1px solid var(--border); padding-top: 8px; }
+  .rpnl-inspect .p-cfg { margin-top: 0; }
+  .rpnl-inspect .p-cfg span {
+    font-size: 10px; color: #9aa3b8; line-height: 1.3;
     background: rgba(255,255,255,.045); border: 1px solid var(--border);
-    border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+    border-radius: 4px; padding: 2px 6px; white-space: nowrap;
+    display: inline-block; margin: 0 4px 4px 0;
   }
-  .rpnl-pill .p-cfg.none { color: var(--muted); font-size: 9px; margin-top: 5px; }
-  .rpnl-pill .p-pos {
-    font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums;
-    margin-top: 5px; color: #c5cdd8;
-  }
-  .rpnl-pill .p-pos.long { color: var(--green); }
-  .rpnl-pill .p-pos.short { color: var(--red); }
-  .rpnl-pill .p-acts {
-    display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;
-  }
-  .rpnl-pill .p-acts button {
-    font-size: 9px; font-weight: 700; letter-spacing: .2px;
-    padding: 3px 7px; border-radius: 4px; cursor: pointer;
+  .rpnl-inspect .p-cfg.none { color: var(--muted); font-size: 11px; }
+  .rpnl-inspect .p-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .rpnl-inspect .p-acts button {
+    font-size: 11px; font-weight: 650; letter-spacing: .2px;
+    padding: 6px 10px; border-radius: 6px; cursor: pointer;
     border: 1px solid var(--border2); background: rgba(255,255,255,.06);
     color: #c5cdd8; font-family: inherit;
   }
-  .rpnl-pill .p-acts button:hover { border-color: var(--accent); color: #fff; }
-  .rpnl-pill .p-acts button.danger { color: #f07178; }
-  .rpnl-pill .p-acts button.danger:hover { border-color: #f07178; }
-  .rpnl-pill .p-acts button.on {
+  .rpnl-inspect .p-acts button:hover { border-color: var(--accent); color: #fff; }
+  .rpnl-inspect .p-acts button.danger { color: #f07178; }
+  .rpnl-inspect .p-acts button.danger:hover { border-color: #f07178; }
+  .rpnl-inspect .p-acts button.on {
     background: rgba(240,198,116,.16); color: #f0c674;
     border-color: rgba(240,198,116,.45);
   }
-  .rpnl-pill .p-acts button:disabled { opacity: .4; cursor: default; }
+  .rpnl-inspect .p-acts button:disabled { opacity: .4; cursor: default; }
+  .chart-empty {
+    display: none; position: absolute; inset: 0; z-index: 6;
+    align-items: center; justify-content: center;
+    color: var(--muted); font-size: 13px; pointer-events: none;
+    background: linear-gradient(180deg, rgba(14,17,23,.15), rgba(14,17,23,.55));
+  }
+  .chart-empty.show { display: flex; }
   .chart-legend {
     position: absolute;
     top: 12px;
@@ -646,7 +671,7 @@
     .rpnl-tools input[type="datetime-local"] { width: 100%; min-width: 0; }
     .rpnl-exports { margin-left: 0; width: 100%; }
     .rpnl-exports .btn { flex: 1 1 auto; }
-    .rpnl-pill { min-width: 150px; max-width: 220px; }
+    .rpnl-pill { min-width: 132px; }
     .chart-legend { font-size: 11px; min-width: 120px; padding: 6px 9px; left: 8px; top: 8px; }
 
     .rpt-hero { padding: 16px; border-radius: 12px; }
@@ -1141,6 +1166,7 @@
   <div class="status-bar" id="rpnlStatus"><span class="spinner"></span><span>Loading...</span></div>
   <div class="error-panel" id="rpnlError"></div>
   <div id="rpnlSummaryWrap" class="rpnl-pills"></div>
+  <div id="rpnlInspect" class="rpnl-inspect"></div>
   <div class="rpnl-key" id="rpnlKey">
     <span class="kitem"><span class="kdot" style="background:#26a69a"></span><span id="rkDeltaLab">Quote</span> <span class="kval" id="rkDelta">—</span></span>
     <span class="kitem" id="rkHedgeItem"><span class="kdot" style="background:#ff9800"></span><span id="rkHedgeLab">Hedge</span> <span class="kval" id="rkHedge">—</span></span>
@@ -1151,6 +1177,7 @@
     <div class="rpnl-pane">
       <div class="rpnl-pane-label" id="ohlcPaneLabel">Price · vol · fills ▴▾</div>
       <div id="ohlcChart"></div>
+      <div class="chart-empty" id="ohlcEmpty">No price candles for this window</div>
       <div class="chart-legend" id="ohlcLegend"></div>
     </div>
     <div class="rpnl-pane">
@@ -1226,7 +1253,12 @@ function showPage(name) {
     else showDataTab(dataTab);
   } else if (dataReady) { clearInterval(fxTimer); clearInterval(evTimer); clearInterval(pxTimer); clearInterval(lgTimer); }
   // Charts need a resize when their container becomes visible
-  if (name === 'rpnl'      && rpnlChart)  { requestAnimationFrame(resizeRpnlCharts); }
+  if (name === 'rpnl') {
+    if (rpnlChart) requestAnimationFrame(resizeRpnlCharts);
+    startRpnlLive();
+  } else {
+    stopRpnlLive();
+  }
 }
 
 function goToReportAccount(accountId) {
@@ -1464,7 +1496,12 @@ let rpnlPinFrom = null;
 let rpnlPinTo = null;
 let ohlcChart, ohlcSeries, ohlcHedgeMarkerSeries, ohlcVolSeries;
 let ohlcOrderLines = [];
+let ohlcOrderSig = '';
 let rpnlSummaryCache = [];
+let rpnlLoadSeq = 0;
+let rpnlQuoteTimer = null;
+let rpnlLoadBusy = false;
+let rpnlDetailsOpen = lsGet('opadash.rpnlDetails', '') === '1';
 let rpnlView         = 'cumul';
 let rpnlPtsCache     = [];
 let rpnlHedgeCache   = [];
@@ -1535,16 +1572,17 @@ function rpnlModeText(s) {
   return '';
 }
 
-function rpnlPosHtml(s) {
+function rpnlPosHtml(s, cls) {
   if (!s || s.pos == null) return '';
   const n = Number(s.pos);
   if (!isFinite(n)) return '';
-  if (Math.abs(n) < 1e-12) return '<div class="p-pos">pos 0</div>';
+  cls = cls || 'p-pos';
+  if (Math.abs(n) < 1e-12) return '<div class="' + cls + '">pos 0</div>';
   const side = n > 0 ? 'long' : 'short';
   let t = side + ' ' + fmtG(Math.abs(n));
   if (s.entry != null && Number(s.entry) > 0) t += ' @ ' + fmtG(s.entry);
   if (s.upnl != null && isFinite(Number(s.upnl))) t += ' · uPnL $' + fmtG(s.upnl);
-  return '<div class="p-pos ' + side + '">' + escHtml(t) + '</div>';
+  return '<div class="' + cls + ' ' + side + '">' + escHtml(t) + '</div>';
 }
 
 function rpnlActsHtml(r) {
@@ -1690,7 +1728,7 @@ function rpnlWindowFillCount(r) {
 }
 
 function filterRpnlWindowRows(rows) {
-  return (Array.isArray(rows) ? rows : []).filter(r => rpnlWindowFillCount(r) > 0);
+  return (Array.isArray(rows) ? rows : []).filter(r => r.live || rpnlWindowFillCount(r) > 0);
 }
 
 function syncRpnlSymbolSelect(rows) {
@@ -1731,7 +1769,13 @@ function quotesForCurrentRpnl(rows) {
   return row.settings.quotes;
 }
 
+function currentRpnlRow(rows) {
+  const cur = (document.getElementById('rpnlSymbol') || {}).value || '';
+  return (rows || rpnlSummaryCache || []).find(r => rpnlOptionValue(r) === cur) || null;
+}
+
 function clearOhlcOrderLines() {
+  ohlcOrderSig = '';
   if (!ohlcSeries) { ohlcOrderLines = []; return; }
   ohlcOrderLines.forEach(line => {
     try { ohlcSeries.removePriceLine(line); } catch (e) {}
@@ -1740,15 +1784,22 @@ function clearOhlcOrderLines() {
 }
 
 function applyOhlcOrderLines(quotes) {
+  const list = Array.isArray(quotes) ? quotes : [];
+  const sig = JSON.stringify(list.map(q => [q.side, q.price, q.qty, q.role])) + '#' + (ohlcBarsCache.length ? 1 : 0);
+  if (sig === ohlcOrderSig) {
+    updateRpnlPaneLabels();
+    return;
+  }
   clearOhlcOrderLines();
-  if (!ohlcSeries || !Array.isArray(quotes) || !quotes.length) {
+  ohlcOrderSig = sig;
+  if (!ohlcSeries || !list.length || !ohlcBarsCache.length) {
     updateRpnlPaneLabels();
     return;
   }
   const dash = (window.LightweightCharts && LightweightCharts.LineStyle)
     ? LightweightCharts.LineStyle.Dashed
     : 2;
-  quotes.forEach(q => {
+  list.forEach(q => {
     const px = Number(q.price);
     if (!isFinite(px) || px <= 0) return;
     const buy = String(q.side || '').toLowerCase() === 'buy';
@@ -1769,85 +1820,192 @@ function applyOhlcOrderLines(quotes) {
   updateRpnlPaneLabels();
 }
 
+function setOhlcEmpty(show, msg) {
+  const el = document.getElementById('ohlcEmpty');
+  if (!el) return;
+  if (msg) el.textContent = msg;
+  el.classList.toggle('show', !!show);
+}
+
+function startRpnlLive() {
+  if (!rpnlQuoteTimer) rpnlQuoteTimer = setInterval(refreshRpnlLive, 2500);
+  setupRpnlAuto();
+}
+
+function stopRpnlLive() {
+  if (rpnlQuoteTimer) {
+    clearInterval(rpnlQuoteTimer);
+    rpnlQuoteTimer = null;
+  }
+  clearInterval(rpnlTimer);
+  rpnlTimer = null;
+}
+
+async function refreshRpnlLive() {
+  const page = document.getElementById('rpnl');
+  if (!page || !page.classList.contains('visible')) return;
+  if (document.hidden || rpnlLoadingMore || rpnlLoadBusy) return;
+  const winQ = rpnlWindowQuery();
+  const winLab = rpnlWindowTag();
+  const hoursArg = winLab === 'today' ? 'today' : (rpnlCurrentHours !== null ? rpnlCurrentHours : rpnlHoursSel());
+  try {
+    const sR = await fetch(withStrategy('/api/rpnl/summary' + (winQ ? '?' + winQ.slice(1) : '')));
+    if (!sR.ok) return;
+    const rows = filterRpnlWindowRows(await sR.json());
+    renderRpnlSummary(rows, hoursArg);
+  } catch (e) {}
+}
+
+function toggleRpnlDetails() {
+  rpnlDetailsOpen = !rpnlDetailsOpen;
+  lsSet('opadash.rpnlDetails', rpnlDetailsOpen ? '1' : '');
+  renderRpnlInspect(currentRpnlRow());
+}
+
+function renderRpnlInspect(row) {
+  const box = document.getElementById('rpnlInspect');
+  if (!box) return;
+  if (!row) {
+    box.className = 'rpnl-inspect';
+    box.innerHTML = '';
+    box.dataset.sig = '';
+    return;
+  }
+  const s = row.settings || null;
+  const qlab = row.quote_label || 'Delta';
+  const qsym = row.quote_symbol || row.contract;
+  const hlab = row.hedge_label || 'Hedge';
+  const hedged = !!row.has_hedge && !!row.hedge_fills;
+  const quote = Number(row.rpnl) || 0;
+  const hedge = hedged ? (Number(row.hedge_rpnl) || 0) : 0;
+  const modeTxt = rpnlModeText(s);
+  const sig = [
+    row.contract, row.account, Number(!!row.live), quote, hedge, row.fills, row.hedge_fills,
+    s && s.pos, s && s.entry, s && s.upnl, s && s.mode, s && s.hold, s && s.pause_left,
+    Number(!!rpnlDetailsOpen), modeTxt,
+  ].join('|');
+  box.className = 'rpnl-inspect open';
+  box.dataset.contract = row.contract || '';
+  box.dataset.account = row.account || '';
+  box.dataset.qsym = qsym;
+  if (box.dataset.sig === sig && box.innerHTML) return;
+  box.dataset.sig = sig;
+  box.innerHTML =
+    '<div class="ri-bar">' +
+      '<div class="ri-stats">' +
+        rpnlPosHtml(s, 'ri-pos') +
+        '<span class="ri-chip">' + escHtml(qlab) + ' ' + (row.fills || 0) + ' fills' +
+          (hedged ? ' · ' + escHtml(hlab) + ' ' + (row.hedge_fills || 0) : '') + '</span>' +
+        (row.live && s && s.mode ? '<span class="ri-chip">' + escHtml(String(s.mode)) + '</span>' : '') +
+      '</div>' +
+      '<div class="ri-col">' +
+        rpnlActsHtml(row) +
+        '<button type="button" class="btn" id="rpnlDetailsBtn"' +
+          (rpnlDetailsOpen ? ' aria-expanded="true"' : ' aria-expanded="false"') + '>' +
+          (rpnlDetailsOpen ? 'Hide setup' : 'Setup') + '</button>' +
+      '</div>' +
+    '</div>' +
+    (rpnlDetailsOpen
+      ? '<div class="ri-extra">' +
+        (hedged
+          ? '<div class="ri-split" style="margin-bottom:8px"><span style="color:#26a69a">' + escHtml(qlab) + ' ' + inrFmt(quote) +
+            '</span><span style="color:#ff9800">' + escHtml(hlab) + ' ' + inrFmt(hedge) + '</span></div>'
+          : '') +
+        rpnlCfgHtml(s) +
+        (modeTxt ? '<div class="ri-meta">' + escHtml(modeTxt) + '</div>' : '') +
+        '</div>'
+      : '');
+  const btn = document.getElementById('rpnlDetailsBtn');
+  if (btn) btn.onclick = toggleRpnlDetails;
+  if (!box.dataset.bound) {
+    box.dataset.bound = '1';
+    box.addEventListener('click', ev => {
+      const act = ev.target.closest('[data-bot-cmd]');
+      if (!act) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      sendBotCmd(act.closest('.rpnl-inspect') || box, act.getAttribute('data-bot-cmd'));
+    });
+  }
+}
+
+function rpnlPillHtml(r, cur, nameCount) {
+  const key = rpnlOptionValue(r);
+  const active = key === cur ? ' active' : '';
+  const liveCls = r.live ? ' live' : '';
+  const acct = rpnlAccountLabel(r);
+  const qv = r.quote_venue || 'delta';
+  const qlab = r.quote_label || 'Delta';
+  const qsym = r.quote_symbol || r.contract;
+  const dupe = nameCount[qsym + '|' + acct] > 1 && r.account && r.account !== acct;
+  const name = qsym + (acct ? ' · ' + acct : '') + (dupe ? ' #' + r.account : '');
+  const main = rpnlPillMain(r);
+  const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
+  return '<button type="button" class="rpnl-pill' + active + liveCls + '" data-rpnl-key="' + escHtml(key) + '">' +
+    '<div class="p-name">' + (r.live ? '<span class="p-live" title="live"></span>' : '') +
+      '<span class="p-sym">' + escHtml(name) + '</span>' +
+      '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
+    '<div class="p-val" style="color:' + mainCol + '">' + inrFmt(main) + '</div></button>';
+}
+
+function rpnlPillMain(r) {
+  const hedged = !!r.has_hedge && !!r.hedge_fills;
+  return (Number(r.rpnl) || 0) + (hedged ? (Number(r.hedge_rpnl) || 0) : 0);
+}
+
 function renderRpnlSummary(rows, hours) {
   const wrap = document.getElementById('rpnlSummaryWrap');
   if (!wrap) return;
   rows = filterRpnlWindowRows(rows);
   if (!rows.length) {
-    wrap.innerHTML = '<div class="rpnl-empty">No contracts with fills in this window.</div>';
+    wrap.dataset.keys = '';
+    wrap.innerHTML = '<div class="rpnl-empty">No live bots or fills in this window.</div>';
     rpnlSummaryCache = [];
+    renderRpnlInspect(null);
     applyOhlcOrderLines([]);
     return;
   }
   rpnlSummaryCache = rows;
-  const cur = document.getElementById('rpnlSymbol').value;
-  const win = rpnlWindowLabel(hours);
-  // Two rows can share a contract + account name but sit on different account
-  // ids — show the id so they are distinguishable instead of looking cloned.
+  const cur = (document.getElementById('rpnlSymbol') || {}).value || '';
   const nameCount = {};
   rows.forEach(r => {
     const n = (r.quote_symbol || r.contract) + '|' + rpnlAccountLabel(r);
     nameCount[n] = (nameCount[n] || 0) + 1;
   });
-  wrap.innerHTML = rows.slice().sort((a, b) => Number(!!b.live) - Number(!!a.live)).map(r => {
-    const key = rpnlOptionValue(r);
-    const active = key === cur ? ' active' : '';
-    const liveCls = r.live ? ' live' : '';
-    const modeTxt = rpnlModeText(r.settings);
-    const modeCls = (modeTxt || (r.settings && r.settings.hold)) ? ' mode-hot' : '';
-    const acct = rpnlAccountLabel(r);
-    const qv = r.quote_venue || 'delta';
-    const qlab = r.quote_label || 'Delta';
-    const qsym = r.quote_symbol || r.contract;
-    const hlab = r.hedge_label || 'Hedge';
-    const dupe = nameCount[qsym + '|' + acct] > 1 && r.account && r.account !== acct;
-    const name = qsym + (acct ? ' · ' + acct : '') + (dupe ? ' #' + r.account : '');
-    const hedged = !!r.has_hedge && !!r.hedge_fills;
-    const quote = Number(r.rpnl) || 0;
-    const hedge = hedged ? (Number(r.hedge_rpnl) || 0) : 0;
-    const main = quote + hedge;
-    const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
-    // Key goes in a data attribute, not an inline onclick string — account ids
-    // can contain quotes/ampersands that would break the attribute.
-    return '<div class="rpnl-pill' + active + liveCls + modeCls + '" data-rpnl-key="' + escHtml(key) +
-      '" data-contract="' + escHtml(r.contract || '') +
-      '" data-account="' + escHtml(r.account || '') +
-      '" data-qsym="' + escHtml(qsym) + '">' +
-      '<div class="p-name">' + (r.live ? '<span class="p-live" title="' + escHtml(modeTxt || 'bot running') + '"></span>' : '') +
-        escHtml(name) +
-        '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
-      '<div class="p-val" style="color:' + mainCol + '">' + inrFmt(main) +
-        (hedged ? ' <span style="font-size:10px;font-weight:600;color:var(--muted)">net</span>' : '') + '</div>' +
-      (hedged
-        ? '<div class="p-split">' +
-            '<span style="color:#26a69a">' + escHtml(qlab) + ' ' + inrFmt(quote) + '</span>' +
-            '<span style="color:#ff9800">' + escHtml(hlab) + ' ' + inrFmt(hedge) + '</span>' +
-          '</div>'
-        : '') +
-      '<div class="p-meta">' + (win ? escHtml(win) + ' · ' : '') +
-        (r.live ? (modeTxt ? escHtml(String((r.settings && r.settings.mode) || 'live')) + ' · ' : 'live · ') : '') +
-        escHtml(qlab) + ' ' + (r.fills || 0) + ' fills' +
-        (hedged ? ' · ' + escHtml(hlab) + ' ' + r.hedge_fills : ' · no hedge') + '</div>' +
-      rpnlPosHtml(r.settings) +
-      rpnlCfgHtml(r.settings) +
-      rpnlActsHtml(r) +
-      '</div>';
-  }).join('');
+  const sorted = rows.slice().sort((a, b) => Number(!!b.live) - Number(!!a.live));
+  const keys = sorted.map(r => rpnlOptionValue(r)).join('\n');
+  if (wrap.dataset.keys !== keys) {
+    wrap.dataset.keys = keys;
+    wrap.innerHTML = sorted.map(r => rpnlPillHtml(r, cur, nameCount)).join('');
+  } else {
+    const byKey = new Map(sorted.map(r => [rpnlOptionValue(r), r]));
+    [...wrap.querySelectorAll('.rpnl-pill')].forEach(el => {
+      const r = byKey.get(el.dataset.rpnlKey);
+      if (!r) return;
+      el.classList.toggle('active', el.dataset.rpnlKey === cur);
+      el.classList.toggle('live', !!r.live);
+      const val = el.querySelector('.p-val');
+      const main = rpnlPillMain(r);
+      if (val) {
+        val.textContent = inrFmt(main);
+        val.style.color = main >= 0 ? 'var(--green)' : 'var(--red)';
+      }
+      const nameEl = el.querySelector('.p-name');
+      if (nameEl) {
+        const dot = nameEl.querySelector('.p-live');
+        if (r.live && !dot) nameEl.insertAdjacentHTML('afterbegin', '<span class="p-live" title="live"></span>');
+        if (!r.live && dot) dot.remove();
+      }
+    });
+  }
   if (!wrap.dataset.bound) {
     wrap.dataset.bound = '1';
     wrap.addEventListener('click', ev => {
-      const act = ev.target.closest('[data-bot-cmd]');
-      if (act) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        const pill = act.closest('[data-rpnl-key]');
-        if (pill) sendBotCmd(pill, act.getAttribute('data-bot-cmd'));
-        return;
-      }
       const btn = ev.target.closest('[data-rpnl-key]');
       if (btn) pickRpnlContract(btn.dataset.rpnlKey);
     });
   }
+  renderRpnlInspect(currentRpnlRow(rows));
   applyOhlcOrderLines(quotesForCurrentRpnl(rows));
 }
 
@@ -2110,7 +2268,7 @@ function rpnlChartBase(timeScaleVisible) {
       rightOffset: 8,
       barSpacing: 6,
       minBarSpacing: 2,
-      lockVisibleTimeRangeOnResize: true,
+      lockVisibleTimeRangeOnResize: false,
       tickMarkFormatter: (time) => {
         const d = new Date(time * 1000);
         return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
@@ -2339,9 +2497,26 @@ function initRpnl() {
 
 function resizeRpnlCharts() {
   if (!rpnlChart || !ohlcChart) return;
+  const o = document.getElementById('ohlcChart');
+  const r = document.getElementById('rpnlChart');
+  if (!o || o.clientWidth < 8) return;
+  try {
+    ohlcChart.applyOptions({ width: o.clientWidth, height: Math.max(160, o.clientHeight || 240) });
+    if (r && r.clientWidth > 8) {
+      rpnlChart.applyOptions({ width: r.clientWidth, height: Math.max(140, r.clientHeight || 180) });
+    }
+  } catch (e) {}
   requestAnimationFrame(() => {
-    syncRpnlTimeScale('ohlc');
+    if (ohlcBarsCache.length) {
+      try {
+        const vr = ohlcChart.timeScale().getVisibleLogicalRange();
+        if (!vr || vr.to - vr.from < 1) fitRpnlView();
+        else syncRpnlTimeScale('ohlc');
+      } catch (e) { fitRpnlView(); }
+    }
     rpnlPaintBrush();
+    ohlcOrderSig = '';
+    applyOhlcOrderLines(quotesForCurrentRpnl());
   });
 }
 let _vpResizeTimer;
@@ -2416,9 +2591,20 @@ function fillGaps(pts, bucketSecs) {
   return out;
 }
 
+function unixBarTime(t) {
+  t = Number(t);
+  if (!isFinite(t) || t <= 0) return null;
+  if (t > 1e12) t = Math.floor(t / 1000);
+  return Math.floor(t);
+}
+
 function dedupeTimes(rows) {
   const byT = new Map();
-  for (const r of rows) byT.set(r.time, r);
+  for (const r of rows) {
+    const t = unixBarTime(r.time);
+    if (t == null) continue;
+    byT.set(t, Object.assign({}, r, { time: t }));
+  }
   return [...byT.values()].sort((a, b) => a.time - b.time);
 }
 
@@ -2512,6 +2698,9 @@ function clearRpnlCharts() {
 }
 
 async function loadRpnl(keepRange) {
+  const seq = ++rpnlLoadSeq;
+  rpnlLoadBusy = true;
+  try {
   const winQ   = rpnlWindowQuery();
   const winLab = rpnlWindowTag();
   const bucket = document.getElementById('rpnlBucket').value;
@@ -2522,14 +2711,17 @@ async function loadRpnl(keepRange) {
   let rows = null;
   try {
     const sR = await fetch(withStrategy('/api/rpnl/summary' + (winQ ? '?' + winQ.slice(1) : '')));
+    if (seq !== rpnlLoadSeq) return;
     if (sR.ok) rows = filterRpnlWindowRows(await sR.json());
   } catch (e) { /* chart load can still proceed with the current symbol */ }
+  if (seq !== rpnlLoadSeq) return;
   if (rows) {
     const prevKey = (document.getElementById('rpnlSymbol') || {}).value || '';
     const key = syncRpnlSymbolSelect(rows);
     renderRpnlSummary(rows, hoursArg);
     if (!key) {
       setStatus('rpnlStatus', '<span>No contracts with fills in this window. Try a longer Window.</span>');
+      setOhlcEmpty(true, 'No price candles for this window');
       clearRpnlCharts();
       return;
     }
@@ -2550,21 +2742,34 @@ async function loadRpnl(keepRange) {
     const candleIvl = (document.getElementById('rpnlCandle') || {}).value || '5m';
     const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit + '&exchange=' + venue;
     const fillUrl = '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit;
-    // Quote and hedge fills are separate requests so each side keeps its own venue.
-    const reqs = [
+    const candleUrl = withStrategy('/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + winQ + acctBit);
+    const settled = await Promise.allSettled([
       fetch(withStrategy(url)),
-      fetch(withStrategy('/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + winQ + acctBit)),
+      fetch(candleUrl),
       fetch(withStrategy(fillUrl + '&exchange=quote')),
-      venue === 'quote' ? null : fetch(withStrategy(fillUrl + '&exchange=hedge')),
-    ];
-    const [r, cR, fR, hFR] = await Promise.all(reqs);
-    if (!r.ok) {
-      const body = await r.json().catch(() => ({ detail: r.statusText }));
-      showRpnlError('HTTP ' + r.status, body.detail || r.statusText);
-      setStatus('rpnlStatus', '<span>Error ' + r.status + ': ' + (body.detail || r.statusText) + '</span>', 'error');
+      venue === 'quote' ? Promise.resolve(null) : fetch(withStrategy(fillUrl + '&exchange=hedge')),
+    ]);
+    if (seq !== rpnlLoadSeq) return;
+    const take = i => settled[i].status === 'fulfilled' ? settled[i].value : null;
+    let r = take(0);
+    let cR = take(1);
+    const fR = take(2);
+    const hFR = take(3);
+    if (!cR || !cR.ok) {
+      await new Promise(res => setTimeout(res, 400));
+      if (seq !== rpnlLoadSeq) return;
+      try { cR = await fetch(candleUrl); } catch (e) { cR = null; }
+      if (seq !== rpnlLoadSeq) return;
+    }
+    if (!r || !r.ok) {
+      const body = r ? await r.json().catch(() => ({ detail: r.statusText })) : { detail: 'network error' };
+      const status = r ? r.status : 0;
+      showRpnlError('HTTP ' + status, body.detail || 'request failed');
+      setStatus('rpnlStatus', '<span>Error ' + status + ': ' + (body.detail || 'request failed') + '</span>', 'error');
       return;
     }
     const d   = await r.json();
+    if (seq !== rpnlLoadSeq) return;
     rpnlMeta = {
       quote_venue: d.quote_venue || 'delta',
       quote_label: d.quote_label || 'Delta',
@@ -2586,42 +2791,54 @@ async function loadRpnl(keepRange) {
 
     let bars = [];
     let candleNote = '';
-    if (ohlcSeries && cR.ok) {
-      const cd = await cR.json();
-      bars = dedupeTimes((cd.candles || []).map(b => ({
-        time: b.time,
-        open: b.open, high: b.high, low: b.low, close: b.close,
-        volume: Number(b.volume) || 0,
-      })));
-      if (!bars.length) candleNote = ' · no OHLC from ' + (cd.quote_label || cd.venue || 'venue');
-    } else if (ohlcSeries && !cR.ok) {
-      const body = await cR.json().catch(() => ({}));
-      candleNote = ' · candles failed: ' + (body.detail || cR.statusText);
+    if (ohlcSeries && cR && cR.ok) {
+      try {
+        const cd = await cR.json();
+        if (seq !== rpnlLoadSeq) return;
+        bars = dedupeTimes((cd.candles || []).map(b => ({
+          time: b.time,
+          open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close),
+          volume: Number(b.volume) || 0,
+        })).filter(b => [b.open, b.high, b.low, b.close].every(isFinite)));
+        if (!bars.length) candleNote = ' · no OHLC from ' + (cd.quote_label || cd.venue || 'venue');
+      } catch (e) {
+        candleNote = ' · candles parse failed';
+      }
+    } else if (ohlcSeries) {
+      let body = {};
+      try { if (cR) body = await cR.json(); } catch (e) {}
+      candleNote = ' · candles failed: ' + (body.detail || (cR && cR.statusText) || 'network');
     }
     ohlcBarsCache = bars;
-    if (ohlcSeries) ohlcSeries.setData(bars);
-    if (ohlcVolSeries) ohlcVolSeries.setData(volumeBarsFromOhlc(bars));
+    setOhlcEmpty(!bars.length, bars.length ? '' : ((candleNote || '').replace(/^ · /, '') || 'No price candles for this window'));
+    try { if (ohlcSeries) ohlcSeries.setData(bars); } catch (e) {
+      ohlcBarsCache = [];
+      setOhlcEmpty(true, 'Price chart could not render these candles');
+    }
+    if (ohlcVolSeries) ohlcVolSeries.setData(volumeBarsFromOhlc(ohlcBarsCache));
     if (ohlcHedgeMarkerSeries) {
-      ohlcHedgeMarkerSeries.setData(bars.map(b => ({ time: b.time, value: b.close })));
+      ohlcHedgeMarkerSeries.setData(ohlcBarsCache.map(b => ({ time: b.time, value: b.close })));
     }
 
-    rpnlPtsCache = bars.length ? alignRpnlToBars(filled, bars) : filled;
-    rpnlHedgeCache = hedgeFilled.length && bars.length
-      ? alignRpnlToBars(hedgeFilled, bars)
+    rpnlPtsCache = ohlcBarsCache.length ? alignRpnlToBars(filled, ohlcBarsCache) : filled;
+    rpnlHedgeCache = hedgeFilled.length && ohlcBarsCache.length
+      ? alignRpnlToBars(hedgeFilled, ohlcBarsCache)
       : hedgeFilled;
     applyRpnlData(rpnlPtsCache, true);
 
-    if (ohlcSeries && fR.ok) {
+    if (ohlcSeries && fR && fR.ok) {
       const fd = await fR.json();
+      if (seq !== rpnlLoadSeq) return;
       let fills = fd.fills || [];
       if (hFR && hFR.ok) {
         const hf = await hFR.json();
+        if (seq !== rpnlLoadSeq) return;
         fills = fills.concat(hf.fills || []);
       }
       rpnlFillsCache = fills;
-      ohlcSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, bars, false));
+      ohlcSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, ohlcBarsCache, false));
       if (ohlcHedgeMarkerSeries) {
-        ohlcHedgeMarkerSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, bars, true));
+        ohlcHedgeMarkerSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, ohlcBarsCache, true));
       }
       applyRpnlFillMarkers();
     } else {
@@ -2629,7 +2846,10 @@ async function loadRpnl(keepRange) {
       applyRpnlFillMarkers();
     }
 
-    if (savedLogical) {
+    ohlcOrderSig = '';
+    applyOhlcOrderLines(quotesForCurrentRpnl());
+
+    if (savedLogical && savedLogical.to > savedLogical.from) {
       rpnlSyncing = true;
       try { ohlcChart.timeScale().setVisibleLogicalRange(savedLogical); } catch (e) {}
       rpnlSyncing = false;
@@ -2638,7 +2858,7 @@ async function loadRpnl(keepRange) {
       fitRpnlView();
     }
 
-    if (filled.length === 0 && !hedgeRaw.length && !bars.length) {
+    if (filled.length === 0 && !hedgeRaw.length && !ohlcBarsCache.length) {
       setStatus('rpnlStatus', '<span>No fills found for <b>' + d.contract + '</b> ' +
         (winLab === 'today' ? 'today (IST midnight → now)' : 'in the last ' + winLab) +
         '. Try a longer window.</span>' +
@@ -2670,11 +2890,17 @@ async function loadRpnl(keepRange) {
     showRpnlError('Network or parse error', e.message);
     setStatus('rpnlStatus', '<span>Error: ' + e.message + '</span>', 'error');
   }
+  } finally {
+    if (seq === rpnlLoadSeq) rpnlLoadBusy = false;
+  }
 }
 
 function setupRpnlAuto() {
   clearInterval(rpnlTimer);
-  if (document.getElementById('rpnlAuto').checked) rpnlTimer = setInterval(() => loadRpnl(true), 10000);
+  rpnlTimer = null;
+  const box = document.getElementById('rpnlAuto');
+  const vis = document.getElementById('rpnl') && document.getElementById('rpnl').classList.contains('visible');
+  if (box && box.checked && vis) rpnlTimer = setInterval(() => loadRpnl(true), 10000);
 }
 
 function unixToDatetimeLocalIST(unix) {

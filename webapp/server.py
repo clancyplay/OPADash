@@ -822,7 +822,9 @@ async def _fetch_delta_ohlc(symbol: str, resolution: str, lookback_secs: int) ->
             )
             resp.raise_for_status()
             for c in resp.json().get("result", []) or []:
-                ts = int(c["time"])
+                ts = _unix_from_any(c.get("time"))
+                if ts <= 0:
+                    continue
                 by_t[ts] = {
                     "time": ts,
                     "open": _num(c["open"]),
