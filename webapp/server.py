@@ -356,6 +356,29 @@ def _setup_public(setup: dict | None) -> dict | None:
                     out[key] = val
     if "max_usd" in out:
         out.pop("max_pos", None)
+    raw_quotes = setup.get("quotes")
+    if isinstance(raw_quotes, list):
+        quotes = []
+        for rec in raw_quotes[:24]:
+            if not isinstance(rec, dict):
+                continue
+            try:
+                px = float(rec.get("price") or 0)
+                qty = float(rec.get("qty") or 0)
+            except (TypeError, ValueError):
+                continue
+            if px <= 0:
+                continue
+            side = str(rec.get("side") or "").strip().lower()
+            if side not in ("buy", "sell"):
+                continue
+            item = {"side": side, "price": px, "qty": qty}
+            role = str(rec.get("role") or "").strip()[:16]
+            if role:
+                item["role"] = role
+            quotes.append(item)
+        if quotes:
+            out["quotes"] = quotes
     return out if len(out) > 1 else None
 
 

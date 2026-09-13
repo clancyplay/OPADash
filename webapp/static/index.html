@@ -1412,8 +1412,12 @@ function updateRpnlPaneLabels() {
   const venueLab = venue === 'hedge' ? hlab : (venue === 'quote' ? qlab : qlab + ' + ' + hlab);
   const ohlc = document.getElementById('ohlcPaneLabel');
   const lab = document.getElementById('rpnlPaneLabel');
-  if (ohlc) ohlc.textContent = (qsym ? qsym + ' · ' : '') + qlab + ' price · vol · fills ▴▾'
-    + (rpnlMeta.has_hedge ? ' · ' + hlab + ' ●' : '');
+  if (ohlc) {
+    const n = ohlcOrderLines.length;
+    ohlc.textContent = (qsym ? qsym + ' · ' : '') + qlab + ' price · vol · fills ▴▾'
+      + (rpnlMeta.has_hedge ? ' · ' + hlab + ' ●' : '')
+      + (n ? ' · ' + n + ' quote' + (n === 1 ? '' : 's') : '');
+  }
   if (lab) lab.textContent = (rpnlView === 'cumul' ? 'Cumulative rPnL ₹' : 'Per-bucket rPnL ₹') + ' · ' + venueLab;
 }
 
@@ -1459,6 +1463,8 @@ let rpnlSelectMode = false;
 let rpnlPinFrom = null;
 let rpnlPinTo = null;
 let ohlcChart, ohlcSeries, ohlcHedgeMarkerSeries, ohlcVolSeries;
+let ohlcOrderLines = [];
+let rpnlSummaryCache = [];
 let rpnlView         = 'cumul';
 let rpnlPtsCache     = [];
 let rpnlHedgeCache   = [];
@@ -1633,7 +1639,7 @@ function rpnlCfgBits(s) {
 
 function rpnlCfgTitle(s) {
   if (!s) return 'No live bot setup for this contract yet — restart the strategy so it can write hem/span/max';
-  const skip = new Set(['coindcx_sl_tick', 'kind']);
+  const skip = new Set(['coindcx_sl_tick', 'kind', 'quotes']);
   return Object.entries(s)
     .filter(([k, v]) => !skip.has(k) && v !== '' && v != null)
     .map(([k, v]) => k + ': ' + v)
@@ -1718,14 +1724,62 @@ function syncRpnlSymbolSelect(rows) {
   return sel.value;
 }
 
+function quotesForCurrentRpnl(rows) {
+  const cur = (document.getElementById('rpnlSymbol') || {}).value || '';
+  const row = (rows || rpnlSummaryCache || []).find(r => rpnlOptionValue(r) === cur);
+  if (!row || !row.live || !row.settings || !Array.isArray(row.settings.quotes)) return [];
+  return row.settings.quotes;
+}
+
+function clearOhlcOrderLines() {
+  if (!ohlcSeries) { ohlcOrderLines = []; return; }
+  ohlcOrderLines.forEach(line => {
+    try { ohlcSeries.removePriceLine(line); } catch (e) {}
+  });
+  ohlcOrderLines = [];
+}
+
+function applyOhlcOrderLines(quotes) {
+  clearOhlcOrderLines();
+  if (!ohlcSeries || !Array.isArray(quotes) || !quotes.length) {
+    updateRpnlPaneLabels();
+    return;
+  }
+  const dash = (window.LightweightCharts && LightweightCharts.LineStyle)
+    ? LightweightCharts.LineStyle.Dashed
+    : 2;
+  quotes.forEach(q => {
+    const px = Number(q.price);
+    if (!isFinite(px) || px <= 0) return;
+    const buy = String(q.side || '').toLowerCase() === 'buy';
+    const qty = q.qty != null ? fmtG(q.qty) : '';
+    const role = q.role ? String(q.role) : '';
+    const title = ((buy ? 'B ' : 'S ') + (role ? role + ' ' : '') + qty).trim();
+    try {
+      ohlcOrderLines.push(ohlcSeries.createPriceLine({
+        price: px,
+        color: buy ? '#26a69a' : '#ef5350',
+        lineWidth: 1,
+        lineStyle: dash,
+        axisLabelVisible: true,
+        title: title,
+      }));
+    } catch (e) {}
+  });
+  updateRpnlPaneLabels();
+}
+
 function renderRpnlSummary(rows, hours) {
   const wrap = document.getElementById('rpnlSummaryWrap');
   if (!wrap) return;
   rows = filterRpnlWindowRows(rows);
   if (!rows.length) {
     wrap.innerHTML = '<div class="rpnl-empty">No contracts with fills in this window.</div>';
+    rpnlSummaryCache = [];
+    applyOhlcOrderLines([]);
     return;
   }
+  rpnlSummaryCache = rows;
   const cur = document.getElementById('rpnlSymbol').value;
   const win = rpnlWindowLabel(hours);
   // Two rows can share a contract + account name but sit on different account
@@ -1740,6 +1794,7 @@ function renderRpnlSummary(rows, hours) {
     const active = key === cur ? ' active' : '';
     const liveCls = r.live ? ' live' : '';
     const modeTxt = rpnlModeText(r.settings);
+    const modeCls = (modeTxt || (r.settings && r.settings.hold)) ? ' mode-hot' : '';
     const acct = rpnlAccountLabel(r);
     const qv = r.quote_venue || 'delta';
     const qlab = r.quote_label || 'Delta';
@@ -1754,7 +1809,7 @@ function renderRpnlSummary(rows, hours) {
     const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
     // Key goes in a data attribute, not an inline onclick string — account ids
     // can contain quotes/ampersands that would break the attribute.
-    return '<div class="rpnl-pill' + active + liveCls + '" data-rpnl-key="' + escHtml(key) +
+    return '<div class="rpnl-pill' + active + liveCls + modeCls + '" data-rpnl-key="' + escHtml(key) +
       '" data-contract="' + escHtml(r.contract || '') +
       '" data-account="' + escHtml(r.account || '') +
       '" data-qsym="' + escHtml(qsym) + '">' +
@@ -1793,6 +1848,7 @@ function renderRpnlSummary(rows, hours) {
       if (btn) pickRpnlContract(btn.dataset.rpnlKey);
     });
   }
+  applyOhlcOrderLines(quotesForCurrentRpnl(rows));
 }
 
 function pillOptionLabel(r) {
@@ -2443,6 +2499,7 @@ async function extendRpnl() {
 
 function clearRpnlCharts() {
   rpnlPtsCache = []; rpnlHedgeCache = []; rpnlFillsCache = []; ohlcBarsCache = [];
+  clearOhlcOrderLines();
   try {
     if (rpnlSeries) rpnlSeries.setData([]);
     if (rpnlHedgeSeries) rpnlHedgeSeries.setData([]);
