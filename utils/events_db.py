@@ -2303,8 +2303,8 @@ class EventsDB:
             return f" AND exchange = ${start_idx}", [qv]
         if exch == "not_quote":
             return f" AND exchange <> ${start_idx}", [qv]
-            if exch == "hedge":
-                return " AND exchange <> 'delta'", []
+        if exch == "hedge":
+            return " AND exchange <> 'delta'", []
         if exch in KNOWN_VENUES and exch != "delta":
             return f" AND exchange = ${start_idx}", [exch]
         return f" AND exchange = ${start_idx}", ["delta"]
@@ -2312,7 +2312,7 @@ class EventsDB:
     def _rpnl_inr(self, value: float, exchange: str) -> float:
         """CoinDCX books rPnL in INR already; every other venue is USD."""
         if (exchange or "delta").lower() in INR_VENUES:
-        return float(value or 0)
+            return float(value or 0)
         return float(value or 0) * self.usdinr_rate
 
     def _skip_account_filter(self, exchange: str | None) -> bool:
@@ -2440,7 +2440,7 @@ class EventsDB:
             if self._skip_account_filter(exchange):
                 acct_sql, acct_args = "", []
             else:
-            acct_sql, acct_args = self._account_filter(account, len(params) + 1)
+                acct_sql, acct_args = self._account_filter(account, len(params) + 1)
             params.extend(acct_args)
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
