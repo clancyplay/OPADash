@@ -315,6 +315,7 @@ _SETUP_KEYS = (
     "orders", "live_orders", "max_pos", "max_usd", "ignore", "ignore_usd",
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
     "mode", "mode_why", "pause_left", "size_pct",
+    "min_spread", "spread_pad",
 )
 _SYMBOL_STRATS = {"opa3", "opa4"}
 

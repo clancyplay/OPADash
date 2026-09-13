@@ -1646,9 +1646,10 @@ class EventsDB:
     ) -> list[dict]:
         """Per-contract+account fill count + realized PnL (₹) for the dashboard.
 
-        Pills stay for every historical pair; `venue_rpnl` / `venue_fills` are
-        the lookback window (`since`). All-time counts stay in `venue_fills_all`
-        so quote vs hedge detection does not flip when a short window is empty.
+        When `since` is set, only pairs with at least one fill in that window
+        are returned. `venue_rpnl` / `venue_fills` are windowed; all-time
+        counts stay in `venue_fills_all` so quote vs hedge detection does not
+        flip if one side is quiet in the window.
         """
         if not self.pool:
             return []
@@ -1745,6 +1746,11 @@ class EventsDB:
             for item in out:
                 self._add_legacy_rpnl_fields(item)
                 item["live"] = ping_is_live(item["contract"], item["account"], live_keys)
+            if since is not None:
+                out = [
+                    i for i in out
+                    if sum(int(n or 0) for n in (i.get("venue_fills") or {}).values()) > 0
+                ]
             out.sort(key=lambda i: (
                 0 if i.get("live") else 1,
                 -i["venue_rpnl"].get("delta", 0.0),

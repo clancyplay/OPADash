@@ -268,6 +268,7 @@
     -webkit-overflow-scrolling: touch; touch-action: pan-x;
   }
   .rpnl-pills::-webkit-scrollbar { display: none; }
+  .rpnl-empty { padding: 12px 4px; color: var(--muted); font-size: 13px; }
   .rpnl-pill {
     flex: 0 0 auto; cursor: pointer; border: 1px solid var(--border2);
     background: var(--surface); border-radius: 8px; padding: 7px 10px;
@@ -1174,6 +1175,7 @@ const PAGE_IDS = ['home', 'balances', 'reports', 'rpnl', 'data'];
 const NAV_IDS  = { home: 'navHome', balances: 'navBalances', reports: 'navReports', rpnl: 'navRpnl', data: 'navData' };
 let rpnlReady = false, reportsReady = false, balancesReady = false, dataReady = false;
 let pendingRpnlKey = null, pendingReportAcct = null, pendingReportWiden = false;
+let rpnlForceKeepSel = false;
 
 const LS_STRATEGY = 'opadash.strategy';
 const LS_PAGE = 'opadash.page';
@@ -1230,6 +1232,7 @@ function goToRpnlChart(contract, account) {
   const sel = document.getElementById('rpnlSymbol');
   if (sel) sel.value = key;
   pendingRpnlKey = wasReady ? key : null;
+  rpnlForceKeepSel = true;
   showPage('rpnl');
 }
 function focusReportAccount(accountId) {
@@ -1523,6 +1526,8 @@ function rpnlSetupBits(s) {
   if (s.hem != null) bits.push('hem ' + fmtG(s.hem) + '%');
   if (s.span != null) bits.push('span ' + fmtG(s.span) + '%');
   if (s.step != null) bits.push('step ' + fmtG(s.step) + '%');
+  if (s.min_spread != null && Number(s.min_spread) > 0) bits.push('min spread ' + fmtG(s.min_spread) + '%');
+  if (s.spread_pad != null && Number(s.spread_pad) > 0) bits.push('pad ' + fmtG(s.spread_pad) + '%');
   if (s.fit_auto != null) bits.push('fit auto ' + (on(s.fit_auto) ? 'on' : 'off'));
   if (s.vol_gate != null) bits.push('vol gate ' + (on(s.vol_gate) ? 'on' : 'off'));
   if (s.flow_gate != null) bits.push('flow gate ' + (on(s.flow_gate) ? 'on' : 'off'));
@@ -1614,10 +1619,53 @@ function rpnlWindowTag() {
   return v === 'today' ? 'today' : rpnlWindowLabel(v);
 }
 
+function rpnlWindowFillCount(r) {
+  return (Number(r && r.fills) || 0) + (Number(r && r.hedge_fills) || 0);
+}
+
+function filterRpnlWindowRows(rows) {
+  return (Array.isArray(rows) ? rows : []).filter(r => rpnlWindowFillCount(r) > 0);
+}
+
+function syncRpnlSymbolSelect(rows) {
+  const sel = document.getElementById('rpnlSymbol');
+  if (!sel) return '';
+  const keep = sel.value;
+  const keepMissing = rpnlForceKeepSel;
+  rpnlForceKeepSel = false;
+  if (!rows.length) {
+    if (keepMissing && keep && keep.indexOf('::') >= 0) {
+      sel.innerHTML = '<option value="' + escHtml(keep) + '">' + escHtml(keep.replace('::', ' · ')) + '</option>';
+      sel.value = keep;
+      return keep;
+    }
+    sel.innerHTML = '<option value="">No fills in this window</option>';
+    return '';
+  }
+  const sorted = rows.slice().sort((a, b) => Number(!!b.live) - Number(!!a.live));
+  sel.innerHTML = sorted.map(c =>
+    '<option value="' + escHtml(rpnlOptionValue(c)) + '">' +
+      escHtml((c.live ? '● ' : '') + (c.label || pillOptionLabel(c))) + '</option>'
+  ).join('');
+  if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
+  else if (keepMissing && keep && keep.indexOf('::') >= 0) {
+    const opt = document.createElement('option');
+    opt.value = keep;
+    opt.textContent = keep.replace('::', ' · ');
+    sel.appendChild(opt);
+    sel.value = keep;
+  } else sel.selectedIndex = 0;
+  return sel.value;
+}
+
 function renderRpnlSummary(rows, hours) {
   const wrap = document.getElementById('rpnlSummaryWrap');
   if (!wrap) return;
-  if (!rows || !rows.length) { wrap.innerHTML = ''; return; }
+  rows = filterRpnlWindowRows(rows);
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="rpnl-empty">No contracts with fills in this window.</div>';
+    return;
+  }
   const cur = document.getElementById('rpnlSymbol').value;
   const win = rpnlWindowLabel(hours);
   // Two rows can share a contract + account name but sit on different account
@@ -1666,9 +1714,6 @@ function renderRpnlSummary(rows, hours) {
       rpnlCfgHtml(r.settings) +
       '</button>';
   }).join('');
-  // The pills carry authoritative keys — make sure each one is selectable even
-  // if /api/rpnl/symbols and /api/rpnl/summary disagree about what exists.
-  rows.forEach(r => ensureRpnlOption(rpnlOptionValue(r), pillOptionLabel(r)));
   if (!wrap.dataset.bound) {
     wrap.dataset.bound = '1';
     wrap.addEventListener('click', ev => {
@@ -2324,16 +2369,48 @@ async function extendRpnl() {
   rpnlLoadingMore = false;
 }
 
+function clearRpnlCharts() {
+  rpnlPtsCache = []; rpnlHedgeCache = []; rpnlFillsCache = []; ohlcBarsCache = [];
+  try {
+    if (rpnlSeries) rpnlSeries.setData([]);
+    if (rpnlHedgeSeries) rpnlHedgeSeries.setData([]);
+    if (rpnlNetSeries) rpnlNetSeries.setData([]);
+    if (rpnlHistSeries) { rpnlHistSeries.setData([]); rpnlHistSeries.setMarkers([]); }
+    if (ohlcSeries) { ohlcSeries.setData([]); ohlcSeries.setMarkers([]); }
+    if (ohlcVolSeries) ohlcVolSeries.setData([]);
+    if (ohlcHedgeMarkerSeries) { ohlcHedgeMarkerSeries.setData([]); ohlcHedgeMarkerSeries.setMarkers([]); }
+  } catch (e) {}
+}
+
 async function loadRpnl(keepRange) {
-  const picked = currentRpnlSel();
-  const venue  = rpnlVenueParam();
-  const sym    = picked.contract;
   const winQ   = rpnlWindowQuery();
   const winLab = rpnlWindowTag();
   const bucket = document.getElementById('rpnlBucket').value;
-  if (!sym) return;
+  const hoursArg = winLab === 'today' ? 'today' : (rpnlCurrentHours !== null ? rpnlCurrentHours : rpnlHoursSel());
   hideRpnlError();
   updateRpnlPaneLabels();
+
+  let rows = null;
+  try {
+    const sR = await fetch(withStrategy('/api/rpnl/summary' + (winQ ? '?' + winQ.slice(1) : '')));
+    if (sR.ok) rows = filterRpnlWindowRows(await sR.json());
+  } catch (e) { /* chart load can still proceed with the current symbol */ }
+  if (rows) {
+    const prevKey = (document.getElementById('rpnlSymbol') || {}).value || '';
+    const key = syncRpnlSymbolSelect(rows);
+    renderRpnlSummary(rows, hoursArg);
+    if (!key) {
+      setStatus('rpnlStatus', '<span>No contracts with fills in this window. Try a longer Window.</span>');
+      clearRpnlCharts();
+      return;
+    }
+    if (key !== prevKey) keepRange = false;
+  }
+
+  const picked = currentRpnlSel();
+  const venue  = rpnlVenueParam();
+  const sym    = picked.contract;
+  if (!sym) return;
   const savedLogical = keepRange && ohlcChart
     ? ohlcChart.timeScale().getVisibleLogicalRange()
     : null;
@@ -2349,11 +2426,9 @@ async function loadRpnl(keepRange) {
       fetch(withStrategy(url)),
       fetch(withStrategy('/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + winQ + acctBit)),
       fetch(withStrategy(fillUrl + '&exchange=quote')),
-      fetch(withStrategy('/api/rpnl/summary' + (winQ ? '?' + winQ.slice(1) : ''))),
       venue === 'quote' ? null : fetch(withStrategy(fillUrl + '&exchange=hedge')),
     ];
-    const [r, cR, fR, sR, hFR] = await Promise.all(reqs);
-    if (sR.ok) renderRpnlSummary(await sR.json(), winLab === 'today' ? 'today' : (rpnlCurrentHours !== null ? rpnlCurrentHours : rpnlHoursSel()));
+    const [r, cR, fR, hFR] = await Promise.all(reqs);
     if (!r.ok) {
       const body = await r.json().catch(() => ({ detail: r.statusText }));
       showRpnlError('HTTP ' + r.status, body.detail || r.statusText);
