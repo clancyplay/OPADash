@@ -1613,7 +1613,7 @@ function rpnlTapeHtml(s) {
     const floor = s.grind != null ? Number(s.grind) : NaN;
     const title = probe
       ? 'pause-probe rolling rPnL (tape cleared on flatten)'
-      : ('grind window' + (isFinite(floor) && floor > 0 ? ' · cover < 0, flatten ≤ −$' + fmtG(floor) : ''));
+      : ('grind window' + (isFinite(floor) && floor > 0 ? ' · red still quotes · flatten ≤ −$' + fmtG(floor) : ''));
     bits.push(rpnlTapeChip(probe ? 'probe' : 'win', s.win_rpnl, s.win_secs, title));
   }
   if (s.burst_rpnl != null && s.burst_secs != null) {
