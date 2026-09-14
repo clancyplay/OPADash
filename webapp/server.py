@@ -310,6 +310,7 @@ def _hedge_venue_label(raw: str | None) -> str:
     return codes.get(v, codes.get(v.lower(), v))
 
 
+_SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold"}
 _SETUP_KEYS = (
     "hem", "span", "step", "fit_auto", "vol_gate", "vol_stable",
     "orders", "live_orders", "max_pos", "max_usd", "ignore", "ignore_usd",
@@ -317,9 +318,18 @@ _SETUP_KEYS = (
     "mode", "mode_why", "pause_left", "size_pct",
     "min_spread", "spread_pad",
     "pos", "entry", "upnl", "hold",
-    "grind", "grind_window",
+    "grind", "grind_window", "grind_rpnl", "grind_secs",
     "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "probing",
     "rest_left",
+    "fate_peak", "fate_now", "fate_dd", "fate_burst_need", "fate_dd_need",
+    "fate_window", "fate_mult", "fate_burst",
+    "trip_why", "pause_clock", "pause_probe",
+    "probe_window", "probe_last_n", "probe_lock", "probe_recent",
+    "probe_hold", "probe_need", "probe_lock_left", "probe_lock_ok",
+    "probe_win_ok", "probe_last_ok", "probe_n_have", "probe_n_need", "probe_n_sum",
+    "probe_recent_ok", "probe_recent_rpnl", "probe_recent_secs",
+    "probe_chop_ok", "probe_need_chop", "probe_trend_ok",
+    "probe_win_rpnl", "probe_rpnl",
 )
 _SYMBOL_STRATS = {"opa3", "opa4"}
 
@@ -345,6 +355,10 @@ def _setup_public(setup: dict | None) -> dict | None:
         if key not in setup or setup[key] is None:
             continue
         val = setup[key]
+        if key in _SETUP_STR_KEYS and isinstance(val, str):
+            if 0 < len(val) <= 160:
+                out[key] = val
+            continue
         if isinstance(val, bool):
             out[key] = val
         elif isinstance(val, (int, float)):
