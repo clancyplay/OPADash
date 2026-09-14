@@ -329,7 +329,7 @@ _SETUP_KEYS = (
     "probe_win_ok", "probe_last_ok", "probe_n_have", "probe_n_need", "probe_n_sum",
     "probe_recent_ok", "probe_recent_rpnl", "probe_recent_secs",
     "probe_chop_ok", "probe_need_chop", "probe_trend_ok",
-    "probe_win_rpnl", "probe_rpnl",
+    "probe_win_rpnl", "probe_rpnl", "probe_rpnl_ready",
 )
 _SYMBOL_STRATS = {"opa3", "opa4"}
 

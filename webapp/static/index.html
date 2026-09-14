@@ -334,6 +334,7 @@
   .rpnl-inspect .ri-gate .ok { color: var(--green); font-weight: 650; }
   .rpnl-inspect .ri-gate .wait { color: #ffb74d; font-weight: 650; }
   .rpnl-inspect .ri-gate .bad { color: var(--red); font-weight: 650; }
+  .rpnl-inspect .ri-gate .then { color: #6b7385; font-weight: 650; }
   .rpnl-inspect .ri-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
   .rpnl-inspect .ri-pos { font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
   .rpnl-inspect .ri-pos.long { color: var(--green); }
@@ -1644,14 +1645,18 @@ function rpnlMark(ok, bad) {
   return ok ? '<span class="ok">ok</span>' : '<span class="wait">wait</span>';
 }
 
-function rpnlPrettyTrip(raw) {
+function rpnlPrettyTrip(raw, floor) {
   const m = String(raw || '');
+  const need = (isFinite(floor) && floor > 0) ? '  (need $' + fmtG(floor) + ')' : '';
   let hit = m.match(/FATE\s+peak=([-\d.]+)\s+burst=([-\d.]+)/i);
-  if (hit) return 'FATE  peak ' + fmtUsdSigned(hit[1]) + '  burst ' + fmtUsdSigned(hit[2]);
+  if (hit) return 'FATE  peak ' + fmtUsdSigned(hit[1]) + '  burst ' + fmtUsdSigned(hit[2]) + need;
   hit = m.match(/FATE\s+peak=([-\d.]+)\s+giveback=([-\d.]+)/i);
-  if (hit) return 'FATE  peak ' + fmtUsdSigned(hit[1]) + '  giveback ' + fmtUsdSigned(hit[2]);
+  if (hit) {
+    return 'FATE  peak ' + fmtUsdSigned(hit[1]) +
+      '  gave back $' + fmtG(Math.abs(Number(hit[2]))) + need;
+  }
   hit = m.match(/GRIND\s+([\d.]+)s=([-\d.]+)/i);
-  if (hit) return 'GRIND  ' + (fmtWinSecs(hit[1]) || (hit[1] + 's')) + ' ' + fmtUsdSigned(hit[2]);
+  if (hit) return 'GRIND  ' + (fmtWinSecs(hit[1]) || (hit[1] + 's')) + ' ' + fmtUsdSigned(hit[2]) + need;
   return m;
 }
 
@@ -1707,19 +1712,28 @@ function rpnlGrindHtml(s, live) {
   return '<div class="ri-gate"><b>GRIND</b> ' + escHtml(bits.join('  ')) + ' ' + rpnlMark(!trip, trip) + '</div>';
 }
 
+function rpnlLater(ok) {
+  if (ok) return '<span class="ok">ok</span>';
+  return '<span class="then">after fills</span>';
+}
+
 function rpnlProbeHtml(s) {
   const need = Number(s.probe_need);
-  const needBit = isFinite(need) && need > 0 ? 'need ' + fmtUsdSigned(need) : '';
+  const needBit = isFinite(need) && need > 0 ? fmtUsdSigned(need) : '';
   const clock = Number(s.pause_clock);
   const lockLeft = Number(s.probe_lock_left);
   const lockOk = s.probe_lock_ok != null ? !!s.probe_lock_ok : !(lockLeft > 0);
   const clockOk = !(clock > 0);
-  const wait = String(s.probe_hold || 'probe green');
+  const rpnlReady = !!s.probe_rpnl_ready;
+  const nNeed = Number(s.probe_n_need);
+  const nHave = Number(s.probe_n_have);
+  const nSum = Number(s.probe_n_sum);
+  const noFills = !rpnlReady && (!isFinite(nHave) || nHave <= 0);
+  const wait = noFills
+    ? ('probe fills — 5m ≥ ' + (needBit || '+$0') + (nNeed > 0 ? (' or last ' + nNeed) : ''))
+    : String(s.probe_hold || 'probe green');
   const rows = [];
-  rows.push(
-    '<div class="ri-gate"><b>lift</b> waiting ' + escHtml(wait) +
-    ' <span class="wait">— clock does not resume</span></div>'
-  );
+  rows.push('<div class="ri-gate"><b>lift</b> now: ' + escHtml(wait) + '</div>');
   rows.push(
     '<div class="ri-gate sub">clock ' + escHtml(clock > 0 ? Math.round(clock) + 's' : 'done') +
     ' ' + rpnlMark(clockOk) +
@@ -1729,14 +1743,11 @@ function rpnlProbeHtml(s) {
   const win = fmtWinSecs(s.win_secs || s.probe_window) || '5m';
   const winRpnl = s.probe_win_rpnl != null ? Number(s.probe_win_rpnl) : Number(s.win_rpnl);
   let p = win + ' ' + (isFinite(winRpnl) ? fmtUsdSigned(winRpnl) : '—');
-  if (needBit) p += ' / ' + needBit;
-  const nNeed = Number(s.probe_n_need);
-  const nHave = Number(s.probe_n_have);
-  const nSum = Number(s.probe_n_sum);
+  if (needBit) p += ' / need ' + needBit;
   let last = '';
   if (nNeed > 0) {
     last = 'last ' + (isFinite(nHave) ? nHave : 0) + '/' + nNeed +
-      ' ' + (isFinite(nSum) ? fmtUsdSigned(nSum) : '—');
+      (isFinite(nSum) ? ' ' + fmtUsdSigned(nSum) : '');
   }
   rows.push(
     '<div class="ri-gate sub">' + escHtml(p) + ' ' + rpnlMark(!!s.probe_win_ok) +
@@ -1745,12 +1756,16 @@ function rpnlProbeHtml(s) {
   );
   const recSecs = fmtWinSecs(s.probe_recent_secs) || fmtWinSecs(s.probe_recent) || '';
   const rec = Number(s.probe_recent_rpnl);
-  let r = 'recent' + (recSecs ? ' ' + recSecs : '') + (isFinite(rec) ? ' ' + fmtUsdSigned(rec) : '');
+  const recTxt = 'recent' + (recSecs ? ' ' + recSecs : '') + (isFinite(rec) ? ' ' + fmtUsdSigned(rec) : '');
+  const recMark = rpnlReady
+    ? rpnlMark(s.probe_recent_ok != null ? !!s.probe_recent_ok : true)
+    : rpnlLater(s.probe_recent_ok != null ? !!s.probe_recent_ok : false);
   rows.push(
-    '<div class="ri-gate sub">' + escHtml(r) + ' ' +
-    rpnlMark(s.probe_recent_ok != null ? !!s.probe_recent_ok : true) +
-    (s.probe_need_chop ? ' · chop ' + rpnlMark(!!s.probe_chop_ok) : '') +
-    (s.probe_trend_ok === false ? ' · trend ' + rpnlMark(false) : '') +
+    '<div class="ri-gate sub">' + escHtml(recTxt) + ' ' + recMark +
+    (s.probe_need_chop
+      ? ' · chop ' + (rpnlReady ? rpnlMark(!!s.probe_chop_ok) : rpnlLater(!!s.probe_chop_ok))
+      : '') +
+    (rpnlReady && s.probe_trend_ok === false ? ' · trend ' + rpnlMark(false) : '') +
     '</div>'
   );
   return rows.join('');
@@ -1762,21 +1777,22 @@ function rpnlGatesHtml(s) {
   const rows = [];
   const trip = String(s.trip_why || '');
   if (paused && trip) {
-    rows.push('<div class="ri-gate"><b>tripped</b> ' + escHtml(rpnlPrettyTrip(trip)) + '</div>');
+    rows.push('<div class="ri-gate"><b>tripped</b> ' + escHtml(rpnlPrettyTrip(trip, Number(s.fate))) + '</div>');
   }
   if (s.probing) {
     rows.push(rpnlProbeHtml(s));
   } else if (paused) {
     const clock = Number(s.pause_clock || s.pause_left);
     if (clock > 0) {
-      rows.push('<div class="ri-gate"><b>lift</b> clock ' + Math.round(clock) + 's ' + rpnlMark(false) + '</div>');
+      rows.push('<div class="ri-gate"><b>lift</b> now: clock ' + Math.round(clock) + 's ' + rpnlMark(false) + '</div>');
     }
   }
-  const live = !s.probing && !(paused && trip);
-  const fate = rpnlFateHtml(s, live);
-  const grind = rpnlGrindHtml(s, live);
-  if (fate) rows.push(fate);
-  if (grind) rows.push(grind);
+  if (!paused) {
+    const fate = rpnlFateHtml(s, true);
+    const grind = rpnlGrindHtml(s, true);
+    if (fate) rows.push(fate);
+    if (grind) rows.push(grind);
+  }
   if (!rows.length) return '';
   return '<div class="ri-gates">' + rows.join('') + '</div>';
 }
@@ -2097,6 +2113,7 @@ function renderRpnlInspect(row) {
     s && s.win_rpnl, s && s.burst_rpnl, s && s.probing, s && s.rest_left,
     s && s.trip_why, s && s.probe_hold, s && s.probe_lock_left, s && s.probe_n_have,
     s && s.probe_win_ok, s && s.fate_peak, s && s.grind_rpnl, s && s.pause_clock,
+    s && s.probe_rpnl_ready, s && s.probe_chop_ok,
     Number(!!rpnlDetailsOpen), modeTxt,
   ].join('|');
   box.className = 'rpnl-inspect open';
