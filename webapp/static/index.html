@@ -300,6 +300,7 @@
   .rpnl-venue.bybit { background: rgba(247,166,0,.18); color: #f7a600; }
   .rpnl-venue.coinbase { background: rgba(0,82,255,.18); color: #5b8cff; }
   .rpnl-pill .p-val { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 4px; letter-spacing: -.2px; }
+  .rpnl-pill .p-mode { font-size: 10px; color: #ffb74d; margin-top: 3px; line-height: 1.3; max-width: 168px; }
   .rpnl-inspect {
     display: none; flex-direction: column; gap: 8px;
     padding: 8px max(16px, var(--safe-r)) 8px max(16px, var(--safe-l));
@@ -1563,12 +1564,15 @@ function rpnlModeText(s) {
   const why = String(s.mode_why || '').trim();
   let left = Number(s.pause_left);
   if (!isFinite(left)) left = 0;
+  let rest = Number(s.rest_left);
+  if (!isFinite(rest)) rest = 0;
   const size = s.size_pct == null ? NaN : Number(s.size_pct);
   if (mode && mode !== 'quoting') {
     let t = mode;
     if (left > 0) t += ' ' + Math.round(left) + 's';
+    else if (rest > 0) t += ' ' + Math.round(rest) + 's';
     if (why) t += ' · ' + why;
-    if (isFinite(size) && size < 99.5) t += ' · size ' + fmtG(size) + '%';
+    if (isFinite(size) && size < 99.5 && mode !== 'size-cool') t += ' · size ' + fmtG(size) + '%';
     return t;
   }
   if (isFinite(size) && size < 99.5) return 'size ' + fmtG(size) + '%';
@@ -1933,7 +1937,7 @@ function renderRpnlInspect(row) {
   const sig = [
     row.contract, row.account, Number(!!row.live), quote, hedge, row.fills, row.hedge_fills,
     s && s.pos, s && s.entry, s && s.upnl, s && s.mode, s && s.hold, s && s.pause_left,
-    s && s.win_rpnl, s && s.burst_rpnl, s && s.probing,
+    s && s.win_rpnl, s && s.burst_rpnl, s && s.probing, s && s.rest_left,
     Number(!!rpnlDetailsOpen), modeTxt,
   ].join('|');
   box.className = 'rpnl-inspect open';
@@ -1948,7 +1952,7 @@ function renderRpnlInspect(row) {
         rpnlPosHtml(s, 'ri-pos') +
         '<span class="ri-chip">' + escHtml(qlab) + ' ' + (row.fills || 0) + ' fills' +
           (hedged ? ' · ' + escHtml(hlab) + ' ' + (row.hedge_fills || 0) : '') + '</span>' +
-        (row.live && s && s.mode ? '<span class="ri-chip">' + escHtml(String(s.mode)) + '</span>' : '') +
+        (row.live && modeTxt ? '<span class="ri-chip">' + escHtml(modeTxt) + '</span>' : '') +
         rpnlTapeHtml(s) +
       '</div>' +
       '<div class="ri-col">' +
@@ -1982,6 +1986,10 @@ function renderRpnlInspect(row) {
   }
 }
 
+function rpnlPillMode(r) {
+  return rpnlModeText(r && r.settings) || '';
+}
+
 function rpnlPillHtml(r, cur, nameCount) {
   const key = rpnlOptionValue(r);
   const active = key === cur ? ' active' : '';
@@ -1994,11 +2002,14 @@ function rpnlPillHtml(r, cur, nameCount) {
   const name = qsym + (acct ? ' · ' + acct : '') + (dupe ? ' #' + r.account : '');
   const main = rpnlPillMain(r);
   const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
+  const mode = rpnlPillMode(r);
   return '<button type="button" class="rpnl-pill' + active + liveCls + '" data-rpnl-key="' + escHtml(key) + '">' +
     '<div class="p-name">' + (r.live ? '<span class="p-live" title="live"></span>' : '') +
       '<span class="p-sym">' + escHtml(name) + '</span>' +
       '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
-    '<div class="p-val" style="color:' + mainCol + '">' + inrFmt(main) + '</div></button>';
+    '<div class="p-val" style="color:' + mainCol + '">' + inrFmt(main) + '</div>' +
+    (mode ? '<div class="p-mode">' + escHtml(mode) + '</div>' : '') +
+    '</button>';
 }
 
 function rpnlPillMain(r) {
@@ -2042,6 +2053,18 @@ function renderRpnlSummary(rows, hours) {
       if (val) {
         val.textContent = inrFmt(main);
         val.style.color = main >= 0 ? 'var(--green)' : 'var(--red)';
+      }
+      const mode = rpnlPillMode(r);
+      let modeEl = el.querySelector('.p-mode');
+      if (mode) {
+        if (!modeEl) {
+          modeEl = document.createElement('div');
+          modeEl.className = 'p-mode';
+          el.appendChild(modeEl);
+        }
+        modeEl.textContent = mode;
+      } else if (modeEl) {
+        modeEl.remove();
       }
       const nameEl = el.querySelector('.p-name');
       if (nameEl) {

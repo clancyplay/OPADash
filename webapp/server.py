@@ -319,6 +319,7 @@ _SETUP_KEYS = (
     "pos", "entry", "upnl", "hold",
     "grind", "grind_window",
     "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "probing",
+    "rest_left",
 )
 _SYMBOL_STRATS = {"opa3", "opa4"}
 
