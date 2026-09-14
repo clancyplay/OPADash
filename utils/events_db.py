@@ -1434,7 +1434,7 @@ class EventsDB:
         cmd: str,
         created_by: str = "dashboard",
     ) -> int | None:
-        """Queue a per-bot command for OPA6 (stop/resume/cancel/flatten)."""
+        """Queue a per-bot command for OPA6 (stop/resume/cancel/clear/flatten)."""
         if not self.pool:
             return None
         try:

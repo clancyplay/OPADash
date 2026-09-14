@@ -317,6 +317,8 @@ _SETUP_KEYS = (
     "mode", "mode_why", "pause_left", "size_pct",
     "min_spread", "spread_pad",
     "pos", "entry", "upnl", "hold",
+    "grind", "grind_window",
+    "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "probing",
 )
 _SYMBOL_STRATS = {"opa3", "opa4"}
 
@@ -1358,6 +1360,9 @@ _BOT_CMDS = {
     "run": "resume",
     "cancel": "cancel",
     "cancel_all": "cancel",
+    "clear": "clear",
+    "reset": "clear",
+    "clear_pause": "clear",
     "flatten": "flatten",
     "close": "flatten",
 }
@@ -1368,7 +1373,7 @@ async def bot_command(
     req: BotCommandRequest,
     strategy: str = Query(""),
 ) -> dict:
-    """Queue stop / resume / cancel / flatten for a live OPA6 contract. Bot polls ~0.6s."""
+    """Queue stop / resume / cancel / clear / flatten for a live OPA6 contract. Bot polls ~0.6s."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
     cmd = _BOT_CMDS.get(str(req.cmd or "").strip().lower())

@@ -316,6 +316,9 @@
   }
   .rpnl-inspect .ri-col { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
   .rpnl-inspect .ri-chip { color: var(--muted); font-size: 11px; }
+  .rpnl-inspect .ri-chip.long { color: var(--green); }
+  .rpnl-inspect .ri-chip.short { color: var(--red); }
+  .rpnl-inspect .ri-chip.tape { font-weight: 650; }
   .rpnl-inspect .ri-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
   .rpnl-inspect .ri-pos { font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
   .rpnl-inspect .ri-pos.long { color: var(--green); }
@@ -1572,6 +1575,51 @@ function rpnlModeText(s) {
   return '';
 }
 
+function fmtWinSecs(s) {
+  const n = Number(s);
+  if (!isFinite(n) || n <= 0) return '';
+  if (n >= 3600 && n % 3600 === 0) return (n / 3600) + 'h';
+  if (n >= 60 && n % 60 === 0) return (n / 60) + 'm';
+  if (n >= 60) return Math.round(n / 60) + 'm';
+  return Math.round(n) + 's';
+}
+
+function fmtUsdSigned(v) {
+  const n = Number(v);
+  if (!isFinite(n)) return '—';
+  const abs = Math.abs(n);
+  const body = abs >= 10 ? abs.toFixed(1) : abs.toFixed(2);
+  return (n >= 0 ? '+$' : '−$') + body.replace(/\.0$/, '');
+}
+
+function rpnlTapeChip(label, usd, secs, title) {
+  const n = Number(usd);
+  const cls = !isFinite(n) || Math.abs(n) < 1e-9 ? '' : (n < 0 ? ' short' : ' long');
+  const win = fmtWinSecs(secs);
+  const t = escHtml(label + (win ? ' ' + win : '') + ' ' + fmtUsdSigned(n));
+  const tip = title ? ' title="' + escHtml(title) + '"' : '';
+  return '<span class="ri-chip tape' + cls + '"' + tip + '>' + t + '</span>';
+}
+
+function rpnlTapeHtml(s) {
+  if (!s) return '';
+  const bits = [];
+  if (s.win_rpnl != null && s.win_secs != null) {
+    const probe = !!s.probing;
+    const floor = s.grind != null ? Number(s.grind) : NaN;
+    const title = probe
+      ? 'pause-probe rolling rPnL (tape cleared on flatten)'
+      : ('grind window' + (isFinite(floor) && floor > 0 ? ' · cover < 0, flatten ≤ −$' + fmtG(floor) : ''));
+    bits.push(rpnlTapeChip(probe ? 'probe' : 'win', s.win_rpnl, s.win_secs, title));
+  }
+  if (s.burst_rpnl != null && s.burst_secs != null) {
+    const floor = s.fate != null ? Number(s.fate) : NaN;
+    const title = 'FATE burst' + (isFinite(floor) && floor > 0 ? ' · trip ≤ −$' + fmtG(floor) : '');
+    bits.push(rpnlTapeChip('burst', s.burst_rpnl, s.burst_secs, title));
+  }
+  return bits.join('');
+}
+
 function rpnlPosHtml(s, cls) {
   if (!s || s.pos == null) return '';
   const n = Number(s.pos);
@@ -1592,6 +1640,7 @@ function rpnlActsHtml(r) {
     '<button type="button" data-bot-cmd="stop"' + (held ? ' class="on"' : '') + '>Stop</button>' +
     '<button type="button" data-bot-cmd="resume">Resume</button>' +
     '<button type="button" data-bot-cmd="cancel">Cancel</button>' +
+    '<button type="button" data-bot-cmd="clear" title="Cancel pause, size-cool, and all limit orders — keep quoting">Clear</button>' +
     '<button type="button" class="danger" data-bot-cmd="flatten">Close</button>' +
     '</div>';
 }
@@ -1614,7 +1663,7 @@ async function sendBotCmd(pill, cmd) {
       toast((d && d.detail) || ('command failed ' + r.status), 'err');
       return;
     }
-    toast((cmd === 'flatten' ? 'closing ' : cmd + ' ') + name, 'ok');
+    toast((cmd === 'flatten' ? 'closing ' : cmd === 'clear' ? 'clearing pause + limits ' : cmd + ' ') + name, 'ok');
     setTimeout(() => { if (typeof loadRpnl === 'function') loadRpnl(true); }, 1200);
   } catch (e) {
     toast(String(e), 'err');
@@ -1637,6 +1686,8 @@ function rpnlSetupBits(s) {
   if (s.flow_gate != null) bits.push('flow gate ' + (on(s.flow_gate) ? 'on' : 'off'));
   if (s.flatten != null) bits.push('flatten ' + fmtG(s.flatten) + '%');
   if (s.stop_pause != null) bits.push('pause ' + fmtG(s.stop_pause) + 's');
+  if (s.grind != null) bits.push('grind $' + fmtG(s.grind) + (s.grind_window != null ? '/' + (fmtWinSecs(s.grind_window) || (s.grind_window + 's')) : ''));
+  if (s.fate != null) bits.push('fate $' + fmtG(s.fate));
   if (s.live_orders != null && s.orders != null) bits.push('orders ' + s.live_orders + '/' + s.orders);
   else if (s.orders != null) bits.push('orders ' + s.orders);
   if (s.max_usd != null) bits.push('max $' + fmtG(s.max_usd));
@@ -1882,6 +1933,7 @@ function renderRpnlInspect(row) {
   const sig = [
     row.contract, row.account, Number(!!row.live), quote, hedge, row.fills, row.hedge_fills,
     s && s.pos, s && s.entry, s && s.upnl, s && s.mode, s && s.hold, s && s.pause_left,
+    s && s.win_rpnl, s && s.burst_rpnl, s && s.probing,
     Number(!!rpnlDetailsOpen), modeTxt,
   ].join('|');
   box.className = 'rpnl-inspect open';
@@ -1897,6 +1949,7 @@ function renderRpnlInspect(row) {
         '<span class="ri-chip">' + escHtml(qlab) + ' ' + (row.fills || 0) + ' fills' +
           (hedged ? ' · ' + escHtml(hlab) + ' ' + (row.hedge_fills || 0) : '') + '</span>' +
         (row.live && s && s.mode ? '<span class="ri-chip">' + escHtml(String(s.mode)) + '</span>' : '') +
+        rpnlTapeHtml(s) +
       '</div>' +
       '<div class="ri-col">' +
         rpnlActsHtml(row) +
