@@ -294,6 +294,9 @@ class EventsDB:
                     ON bot_command (strategy, account, status, id)
                     WHERE status = 'pending';
             """)
+            await conn.execute(
+                "ALTER TABLE bot_command ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'"
+            )
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bot_hold (
                     strategy    VARCHAR(40) NOT NULL,
@@ -1429,16 +1432,17 @@ class EventsDB:
         contract: str,
         cmd: str,
         created_by: str = "dashboard",
+        payload: dict | None = None,
     ) -> int | None:
-        """Queue a per-bot command for OPA6 (stop/resume/cancel/clear/flatten)."""
+        """Queue a per-bot command for OPA6 (stop/resume/cancel/clear/flatten/max)."""
         if not self.pool:
             return None
         try:
             async with self.pool.acquire() as conn:
                 row = await conn.fetchrow(
                     """
-                    INSERT INTO bot_command (strategy, account, contract, cmd, created_by)
-                    VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO bot_command (strategy, account, contract, cmd, created_by, payload)
+                    VALUES ($1, $2, $3, $4, $5, $6::jsonb)
                     RETURNING id
                     """,
                     str(strategy or "").strip()[:40],
@@ -1446,6 +1450,7 @@ class EventsDB:
                     str(contract or "").strip()[:80],
                     str(cmd or "").strip().lower()[:32],
                     str(created_by or "dashboard")[:40],
+                    json.dumps(payload if isinstance(payload, dict) else {}),
                 )
                 return int(row["id"]) if row else None
         except Exception as e:

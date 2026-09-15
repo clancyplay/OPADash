@@ -339,6 +339,8 @@
   .rpnl-inspect .ri-pos { font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
   .rpnl-inspect .ri-pos.long { color: var(--green); }
   .rpnl-inspect .ri-pos.short { color: var(--red); }
+  .rpnl-inspect .ri-pos .up { color: var(--green); }
+  .rpnl-inspect .ri-pos .dn { color: var(--red); }
   .rpnl-inspect .ri-split { display: flex; gap: 12px; font-size: 12px; font-variant-numeric: tabular-nums; }
   .rpnl-inspect .ri-extra { border-top: 1px solid var(--border); padding-top: 8px; }
   .rpnl-inspect .p-cfg { margin-top: 0; }
@@ -364,6 +366,26 @@
     border-color: rgba(240,198,116,.45);
   }
   .rpnl-inspect .p-acts button:disabled { opacity: .4; cursor: default; }
+  .rpnl-inspect .ri-max {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .rpnl-inspect .ri-max label {
+    font-size: 11px; color: #9aa3b8; font-weight: 650; white-space: nowrap;
+  }
+  .rpnl-inspect .ri-max input {
+    width: 96px; font-size: 12px; font-variant-numeric: tabular-nums;
+    padding: 5px 8px; border-radius: 6px; font-family: inherit;
+    border: 1px solid var(--border2); background: rgba(255,255,255,.06);
+    color: #e6edf3;
+  }
+  .rpnl-inspect .ri-max input:focus { outline: none; border-color: var(--accent); }
+  .rpnl-inspect .ri-max button {
+    font-size: 11px; font-weight: 650; letter-spacing: .2px;
+    padding: 6px 10px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--border2); background: rgba(255,255,255,.06);
+    color: #c5cdd8; font-family: inherit;
+  }
+  .rpnl-inspect .ri-max button:hover { border-color: var(--accent); color: #fff; }
   .chart-empty {
     display: none; position: absolute; inset: 0; z-index: 6;
     align-items: center; justify-content: center;
@@ -1806,8 +1828,13 @@ function rpnlPosHtml(s, cls) {
   const side = n > 0 ? 'long' : 'short';
   let t = side + ' ' + fmtG(Math.abs(n));
   if (s.entry != null && Number(s.entry) > 0) t += ' @ ' + fmtG(s.entry);
-  if (s.upnl != null && isFinite(Number(s.upnl))) t += ' · uPnL $' + fmtG(s.upnl);
-  return '<div class="' + cls + ' ' + side + '">' + escHtml(t) + '</div>';
+  let extra = '';
+  if (s.upnl != null && isFinite(Number(s.upnl))) {
+    const u = Number(s.upnl);
+    extra = ' · <span class="' + (u >= 0 ? 'up' : 'dn') + '">uPnL ' +
+      escHtml(inrFmtDec(u, 0)) + '</span>';
+  }
+  return '<div class="' + cls + ' ' + side + '">' + escHtml(t) + extra + '</div>';
 }
 
 function rpnlActsHtml(r) {
@@ -1822,6 +1849,22 @@ function rpnlActsHtml(r) {
     '</div>';
 }
 
+function rpnlMaxHtml(r) {
+  if (!r.live) return '';
+  const s = r.settings || {};
+  const usd = s.max_usd != null;
+  const cur = usd ? s.max_usd : s.max_pos;
+  const label = usd ? 'max $' : 'max lots';
+  const val = (cur != null && isFinite(Number(cur)) && Number(cur) > 0) ? fmtG(cur) : '';
+  return '<div class="ri-max">' +
+    '<label for="rpnlMaxInput">' + escHtml(label) + '</label>' +
+    '<input type="number" id="rpnlMaxInput" min="1" step="any" data-usd="' + (usd ? '1' : '0') +
+      '" value="' + escHtml(val) +
+      '" title="Live until bot restart. Does not write .env. Shrinking below |pos| drops add quotes; does not flatten." />' +
+    '<button type="button" data-bot-cmd="max">Set</button>' +
+    '</div>';
+}
+
 async function sendBotCmd(pill, cmd) {
   const contract = pill.dataset.contract || '';
   const account = pill.dataset.account || '';
@@ -1829,18 +1872,30 @@ async function sendBotCmd(pill, cmd) {
   if (!contract || !cmd) return;
   if (cmd === 'flatten' && !confirm('Close ' + name + ' with a market flatten and stop quoting?')) return;
   if (cmd === 'stop' && !confirm('Stop quoting ' + name + '? Open orders cancel; position stays.')) return;
+  const body = { cmd: cmd, contract: contract, account: account, strategy: currentStrategy };
+  if (cmd === 'max') {
+    const inp = document.getElementById('rpnlMaxInput');
+    const n = Number(inp && inp.value);
+    if (!isFinite(n) || n <= 0) { toast('max must be > 0', 'err'); return; }
+    const usd = !inp || inp.getAttribute('data-usd') !== '0';
+    body.payload = usd ? { max_usd: n } : { max_pos: n };
+  }
   try {
     const r = await fetch(withStrategy('/api/bot/command'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cmd: cmd, contract: contract, account: account, strategy: currentStrategy }),
+      body: JSON.stringify(body),
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
       toast((d && d.detail) || ('command failed ' + r.status), 'err');
       return;
     }
-    toast((cmd === 'flatten' ? 'closing ' : cmd === 'clear' ? 'clearing pause + limits ' : cmd + ' ') + name, 'ok');
+    const msg = cmd === 'flatten' ? 'closing '
+      : cmd === 'clear' ? 'clearing pause + limits '
+      : cmd === 'max' ? ('max ' + (body.payload.max_usd != null ? '$' + body.payload.max_usd : body.payload.max_pos) + ' ')
+      : cmd + ' ';
+    toast(msg + name, 'ok');
     setTimeout(() => { if (typeof loadRpnl === 'function') loadRpnl(true); }, 1200);
   } catch (e) {
     toast(String(e), 'err');
@@ -2114,12 +2169,19 @@ function renderRpnlInspect(row) {
     s && s.trip_why, s && s.probe_hold, s && s.probe_lock_left, s && s.probe_n_have,
     s && s.probe_win_ok, s && s.fate_peak, s && s.grind_rpnl, s && s.pause_clock,
     s && s.probe_rpnl_ready, s && s.probe_chop_ok,
+    s && s.max_usd, s && s.max_pos,
     Number(!!rpnlDetailsOpen), modeTxt,
   ].join('|');
   box.className = 'rpnl-inspect open';
   box.dataset.contract = row.contract || '';
   box.dataset.account = row.account || '';
   box.dataset.qsym = qsym;
+  const maxInp = document.getElementById('rpnlMaxInput');
+  const keepMax = (document.activeElement === maxInp) ? {
+    value: maxInp.value,
+    start: maxInp.selectionStart,
+    end: maxInp.selectionEnd,
+  } : null;
   if (box.dataset.sig === sig && box.innerHTML) return;
   box.dataset.sig = sig;
   box.innerHTML =
@@ -2132,6 +2194,7 @@ function renderRpnlInspect(row) {
       '</div>' +
       '<div class="ri-col">' +
         rpnlActsHtml(row) +
+        rpnlMaxHtml(row) +
         '<button type="button" class="btn" id="rpnlDetailsBtn"' +
           (rpnlDetailsOpen ? ' aria-expanded="true"' : ' aria-expanded="false"') + '>' +
           (rpnlDetailsOpen ? 'Hide setup' : 'Setup') + '</button>' +
@@ -2150,6 +2213,14 @@ function renderRpnlInspect(row) {
       : '');
   const btn = document.getElementById('rpnlDetailsBtn');
   if (btn) btn.onclick = toggleRpnlDetails;
+  if (keepMax) {
+    const el = document.getElementById('rpnlMaxInput');
+    if (el) {
+      el.value = keepMax.value;
+      el.focus();
+      try { el.setSelectionRange(keepMax.start, keepMax.end); } catch (e) {}
+    }
+  }
   if (!box.dataset.bound) {
     box.dataset.bound = '1';
     box.addEventListener('click', ev => {
@@ -2158,6 +2229,11 @@ function renderRpnlInspect(row) {
       ev.preventDefault();
       ev.stopPropagation();
       sendBotCmd(act.closest('.rpnl-inspect') || box, act.getAttribute('data-bot-cmd'));
+    });
+    box.addEventListener('keydown', ev => {
+      if (ev.key !== 'Enter' || !ev.target || ev.target.id !== 'rpnlMaxInput') return;
+      ev.preventDefault();
+      sendBotCmd(box, 'max');
     });
   }
 }

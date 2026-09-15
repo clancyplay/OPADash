@@ -1382,6 +1382,7 @@ class BotCommandRequest(BaseModel):
     account: str = ""
     strategy: str = ""
     note: str = ""
+    payload: dict | None = None
 
 
 _BOT_CMDS = {
@@ -1398,7 +1399,29 @@ _BOT_CMDS = {
     "clear_pause": "clear",
     "flatten": "flatten",
     "close": "flatten",
+    "max": "max",
+    "set_max": "max",
+    "max_position": "max",
+    "max_usd": "max",
 }
+
+_MAX_POS_ABS_CAP = 50_000_000.0
+
+
+def _max_payload(payload: dict | None) -> dict:
+    raw = payload if isinstance(payload, dict) else {}
+    val = raw.get("max_usd")
+    key = "max_usd"
+    if val is None:
+        val = raw.get("max_pos")
+        key = "max_pos"
+    try:
+        n = float(val)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="max_usd or max_pos required")
+    if n != n or n <= 0 or n > _MAX_POS_ABS_CAP:
+        raise HTTPException(status_code=400, detail="max must be > 0 and ≤ 50,000,000")
+    return {key: n}
 
 
 @app.post("/api/bot/command")
@@ -1406,7 +1429,7 @@ async def bot_command(
     req: BotCommandRequest,
     strategy: str = Query(""),
 ) -> dict:
-    """Queue stop / resume / cancel / clear / flatten for a live OPA6 contract. Bot polls ~0.6s."""
+    """Queue stop / resume / cancel / clear / flatten / max for a live OPA6 contract. Bot polls ~0.6s."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
     cmd = _BOT_CMDS.get(str(req.cmd or "").strip().lower())
@@ -1418,8 +1441,9 @@ async def bot_command(
     tag = (req.strategy or strategy or "").strip()
     if not tag:
         raise HTTPException(status_code=400, detail="strategy required")
+    payload = _max_payload(req.payload) if cmd == "max" else (req.payload if isinstance(req.payload, dict) else None)
     cmd_id = await _db.insert_bot_command(
-        tag, req.account or "", contract, cmd, created_by="dashboard",
+        tag, req.account or "", contract, cmd, created_by="dashboard", payload=payload,
     )
     if cmd_id is None:
         raise HTTPException(status_code=500, detail="failed to queue command")
