@@ -399,6 +399,20 @@ def _setup_public(setup: dict | None) -> dict | None:
     return out if len(out) > 1 else None
 
 
+_LIVE_SETUP_KEYS = (
+    "pos", "entry", "upnl", "hold", "mode", "mode_why", "pause_left", "size_pct",
+    "rest_left", "probing", "quotes",
+    "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "grind_rpnl", "grind_secs",
+    "fate_peak", "fate_now", "fate_dd", "fate_burst_need", "fate_dd_need",
+    "trip_why", "pause_clock",
+    "probe_hold", "probe_need", "probe_lock_left", "probe_lock_ok",
+    "probe_win_ok", "probe_last_ok", "probe_n_have", "probe_n_need", "probe_n_sum",
+    "probe_recent_ok", "probe_recent_rpnl", "probe_recent_secs",
+    "probe_chop_ok", "probe_need_chop", "probe_trend_ok",
+    "probe_win_rpnl", "probe_rpnl", "probe_rpnl_ready",
+)
+
+
 def _lookup_setup(
     setups: dict[tuple[str, str], dict], contract: str, account: str,
 ) -> dict | None:
@@ -406,8 +420,6 @@ def _lookup_setup(
     a = account or ""
     if (c, a) in setups:
         return setups[(c, a)]
-    if a and (c, "") in setups:
-        return setups[(c, "")]
     return None
 
 
@@ -430,8 +442,14 @@ def _annotate_rpnl_row(
     row["hedge_fills"] = sum(n for k, n in counts.items() if k != qv)
     acct = row.get("account") or ""
     row["label"] = meta["label"] + (f" · {acct}" if acct else "")
-    row["live"] = bool(row.get("live"))
+    live = bool(row.get("live"))
+    row["live"] = live
     setup = _setup_public(_lookup_setup(setups or {}, row.get("contract") or "", acct))
+    if setup and not live:
+        for key in _LIVE_SETUP_KEYS:
+            setup.pop(key, None)
+        if len(setup) <= 1:
+            setup = None
     if setup:
         row["settings"] = setup
     elif (strategy or "").strip().lower() in _SYMBOL_STRATS:
@@ -2534,39 +2552,88 @@ async def logs_export(
 async def positions_latest(
     strategy: str = Query("opa3", description="strategy tag, e.g. opa3 | opa4"),
 ) -> list[dict]:
-    """Latest position snapshot per contract, plus 24h snapshot count."""
+    """Live bot_setup pos first; table snapshots only if fresh (24h) and not live."""
     _require_db()
-    async with _db.pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT DISTINCT ON (contract)
-                   contract, created_at,
-                   delta_size::float    AS delta_size,
-                   delta_entry::float   AS delta_entry,
-                   binance_size::float  AS binance_size,
-                   binance_entry::float AS binance_entry,
-                   mark_price::float    AS mark_price,
-                   net_upnl::float      AS net_upnl
-            FROM positions
-            WHERE strategy = $1
-            ORDER BY contract, created_at DESC
-            """,
-            strategy,
-        )
-    return [
-        {
-            "contract":      r["contract"],
-            "time":          int(r["created_at"].timestamp()),
-            "delta_size":    r["delta_size"],
-            "delta_units":   (r["delta_size"] or 0) * _CONTRACT_VALUE.get(r["contract"], 1.0),
-            "delta_entry":   r["delta_entry"],
-            "binance_size":  r["binance_size"],
+    now = int(datetime.now(timezone.utc).timestamp())
+    out: list[dict] = []
+    seen: set[str] = set()
+    setups = await _db.get_bot_setups(strategy)
+    keys = await _db.get_live_ping_keys(strategy)
+    for (contract, account), setup in setups.items():
+        if not ping_is_live(contract, account, keys):
+            continue
+        if setup.get("pos") is None:
+            continue
+        try:
+            size = float(setup.get("pos") or 0)
+        except (TypeError, ValueError):
+            continue
+        entry = setup.get("entry")
+        upnl = setup.get("upnl")
+        try:
+            entry_n = float(entry) if entry is not None else 0.0
+        except (TypeError, ValueError):
+            entry_n = 0.0
+        try:
+            upnl_n = float(upnl) if upnl is not None else 0.0
+        except (TypeError, ValueError):
+            upnl_n = 0.0
+        cv = _CONTRACT_VALUE.get(contract, 1.0)
+        out.append({
+            "contract": contract,
+            "account": account,
+            "time": now,
+            "delta_size": size,
+            "delta_units": size * cv,
+            "delta_entry": entry_n,
+            "binance_size": 0,
+            "binance_entry": 0,
+            "mark_price": None,
+            "net_upnl": upnl_n,
+            "live": True,
+        })
+        seen.add(canon_contract(contract))
+    try:
+        async with _db.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT ON (contract)
+                       contract, created_at,
+                       delta_size::float    AS delta_size,
+                       delta_entry::float   AS delta_entry,
+                       binance_size::float  AS binance_size,
+                       binance_entry::float AS binance_entry,
+                       mark_price::float    AS mark_price,
+                       net_upnl::float      AS net_upnl
+                FROM positions
+                WHERE created_at >= NOW() - INTERVAL '24 hours'
+                ORDER BY contract, created_at DESC
+                """,
+            )
+    except Exception as extra:
+        logger.debug("webapp: positions table skipped (%s)", extra)
+        rows = []
+    for r in rows:
+        name = canon_contract(r["contract"])
+        if name in seen:
+            continue
+        age = now - int(r["created_at"].timestamp())
+        if age > 24 * 3600:
+            continue
+        seen.add(name)
+        out.append({
+            "contract": r["contract"],
+            "time": int(r["created_at"].timestamp()),
+            "delta_size": r["delta_size"],
+            "delta_units": (r["delta_size"] or 0) * _CONTRACT_VALUE.get(r["contract"], 1.0),
+            "delta_entry": r["delta_entry"],
+            "binance_size": r["binance_size"],
             "binance_entry": r["binance_entry"],
-            "mark_price":    r["mark_price"],
-            "net_upnl":      r["net_upnl"],
-        }
-        for r in rows
-    ]
+            "mark_price": r["mark_price"],
+            "net_upnl": r["net_upnl"],
+            "live": False,
+        })
+    return out
 
 
 @app.get("/api/positions/snapshots")
