@@ -324,7 +324,7 @@ _SETUP_KEYS = (
     "fate_peak", "fate_now", "fate_dd", "fate_burst_need", "fate_dd_need",
     "fate_window", "fate_mult", "fate_burst",
     "trip_why", "pause_clock", "pause_probe",
-    "probe_window", "probe_last_n", "probe_lock", "probe_recent",
+    "probe_window", "probe_window_max", "probe_last_n", "probe_lock", "probe_recent",
     "probe_hold", "probe_need", "probe_lock_left", "probe_lock_ok",
     "probe_win_ok", "probe_last_ok", "probe_n_have", "probe_n_need", "probe_n_sum",
     "probe_recent_ok", "probe_recent_rpnl", "probe_recent_secs",

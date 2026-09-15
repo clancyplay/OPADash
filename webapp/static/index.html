@@ -1750,9 +1750,10 @@ function rpnlProbeHtml(s) {
   const nNeed = Number(s.probe_n_need);
   const nHave = Number(s.probe_n_have);
   const nSum = Number(s.probe_n_sum);
+  const win = fmtWinSecs(s.win_secs || s.probe_window) || '5m';
   const noFills = !rpnlReady && (!isFinite(nHave) || nHave <= 0);
   const wait = noFills
-    ? ('probe fills — 5m ≥ ' + (needBit || '+$0') + (nNeed > 0 ? (' or last ' + nNeed) : ''))
+    ? ('probe fills — ' + win + ' ≥ ' + (needBit || '+$0') + (nNeed > 0 ? (' or last ' + nNeed) : ''))
     : String(s.probe_hold || 'probe green');
   const rows = [];
   rows.push('<div class="ri-gate"><b>lift</b> now: ' + escHtml(wait) + '</div>');
@@ -1762,7 +1763,6 @@ function rpnlProbeHtml(s) {
     ' · lock ' + escHtml(lockLeft > 0 ? Math.round(lockLeft) + 's' : 'done') +
     ' ' + rpnlMark(lockOk) + '</div>'
   );
-  const win = fmtWinSecs(s.win_secs || s.probe_window) || '5m';
   const winRpnl = s.probe_win_rpnl != null ? Number(s.probe_win_rpnl) : Number(s.win_rpnl);
   let p = win + ' ' + (isFinite(winRpnl) ? fmtUsdSigned(winRpnl) : '—');
   if (needBit) p += ' / need ' + needBit;
