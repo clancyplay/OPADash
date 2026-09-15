@@ -78,7 +78,7 @@ def ping_contract(contract: str) -> str:
 def ping_is_live(contract: str, account: str, keys: set[tuple[str, str]]) -> bool:
     c = ping_contract(contract)
     a = account or ""
-    if (c, a) in keys or (c, "") in keys:
+    if (c, a) in keys:
         return True
     if not a:
         return any(k[0] == c for k in keys)
@@ -444,9 +444,10 @@ class EventsDB:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
                     """
-                    SELECT contract, COALESCE(account, '') AS account, setup
+                    SELECT contract, COALESCE(account, '') AS account, setup, updated_at
                     FROM bot_setup
                     WHERE strategy::text = $1
+                    ORDER BY updated_at DESC NULLS LAST
                     """,
                     strategy,
                 )
@@ -461,15 +462,10 @@ class EventsDB:
                 if not isinstance(raw, dict) or not raw:
                     continue
                 acct = r["account"] or ""
-                names = [ping_contract(r["contract"])]
-                for alias in contract_aliases(r["contract"]):
-                    names.append(ping_contract(alias))
-                seen = set()
-                for name in names:
-                    if not name or name in seen:
-                        continue
-                    seen.add(name)
-                    out[(name, acct)] = raw
+                name = ping_contract(r["contract"])
+                if not name or (name, acct) in out:
+                    continue
+                out[(name, acct)] = raw
             return out
         except Exception as e:
             self.logger.debug("events_db: get_bot_setups failed — %s", e)
