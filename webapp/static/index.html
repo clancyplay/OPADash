@@ -1203,7 +1203,7 @@
     </select>
     <button class="btn" onclick="loadRpnlFresh()">Refresh</button>
     <button class="btn" onclick="fitRpnlView()" title="Fit both charts to full window">Fit</button>
-    <label><input type="checkbox" id="rpnlAuto" onchange="setupRpnlAuto()" /> Auto (10s)</label>
+    <label><input type="checkbox" id="rpnlAuto" onchange="setupRpnlAuto()" checked /> Auto (10s)</label>
     <div class="ctrl-views">
       <button class="btn" id="viewCumul"  onclick="setRpnlView('cumul')">Cumulative</button>
       <button class="btn" id="viewBucket" onclick="setRpnlView('bucket')">Per Bucket</button>
@@ -1277,11 +1277,38 @@ let rpnlForceKeepSel = false;
 
 const LS_STRATEGY = 'opadash.strategy';
 const LS_PAGE = 'opadash.page';
+const LS_RPNL_HOURS = 'opadash.rpnlHours';
+const LS_RPNL_CANDLE = 'opadash.rpnlCandle';
+const LS_RPNL_BUCKET = 'opadash.rpnlBucket';
+const LS_RPNL_AUTO = 'opadash.rpnlAuto';
 function lsGet(key, fallback) {
   try { const v = localStorage.getItem(key); return v == null || v === '' ? fallback : v; } catch { return fallback; }
 }
 function lsSet(key, value) {
   try { localStorage.setItem(key, value); } catch {}
+}
+function restoreSel(id, key, fallback) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const v = lsGet(key, fallback);
+  if (v != null && [...el.options].some(o => o.value === v)) el.value = v;
+}
+function restoreRpnlPrefs() {
+  restoreSel('rpnlHours', LS_RPNL_HOURS, '24');
+  restoreSel('rpnlCandle', LS_RPNL_CANDLE, '5m');
+  restoreSel('rpnlBucket', LS_RPNL_BUCKET, '5');
+  const box = document.getElementById('rpnlAuto');
+  if (box) box.checked = lsGet(LS_RPNL_AUTO, '1') === '1';
+}
+function saveRpnlPrefs() {
+  const hours = document.getElementById('rpnlHours');
+  const candle = document.getElementById('rpnlCandle');
+  const bucket = document.getElementById('rpnlBucket');
+  const auto = document.getElementById('rpnlAuto');
+  if (hours && hours.value) lsSet(LS_RPNL_HOURS, hours.value);
+  if (candle && candle.value) lsSet(LS_RPNL_CANDLE, candle.value);
+  if (bucket && bucket.value) lsSet(LS_RPNL_BUCKET, bucket.value);
+  if (auto) lsSet(LS_RPNL_AUTO, auto.checked ? '1' : '0');
 }
 
 function showPage(name) {
@@ -2561,6 +2588,7 @@ function applyRpnlFillMarkers() {
 }
 
 function loadRpnlFresh() {
+  saveRpnlPrefs();
   rpnlCurrentHours = null;
   rpnlFollowView();
   loadRpnl(false);
@@ -3272,6 +3300,7 @@ function setupRpnlAuto() {
   rpnlTimer = null;
   const box = document.getElementById('rpnlAuto');
   const vis = document.getElementById('rpnl') && document.getElementById('rpnl').classList.contains('visible');
+  if (box) lsSet(LS_RPNL_AUTO, box.checked ? '1' : '0');
   if (box && box.checked && vis) rpnlTimer = setInterval(() => loadRpnl(true), 10000);
 }
 
@@ -4819,6 +4848,7 @@ function setupLgAuto() {
 }
 
 (async () => {
+  restoreRpnlPrefs();
   await fetchStrategies();
   await fetchRpnlSymbols();
   checkHealth();
