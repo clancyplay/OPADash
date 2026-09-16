@@ -2070,7 +2070,7 @@ function syncRpnlSymbolSelect(rows) {
       sel.value = keep;
       return keep;
     }
-    sel.innerHTML = '<option value="">No fills in this window</option>';
+    sel.innerHTML = '<option value="">No live bots or fills</option>';
     return '';
   }
   const sorted = rows.slice().sort((a, b) => Number(!!b.live) - Number(!!a.live));

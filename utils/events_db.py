@@ -439,6 +439,37 @@ class EventsDB:
             self.logger.debug("events_db: get_live_ping_keys failed — %s", e)
             return set()
 
+    async def get_live_bots(
+        self, strategy: str, stale_secs: float | None = None,
+    ) -> list[tuple[str, str]]:
+        """Canonical (contract, account) currently pinging. No aliases."""
+        if not self.pool:
+            return []
+        window = self.LIVE_PING_SECS if stale_secs is None else float(stale_secs)
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT DISTINCT contract, COALESCE(account, '') AS account
+                    FROM bot_ping
+                    WHERE strategy::text = $1
+                      AND pinged_at >= NOW() - ($2::float * INTERVAL '1 second')
+                    """,
+                    strategy, window,
+                )
+            seen: set[tuple[str, str]] = set()
+            out: list[tuple[str, str]] = []
+            for r in rows:
+                key = (canon_contract(r["contract"]), r["account"] or "")
+                if not key[0] or key in seen:
+                    continue
+                seen.add(key)
+                out.append(key)
+            return out
+        except Exception as extra:
+            self.logger.debug("events_db: get_live_bots failed — %s", extra)
+            return []
+
     async def get_bot_setups(self, strategy: str) -> dict[tuple[str, str], dict]:
         """Last known strategy knobs keyed by (canon_contract, account)."""
         if not self.pool:
@@ -1706,10 +1737,10 @@ class EventsDB:
     ) -> list[dict]:
         """Per-contract+account fill count + realized PnL (₹) for the dashboard.
 
-        When `since` is set, only pairs with at least one fill in that window
-        are returned. `venue_rpnl` / `venue_fills` are windowed; all-time
-        counts stay in `venue_fills_all` so quote vs hedge detection does not
-        flip if one side is quiet in the window.
+        Live pinging bots are always included, even with zero fills in the
+        window. `venue_rpnl` / `venue_fills` are windowed; all-time counts stay
+        in `venue_fills_all` so quote vs hedge detection does not flip if one
+        side is quiet.
         """
         if not self.pool:
             return []
@@ -1803,13 +1834,30 @@ class EventsDB:
             for contract, h in venue_only.items():
                 if contract not in used and not any(m["contract"] == contract for m in out):
                     out.append(h)
+            have = {(canon_contract(i["contract"]), i.get("account") or "") for i in out}
+            for contract, account in await self.get_live_bots(strategy):
+                key = (contract, account)
+                if key in have:
+                    continue
+                out.append({
+                    "contract": contract,
+                    "account": account,
+                    "venue_fills": {},
+                    "venue_fills_all": {},
+                    "venue_rpnl": {},
+                    "venue_fees": {},
+                    "first_at": None,
+                    "last_at": None,
+                })
+                have.add(key)
             for item in out:
                 self._add_legacy_rpnl_fields(item)
                 item["live"] = ping_is_live(item["contract"], item["account"], live_keys)
             if since is not None:
                 out = [
                     i for i in out
-                    if sum(int(n or 0) for n in (i.get("venue_fills") or {}).values()) > 0
+                    if i.get("live")
+                    or sum(int(n or 0) for n in (i.get("venue_fills") or {}).values()) > 0
                 ]
             out.sort(key=lambda i: (
                 0 if i.get("live") else 1,

@@ -816,8 +816,28 @@ async def rpnl_symbols(
             })
         if _db is not None:
             keys = await _db.get_live_ping_keys(strategy)
+            have = {(e["contract"], e.get("account") or "") for e in out}
+            for contract, account in await _db.get_live_bots(strategy):
+                if (contract, account) in have:
+                    continue
+                meta = venue_meta(contract, {})
+                name = account
+                out.append({
+                    "contract": contract,
+                    "account": account,
+                    "quote_venue": meta["quote_venue"],
+                    "quote_label": meta["quote_label"],
+                    "quote_symbol": meta["quote_symbol"],
+                    "hedge_venue": meta["hedge_venue"],
+                    "hedge_label": meta["hedge_label"],
+                    "hedge_symbol": meta["hedge_symbol"],
+                    "has_hedge": meta["has_hedge"],
+                    "label": meta["label"] + (f" · {name}" if name else ""),
+                    "live": True,
+                })
+                have.add((contract, account))
             for entry in out:
-                entry["live"] = ping_is_live(entry["contract"], entry["account"], keys)
+                entry["live"] = ping_is_live(entry["contract"], entry["account"], keys) or bool(entry.get("live"))
             out.sort(key=lambda e: (0 if e.get("live") else 1, e["contract"], e["account"]))
         return out
     except Exception as e:
