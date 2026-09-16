@@ -119,6 +119,11 @@
   nav .db-badge.ok   { background: rgba(38,166,154,.18); color: #26a69a; border: 1px solid rgba(38,166,154,.35); }
   nav .db-badge.warn { background: rgba(239,83,80,.15);  color: #ef5350; border: 1px solid rgba(239,83,80,.35); }
   nav .db-badge.pend { background: rgba(127,133,152,.12); color: var(--muted); border: 1px solid var(--border2); }
+  nav .nav-logout {
+    margin-left: 8px; font-size: 12px; color: var(--muted); text-decoration: none;
+    flex-shrink: 0; white-space: nowrap; font-weight: 650;
+  }
+  nav .nav-logout:hover { color: #fff; }
 
   /* Pages */
   .page { display: none; min-width: 0; }
@@ -773,6 +778,7 @@
     <option value="opa3">opa3</option>
   </select>
   <span class="db-badge pend" id="dbBadge">DB checking...</span>
+  <a class="nav-logout" href="/logout">Log out</a>
 </nav>
 
 <!-- HOME -->
@@ -1250,6 +1256,18 @@
 </div>
 
 <script>
+(function () {
+  const orig = window.fetch.bind(window);
+  window.fetch = async function (input, init) {
+    const res = await orig(input, init);
+    if (res.status === 401) {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (!String(url).includes('/login')) location.href = '/login';
+    }
+    return res;
+  };
+})();
+
 // Page nav
 const PAGE_IDS = ['home', 'balances', 'reports', 'rpnl', 'data'];
 const NAV_IDS  = { home: 'navHome', balances: 'navBalances', reports: 'navReports', rpnl: 'navRpnl', data: 'navData' };
@@ -1819,6 +1837,31 @@ function rpnlGatesHtml(s) {
   return '<div class="ri-gates">' + rows.join('') + '</div>';
 }
 
+function ohlcLastPx() {
+  if (!ohlcBarsCache.length) return 0;
+  const b = ohlcBarsCache[ohlcBarsCache.length - 1];
+  const px = Number(b && (b.close != null ? b.close : b.value));
+  return isFinite(px) && px > 0 ? px : 0;
+}
+
+function liveUpnlInr(s) {
+  if (!s) return null;
+  const size = Number(s.pos);
+  const entry = Number(s.entry);
+  const reported = Number(s.upnl);
+  const last = ohlcLastPx();
+  const mark = Number(s.mark);
+  const px = mark > 0 ? mark : last;
+  if (isFinite(size) && size && entry > 0 && px > 0) {
+    const rate = Number(s.usdinr);
+    const r = isFinite(rate) && rate > 0 ? rate : 87;
+    const cv = Number(s.cv);
+    const mult = isFinite(cv) && cv > 0 ? cv : 1;
+    return size * (px - entry) * r * mult;
+  }
+  return isFinite(reported) ? reported : null;
+}
+
 function rpnlPosHtml(s, cls) {
   if (!s || s.pos == null) return '';
   const n = Number(s.pos);
@@ -1829,10 +1872,11 @@ function rpnlPosHtml(s, cls) {
   let t = side + ' ' + fmtG(Math.abs(n));
   if (s.entry != null && Number(s.entry) > 0) t += ' @ ' + fmtG(s.entry);
   let extra = '';
-  if (s.upnl != null && isFinite(Number(s.upnl))) {
-    const u = Number(s.upnl);
+  const u = liveUpnlInr(s);
+  if (u != null && isFinite(u)) {
+    const d = Math.abs(u) < 100 ? 2 : 0;
     extra = ' · <span class="' + (u >= 0 ? 'up' : 'dn') + '">uPnL ' +
-      escHtml(inrFmtDec(u, 0)) + '</span>';
+      escHtml(inrFmtDec(u, d)) + '</span>';
   }
   return '<div class="' + cls + ' ' + side + '">' + escHtml(t) + extra + '</div>';
 }
@@ -2111,7 +2155,7 @@ function setOhlcEmpty(show, msg) {
 }
 
 function startRpnlLive() {
-  if (!rpnlQuoteTimer) rpnlQuoteTimer = setInterval(refreshRpnlLive, 2500);
+  if (!rpnlQuoteTimer) rpnlQuoteTimer = setInterval(refreshRpnlLive, 1000);
   setupRpnlAuto();
 }
 
@@ -2164,7 +2208,7 @@ function renderRpnlInspect(row) {
   const modeTxt = rpnlModeText(s, true);
   const sig = [
     row.contract, row.account, Number(!!row.live), quote, hedge, row.fills, row.hedge_fills,
-    s && s.pos, s && s.entry, s && s.upnl, s && s.mode, s && s.hold, s && s.pause_left,
+    s && s.pos, s && s.entry, s && s.upnl, s && s.mark, ohlcLastPx(), s && s.mode, s && s.hold, s && s.pause_left,
     s && s.win_rpnl, s && s.burst_rpnl, s && s.probing, s && s.rest_left,
     s && s.trip_why, s && s.probe_hold, s && s.probe_lock_left, s && s.probe_n_have,
     s && s.probe_win_ok, s && s.fate_peak, s && s.grind_rpnl, s && s.pause_clock,

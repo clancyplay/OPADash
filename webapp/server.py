@@ -5,7 +5,10 @@
 """
 from __future__ import annotations
 
+import base64
 import csv
+import hashlib
+import hmac
 import io
 import logging
 import os
@@ -16,12 +19,11 @@ import zipfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, Response, StreamingResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -70,57 +72,121 @@ async def lifespan(app: FastAPI):
         logger.info("webapp: database closed")
 
 
-_basic_security = HTTPBasic(auto_error=True)
+# Cookie login (iPhone Safari does not keep HTTP Basic). Basic still works for curl.
+_COOKIE = "opadash"
+_COOKIE_DAYS = int(os.getenv("DASHBOARD_COOKIE_DAYS", "30") or 30)
+_PUBLIC_PATHS = {"/login", "/logout", "/healthz", "/api/health"}
 
-def _verify_auth(credentials: HTTPBasicCredentials = Depends(_basic_security)) -> None:
-    expected_pass = os.getenv("DASHBOARD_PASSWORD", "")
-    if not expected_pass:
-        return  # no password configured — open access (local dev)
-    expected_user = os.getenv("DASHBOARD_USERNAME", "admin")
-    user_ok = secrets.compare_digest(credentials.username.encode(), expected_user.encode())
-    pass_ok = secrets.compare_digest(credentials.password.encode(), expected_pass.encode())
-    if not (user_ok and pass_ok):
-        raise HTTPException(status_code=401, detail="Unauthorized",
-                            headers={"WWW-Authenticate": "Basic"})
+def _dash_user() -> str:
+    return os.getenv("DASHBOARD_USERNAME", "admin")
 
-# Auth on HTTP routes only — WebSocket handshakes cannot carry Basic auth headers.
-# The /ws/* endpoints are read-only and carry no secrets, so they are left open.
+
+def _dash_pass() -> str:
+    return os.getenv("DASHBOARD_PASSWORD", "")
+
+
+def _auth_secret() -> bytes:
+    return (_dash_pass() + os.getenv("DASHBOARD_SECRET", "")).encode()
+
+
+def _make_token(user: str) -> str:
+    exp = str(int(time.time()) + max(1, _COOKIE_DAYS) * 86400)
+    payload = f"{user}:{exp}"
+    sig = hmac.new(_auth_secret(), payload.encode(), hashlib.sha256).hexdigest()
+    return base64.urlsafe_b64encode(f"{payload}:{sig}".encode()).decode()
+
+
+def _token_ok(token: str) -> bool:
+    try:
+        raw = base64.urlsafe_b64decode(token.encode()).decode()
+        user, exp, sig = raw.rsplit(":", 2)
+        if int(exp) < time.time():
+            return False
+        expect = hmac.new(_auth_secret(), f"{user}:{exp}".encode(), hashlib.sha256).hexdigest()
+        if not secrets.compare_digest(sig, expect):
+            return False
+        return secrets.compare_digest(user.encode(), _dash_user().encode())
+    except Exception:
+        return False
+
+
+def _pass_ok(user: str, password: str) -> bool:
+    want = _dash_pass()
+    if not want:
+        return True
+    return secrets.compare_digest(user.encode(), _dash_user().encode()) and secrets.compare_digest(
+        password.encode(), want.encode()
+    )
+
+
+def _cookie_ok(request: Request) -> bool:
+    return _token_ok(request.cookies.get(_COOKIE) or "")
+
+
+def _basic_user(request: Request) -> str | None:
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Basic "):
+        return None
+    try:
+        user, _, pw = base64.b64decode(auth[6:].encode()).decode().partition(":")
+    except Exception:
+        return None
+    return user if _pass_ok(user, pw) else None
+
+
+def _safe_next(raw: str) -> str:
+    path = (raw or "/").strip()
+    if not path.startswith("/") or path.startswith("//") or "://" in path:
+        return "/"
+    if path.startswith("/login"):
+        return "/"
+    return path
+
+
+def _is_https(request: Request) -> bool:
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "").split(",")[0].strip().lower()
+    return proto == "https"
+
+
+def _set_login_cookie(response: Response, request: Request, user: str) -> None:
+    response.set_cookie(
+        _COOKIE,
+        _make_token(user),
+        max_age=max(1, _COOKIE_DAYS) * 86400,
+        httponly=True,
+        samesite="lax",
+        secure=_is_https(request),
+        path="/",
+    )
+
+
+def _clear_login_cookie(response: Response) -> None:
+    response.delete_cookie(_COOKIE, path="/")
+
+
+# Auth on HTTP routes only. /ws/* is read-only.
 app = FastAPI(title="OPADash", lifespan=lifespan)
 
 def _http_auth_middleware(app_):
-    """Apply Basic auth to all non-WebSocket requests."""
+    """Cookie session first. No WWW-Authenticate — iPhone re-prompts on every 401."""
     from starlette.middleware.base import BaseHTTPMiddleware
-    from starlette.responses import Response
 
     class _AuthMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
-            expected_pass = os.getenv("DASHBOARD_PASSWORD", "")
-            public_paths = {"/api/health", "/healthz"}
-            if (
-                not expected_pass
-                or request.url.path.startswith("/ws/")
-                or request.url.path in public_paths
-            ):
+            if not _dash_pass() or request.url.path.startswith("/ws/") or request.url.path in _PUBLIC_PATHS:
                 return await call_next(request)
-            auth = request.headers.get("Authorization", "")
-            if not auth.startswith("Basic "):
-                return Response(
-                    "Unauthorized", status_code=401,
-                    headers={"WWW-Authenticate": "Basic realm=\"OPADash\""},
-                )
-            import base64
-            try:
-                user, _, pw = base64.b64decode(auth[6:]).decode().partition(":")
-            except Exception:
-                user = pw = ""
-            expected_user = os.getenv("DASHBOARD_USERNAME", "admin")
-            if not (secrets.compare_digest(user.encode(), expected_user.encode()) and
-                    secrets.compare_digest(pw.encode(), expected_pass.encode())):
-                return Response(
-                    "Unauthorized", status_code=401,
-                    headers={"WWW-Authenticate": "Basic realm=\"OPADash\""},
-                )
-            return await call_next(request)
+            if _cookie_ok(request):
+                return await call_next(request)
+            basic = _basic_user(request)
+            if basic:
+                response = await call_next(request)
+                _set_login_cookie(response, request, basic)
+                return response
+            accept = (request.headers.get("accept") or "").lower()
+            if request.method in ("GET", "HEAD") and "text/html" in accept:
+                nxt = quote(request.url.path or "/", safe="/")
+                return RedirectResponse(f"/login?next={nxt}", status_code=302)
+            return Response("Unauthorized", status_code=401)
 
     app_.add_middleware(_AuthMiddleware)
 
@@ -317,7 +383,7 @@ _SETUP_KEYS = (
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
     "mode", "mode_why", "pause_left", "size_pct",
     "min_spread", "spread_pad",
-    "pos", "entry", "upnl", "hold",
+    "pos", "entry", "upnl", "mark", "usdinr", "cv", "hold",
     "grind", "grind_window", "grind_rpnl", "grind_secs",
     "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "probing",
     "rest_left",
@@ -400,7 +466,7 @@ def _setup_public(setup: dict | None) -> dict | None:
 
 
 _LIVE_SETUP_KEYS = (
-    "pos", "entry", "upnl", "hold", "mode", "mode_why", "pause_left", "size_pct",
+    "pos", "entry", "upnl", "mark", "usdinr", "cv", "hold", "mode", "mode_why", "pause_left", "size_pct",
     "rest_left", "probing", "quotes",
     "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "grind_rpnl", "grind_secs",
     "fate_peak", "fate_now", "fate_dd", "fate_burst_need", "fate_dd_need",
@@ -488,6 +554,93 @@ def _window_lookback_secs(hours: int | None, today: bool = False) -> int:
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+_LOGIN_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#161a25" />
+<title>OPADash login</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+    background: #0e1117; color: #d1d4dc; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+    padding: 24px;
+  }
+  form {
+    width: 100%; max-width: 360px; background: #161a25; border: 1px solid #262b3a;
+    border-radius: 16px; padding: 28px 24px 24px;
+  }
+  h1 { margin: 0 0 6px; font-size: 20px; color: #fff; }
+  p { margin: 0 0 20px; color: #7f8598; font-size: 13px; }
+  label { display: block; font-size: 12px; font-weight: 650; color: #9aa3b8; margin: 0 0 6px; }
+  input {
+    width: 100%; margin: 0 0 14px; padding: 12px 14px; border-radius: 10px;
+    border: 1px solid #303647; background: #0e1117; color: #e6edf3; font-size: 16px;
+  }
+  button {
+    width: 100%; margin-top: 6px; padding: 12px; border: 0; border-radius: 10px;
+    background: #2962ff; color: #fff; font-weight: 700; font-size: 15px;
+  }
+  .err { color: #ef5350; font-size: 13px; margin: 0 0 14px; }
+</style>
+</head>
+<body>
+<form method="post" action="/login" autocomplete="on">
+  <h1>OPADash</h1>
+  <p>Safari iPhone pe ye form Keychain me save hota hai — Basic popup nahi.</p>
+  __ERR__
+  <input type="hidden" name="next" value="__NEXT__" />
+  <label for="username">Username</label>
+  <input id="username" name="username" type="text" autocapitalize="off" autocorrect="off"
+         autocomplete="username" value="__USER__" />
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" autofocus />
+  <button type="submit">Sign in</button>
+</form>
+</body>
+</html>
+"""
+
+
+@app.get("/login")
+async def login_get(request: Request, next: str = "/", e: str = "") -> HTMLResponse:
+    if _dash_pass() and _cookie_ok(request):
+        return RedirectResponse(_safe_next(next), status_code=302)
+    html = (
+        _LOGIN_HTML
+        .replace("__ERR__", '<p class="err">Wrong username or password.</p>' if e else "")
+        .replace("__NEXT__", _safe_next(next).replace("&", "&amp;").replace('"', "&quot;"))
+        .replace("__USER__", _dash_user().replace("&", "&amp;").replace('"', "&quot;"))
+    )
+    return HTMLResponse(html)
+
+
+@app.post("/login")
+async def login_post(request: Request):
+    body = (await request.body()).decode("utf-8", "replace")
+    fields = parse_qs(body, keep_blank_values=True)
+    user = (fields.get("username") or [""])[0]
+    password = (fields.get("password") or [""])[0]
+    nxt = _safe_next((fields.get("next") or ["/"])[0])
+    if not _pass_ok(user, password):
+        return RedirectResponse(f"/login?e=1&next={quote(nxt, safe='/')}", status_code=303)
+    resp = RedirectResponse(nxt, status_code=303)
+    _set_login_cookie(resp, request, user or _dash_user())
+    return resp
+
+
+@app.get("/logout")
+@app.post("/logout")
+async def logout() -> RedirectResponse:
+    resp = RedirectResponse("/login", status_code=303)
+    _clear_login_cookie(resp)
+    return resp
 
 
 @app.get("/api/health")
@@ -2594,6 +2747,7 @@ async def positions_latest(
             continue
         entry = setup.get("entry")
         upnl = setup.get("upnl")
+        mark = setup.get("mark")
         try:
             entry_n = float(entry) if entry is not None else 0.0
         except (TypeError, ValueError):
@@ -2602,6 +2756,10 @@ async def positions_latest(
             upnl_n = float(upnl) if upnl is not None else 0.0
         except (TypeError, ValueError):
             upnl_n = 0.0
+        try:
+            mark_n = float(mark) if mark is not None else None
+        except (TypeError, ValueError):
+            mark_n = None
         cv = _CONTRACT_VALUE.get(contract, 1.0)
         out.append({
             "contract": contract,
@@ -2612,7 +2770,7 @@ async def positions_latest(
             "delta_entry": entry_n,
             "binance_size": 0,
             "binance_entry": 0,
-            "mark_price": None,
+            "mark_price": mark_n,
             "net_upnl": upnl_n,
             "live": True,
         })
