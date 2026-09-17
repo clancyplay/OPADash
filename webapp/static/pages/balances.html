@@ -1,0 +1,23 @@
+<!-- BALANCES -->
+<div id="balances" class="page">
+  <div class="ctrl-bar">
+    <div class="ctrl-actions">
+      <button class="btn" onclick="loadBalances()">Refresh</button>
+      <label class="ctrl-check"><input type="checkbox" id="balThisStrategy" onchange="loadBalances()" /> This strategy</label>
+      <label class="ctrl-check"><input type="checkbox" id="balAuto" checked onchange="setupBalAuto()" /> Auto 30s</label>
+    </div>
+    <span id="balCount" class="ctrl-meta"></span>
+  </div>
+  <div id="balances-inner" class="page-inner">
+    <div id="balEmpty" style="display:none;color:var(--muted);padding:24px;line-height:1.6;">Loading balances…</div>
+    <div id="balShell" style="display:none;">
+      <div class="rpt-hero" id="balHero"></div>
+      <div class="rpt-exch" id="balExch"></div>
+      <div class="rpt-matrix-wrap">
+        <h4>Accounts × exchange wallets</h4>
+        <div class="rpt-matrix-scroll" id="balMatrix"></div>
+        <div class="hint">Click an account to open it in Reports. Click a contract chip to open its rPnL chart.</div>
+      </div>
+    </div>
+  </div>
+</div>

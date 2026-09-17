@@ -1,0 +1,15 @@
+<nav>
+  <span class="brand">OPADash</span>
+  <div class="nav-links">
+    <button id="navHome" class="active" onclick="showPage('home')">Home</button>
+    <button id="navBalances" onclick="showPage('balances')">Balances</button>
+    <button id="navReports" onclick="showPage('reports')">Reports</button>
+    <button id="navRpnl" onclick="showPage('rpnl')">rPnL</button>
+    <button id="navData" onclick="showPage('data')">Data</button>
+  </div>
+  <select id="strategy-select" title="Strategy" onchange="onStrategyChange(this.value)">
+    <option value="opa3">opa3</option>
+  </select>
+  <span class="db-badge pend" id="dbBadge">DB checking...</span>
+  <a class="nav-logout" href="/logout">Log out</a>
+</nav>

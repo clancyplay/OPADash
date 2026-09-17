@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, quote
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -557,9 +557,30 @@ def _window_lookback_secs(hours: int | None, today: bool = False) -> int:
     return max(60, int(hours or 24) * 3600)
 
 
+# Dashboard HTML is assembled from static/partials + static/pages (not a single index.html).
+_DASHBOARD_PARTS = (
+    "partials/head.html",
+    "partials/nav.html",
+    "pages/home.html",
+    "pages/balances.html",
+    "pages/reports.html",
+    "pages/rpnl.html",
+    "pages/data.html",
+    "partials/foot.html",
+)
+
+
+def _dashboard_html() -> str:
+    chunks = []
+    for rel in _DASHBOARD_PARTS:
+        text = (STATIC_DIR / rel).read_text(encoding="utf-8")
+        chunks.append(text if text.endswith("\n") else text + "\n")
+    return "".join(chunks)
+
+
 @app.get("/")
-async def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+async def index() -> HTMLResponse:
+    return HTMLResponse(_dashboard_html(), headers={"Cache-Control": "no-store"})
 
 
 _LOGIN_HTML = """<!DOCTYPE html>

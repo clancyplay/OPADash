@@ -1,0 +1,42 @@
+<!-- REPORTS -->
+<div id="reports" class="page">
+  <div class="ctrl-bar">
+    <div class="ctrl-fields">
+      <label class="ctrl-field">Window
+        <select id="rptHours" onchange="loadReports()">
+          <option value="today" selected>Today (IST)</option>
+          <option value="24">24h</option>
+          <option value="168">7d</option>
+          <option value="720">30d</option>
+          <option value="">All time</option>
+        </select>
+      </label>
+    </div>
+    <div class="ctrl-actions">
+      <button class="btn" onclick="loadReports()">Refresh</button>
+      <label class="ctrl-check"><input type="checkbox" id="reportsAuto" checked onchange="setupReportsAuto()" /> Auto 30s</label>
+    </div>
+    <span id="reportsCount" class="ctrl-meta"></span>
+  </div>
+  <div id="reports-inner">
+    <div id="reportEmpty" style="display:none;color:var(--muted);padding:24px;line-height:1.6;">Loading accounts…</div>
+    <div id="reportShell" style="display:none;">
+      <div class="rpt-hero" id="rptHero"></div>
+      <div class="rpt-exch" id="rptExch"></div>
+      <div class="rpt-matrix-wrap">
+        <h4>Accounts × exchanges</h4>
+        <div class="rpt-matrix-scroll" id="rptMatrix"></div>
+      </div>
+      <div class="rpt-daywrap">
+        <h4>Daily realized PnL (IST)</h4>
+        <div id="rptDayChart"></div>
+      </div>
+      <div class="rpt-tools">
+        <input type="search" id="rptSearch" placeholder="Filter accounts…" oninput="filterReportAccts()" />
+        <button class="btn" type="button" onclick="setReportAcctsOpen(true)">Expand all</button>
+        <button class="btn" type="button" onclick="setReportAcctsOpen(false)">Collapse</button>
+      </div>
+      <div class="rpt-accts" id="rptAccts"></div>
+    </div>
+  </div>
+</div>

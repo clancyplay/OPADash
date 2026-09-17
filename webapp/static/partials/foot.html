@@ -1,0 +1,17 @@
+<script src="/static/js/app.js"></script>
+<script src="/static/js/rpnl.js"></script>
+<script src="/static/js/reports.js"></script>
+<script src="/static/js/balances.js"></script>
+<script src="/static/js/data.js"></script>
+<script>
+(async () => {
+  restoreRpnlPrefs();
+  await fetchStrategies();
+  await fetchRpnlSymbols();
+  checkHealth();
+  const lastPage = lsGet(LS_PAGE, 'home');
+  if (lastPage && lastPage !== 'home' && PAGE_IDS.includes(lastPage)) showPage(lastPage);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!-- RPNL -->
+<div id="rpnl" class="page">
+  <div class="rp-bar">
+    <select id="rpnlSymbol" title="Symbol" aria-label="Symbol" onchange="loadRpnlFresh()"></select>
+    <select id="rpnlHours" title="Window" aria-label="Window" onchange="loadRpnlFresh()">
+      <option value="today">Today</option>
+      <option value="1">1h</option>
+      <option value="3">3h</option>
+      <option value="6">6h</option>
+      <option value="12">12h</option>
+      <option value="24" selected>24h</option>
+      <option value="48">48h</option>
+      <option value="72">3d</option>
+      <option value="168">7d</option>
+      <option value="336">14d</option>
+      <option value="720">30d</option>
+    </select>
+    <select id="rpnlCandle" title="Candles" aria-label="Candles" onchange="loadRpnlFresh()">
+      <option value="1m">1m</option>
+      <option value="5m" selected>5m</option>
+      <option value="15m">15m</option>
+      <option value="1h">1h</option>
+      <option value="4h">4h</option>
+    </select>
+    <select id="rpnlBucket" title="Bucket" aria-label="Bucket" onchange="loadRpnlFresh()">
+      <option value="1">1m</option>
+      <option value="5" selected>5m</option>
+      <option value="15">15m</option>
+      <option value="30">30m</option>
+      <option value="60">1h</option>
+    </select>
+    <select id="rpnlVenue" title="Venue" aria-label="Venue" onchange="onRpnlVenueChange()">
+      <option value="both">Both</option>
+      <option value="quote">Quote</option>
+      <option value="hedge">Hedge</option>
+    </select>
+    <button class="btn" type="button" onclick="loadRpnlFresh()">Refresh</button>
+    <button class="btn" type="button" onclick="fitRpnlView()" title="Fit both charts to the full window">Fit</button>
+    <label class="rp-check"><input type="checkbox" id="rpnlAuto" onchange="setupRpnlAuto()" checked /> Auto</label>
+    <div class="rp-views">
+      <button class="btn" type="button" id="viewCumul" onclick="setRpnlView('cumul')">Cumul</button>
+      <button class="btn" type="button" id="viewBucket" onclick="setRpnlView('bucket')">Bucket</button>
+      <button class="btn" type="button" id="toggleAutoY" onclick="toggleAutoY()" title="Toggle Y-axis auto-scale">Auto Y</button>
+    </div>
+  </div>
+  <div class="status-bar" id="rpnlStatus"><span class="spinner"></span><span>Loading...</span></div>
+  <div class="error-panel" id="rpnlError"></div>
+  <div id="rpnlSummaryWrap" class="rpnl-pills"></div>
+  <div id="rpnlInspect" class="rpnl-inspect"></div>
+  <div class="rpnl-key" id="rpnlKey">
+    <span class="kitem"><span class="kdot" style="background:#26a69a"></span><span id="rkDeltaLab">Quote</span> <span class="kval" id="rkDelta">—</span></span>
+    <span class="kitem" id="rkHedgeItem"><span class="kdot" style="background:#ff9800"></span><span id="rkHedgeLab">Hedge</span> <span class="kval" id="rkHedge">—</span></span>
+    <span class="kitem" id="rkNetItem"><span class="kdot" style="background:#90caf9"></span>Net <span class="kval" id="rkNet">—</span></span>
+    <span class="kitem kitem-end" id="rkContract">Select a contract</span>
+  </div>
+  <div class="rp-charts rpnl-stack">
+    <div class="rp-pane">
+      <div class="rp-pane-lab" id="ohlcPaneLabel">Price · vol · fills</div>
+      <div id="ohlcChart"></div>
+      <div class="chart-empty" id="ohlcEmpty">No price candles for this window</div>
+      <div class="chart-legend" id="ohlcLegend"></div>
+    </div>
+    <div class="rp-pane">
+      <div class="rp-pane-lab" id="rpnlPaneLabel">Cumulative rPnL (₹)</div>
+      <div id="rpnlChart"></div>
+      <div class="chart-legend" id="rpnlLegend"></div>
+      <div id="rpnlBrush" class="rpnl-brush" hidden></div>
+      <div id="rpnlSelectLayer" class="rpnl-select-layer" hidden></div>
+    </div>
+  </div>
+  <div class="rp-foot" id="rpnlTools">
+    <div class="rp-dates">
+      <label>From <input type="datetime-local" id="rpnlFrom" step="60" title="From (IST)" onchange="rpnlPinFromInputs()" /></label>
+      <label>To <input type="datetime-local" id="rpnlTo" step="60" title="To (IST)" onchange="rpnlPinFromInputs()" /></label>
+    </div>
+    <span class="range-mode" id="rpnlRangeMode">chart view</span>
+    <button class="btn" type="button" onclick="rpnlFollowView()" title="Keep the export window locked to whatever is on screen">Follow</button>
+    <button class="btn" type="button" id="rpnlSelectBtn" onclick="toggleRpnlSelect()" title="Drag on the rPnL chart to pick a window">Select</button>
+    <button class="btn" type="button" onclick="rpnlJumpChartToRange()" title="Zoom the charts to the From/To times">Jump</button>
+    <div class="rp-exports">
+      <span class="hint">Export IST</span>
+      <button class="btn" type="button" onclick="exportRpnlKind('fills')">Fills</button>
+      <button class="btn" type="button" onclick="exportRpnlKind('logs')">Logs</button>
+      <button class="btn" type="button" onclick="exportRpnlKind('orders')">Orders</button>
+      <button class="btn" type="button" onclick="exportRpnlKind('events')">Events</button>
+      <button class="btn" type="button" onclick="exportRpnlKind('positions')">Positions</button>
+      <button class="btn" type="button" onclick="exportRpnlKind('account_balances')">Balances</button>
+      <button class="btn" type="button" onclick="exportRpnlKind('all')" title="ZIP of every table above">ZIP</button>
+    </div>
+  </div>
+</div>
