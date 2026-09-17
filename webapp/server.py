@@ -32,6 +32,7 @@ from config.symbol import SYMBOL_LAB, SYMBOL_MMT, SYMBOL_VELVET, SYMBOL_AIOT
 from config import symbol as _symbol_module
 from utils.events_db import EventsDB, canon_contract, contract_aliases, ping_is_live
 from utils.logger import start_db_log_forwarder
+from webapp.wallets import live_balances_board
 
 logger = logging.getLogger("webapp")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -1984,10 +1985,10 @@ async def balances_board(
     strategy: str = Query("opa3"),
     scope: str = Query("all", description="all | strategy"),
 ) -> dict:
-    """Latest wallet snapshot for every exchange subaccount."""
-    if _db is None or not _db.pool:
-        raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
-    out = await _db.get_balances_board(strategy=strategy, scope=scope)
+    """Live wallet equity from each subaccount API key. Not from fills."""
+    out = await live_balances_board(
+        usdinr_rate=settings.usdinr_rate, strategy=strategy, scope=scope,
+    )
     out["strategy"] = strategy
     out["generated_at"] = int(datetime.now(timezone.utc).timestamp())
     return out

@@ -1,0 +1,24 @@
+[
+  {
+    "exchange": "delta",
+    "id": "22354431",
+    "name": "ARBUSD",
+    "api_key": "REPLACE",
+    "api_secret": "REPLACE"
+  },
+  {
+    "exchange": "binance",
+    "id": "",
+    "name": "Binance main",
+    "api_key": "REPLACE",
+    "api_secret": "REPLACE",
+    "asset": "USDT"
+  },
+  {
+    "exchange": "coindcx",
+    "id": "22354431",
+    "name": "ARBUSD hedge",
+    "api_key": "REPLACE",
+    "api_secret": "REPLACE"
+  }
+]
