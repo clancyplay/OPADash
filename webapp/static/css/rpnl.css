@@ -1,7 +1,13 @@
 /* rPnL page — charts own leftover height. Chrome never squishes them to 0. */
 
+html:has(#rpnl.visible),
 body:has(#rpnl.visible) {
   overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+}
+
+body:has(#rpnl.visible) {
   height: 100svh;
   max-height: 100svh;
   padding-bottom: 0;
@@ -9,11 +15,23 @@ body:has(#rpnl.visible) {
 
 #rpnl.page.visible {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
+  width: 100%;
+  max-width: 100%;
   height: calc(100svh - var(--nav-h) - var(--safe-t));
   max-height: calc(100dvh - var(--nav-h) - var(--safe-t));
   overflow: hidden;
+  min-width: 0;
   min-height: 0;
+}
+
+.rp-top,
+.rp-charts,
+.rp-foot {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
 }
 
 .rp-top {
@@ -21,6 +39,7 @@ body:has(#rpnl.visible) {
   flex-direction: column;
   min-height: 0;
   max-height: 100%;
+  overflow-x: hidden;
 }
 
 #rpnl .rp-bar,
@@ -57,7 +76,7 @@ body:has(#rpnl.visible) {
   min-width: 0;
   max-width: 160px;
 }
-.rp-bar #rpnlSymbol { flex: 1 1 140px; max-width: 220px; }
+.rp-bar #rpnlSymbol { flex: 1 1 0; width: 0; min-width: 0; max-width: 220px; }
 .rp-bar .btn { min-height: 30px; padding: 4px 10px; }
 .rp-more { display: contents; }
 .rp-more-btn { display: none; }
@@ -227,13 +246,16 @@ body:has(#rpnl.visible) {
   position: relative;
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 .rp-pane {
   position: relative;
   flex: 1 1 0;
+  min-width: 0;
   min-height: 0;
+  width: 100%;
   overflow: hidden;
 }
 .rp-pane:first-child { flex: 1.55 1 0; }
@@ -245,6 +267,8 @@ body:has(#rpnl.visible) {
 #ohlcChart, #rpnlChart {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
+  max-width: 100%;
+  overflow: hidden;
   touch-action: none;
 }
 .chart-empty {
@@ -286,11 +310,13 @@ body:has(#rpnl.visible) {
   background: var(--surface);
   font-size: 12px;
 }
+.rp-foot { min-width: 0; overflow-x: hidden; }
 .rp-dates {
   display: flex;
   gap: 8px;
   min-width: 0;
-  flex: 1 1 280px;
+  flex: 1 1 auto;
+  max-width: 100%;
 }
 .rp-dates label {
   display: flex; align-items: center; gap: 6px;
@@ -315,40 +341,44 @@ body:has(#rpnl.visible) {
 .rp-export-btn { display: none; }
 
 @media (max-width: 720px) {
-  /* Cap chrome so the 1fr chart row cannot collapse to 0. Overlays stay visible. */
-  .rp-top { max-height: 36%; overflow: visible; }
-  .rp-foot { max-height: 24%; overflow: visible; }
+  .rp-top { max-height: 36%; overflow-x: clip; overflow-y: visible; }
+  .rp-foot { max-height: 24%; overflow-x: clip; overflow-y: visible; }
   #rpnl .status-bar.ok { display: none; }
 
   #rpnl select, #rpnl button.btn, #rpnl input[type="datetime-local"] {
     min-height: 32px;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .rp-bar {
     flex-wrap: nowrap;
+    min-width: 0;
+    max-width: 100%;
     padding: 4px max(8px, var(--safe-r)) 4px max(8px, var(--safe-l));
     gap: 4px;
   }
   .rp-bar select {
-    flex: 0 0 auto;
-    max-width: none;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 4.8em;
     min-height: 32px !important;
-    padding: 2px 6px !important;
+    padding: 2px 4px !important;
     font-size: 16px;
   }
   .rp-bar #rpnlSymbol {
-    flex: 1 1 auto;
+    flex: 1 1 0;
+    width: 0;
     min-width: 0;
     max-width: none;
-    width: auto;
   }
-  .rp-bar #rpnlHours, .rp-bar #rpnlCandle { max-width: 5.6em; }
+  .rp-bar #rpnlHours, .rp-bar #rpnlCandle { flex: 0 0 4.6em; max-width: 4.6em; }
   .rp-bar .btn {
     min-height: 32px !important;
     padding: 2px 8px !important;
     font-size: 12px !important;
   }
-  .rp-more-btn { display: inline-flex; margin-left: auto; }
+  .rp-more-btn { display: inline-flex; flex: 0 0 auto; margin-left: 0; }
   .rp-more {
     display: none;
     position: absolute;
@@ -372,7 +402,14 @@ body:has(#rpnl.visible) {
   .rpnl-pill .p-val { font-size: 13px; margin-top: 1px; }
   .rpnl-pill .p-mode { display: none; }
 
-  .rpnl-inspect { padding: 4px max(8px, var(--safe-r)) 4px max(8px, var(--safe-l)); overflow: visible; max-height: none; }
+  .rpnl-inspect {
+    padding: 4px max(8px, var(--safe-r)) 4px max(8px, var(--safe-l));
+    max-height: none;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: clip;
+    overflow-y: visible;
+  }
   .rpnl-inspect.open { position: relative; }
   .ri-fold { display: inline-flex; }
   .rpnl-inspect.folded .ri-fold { transform: rotate(-90deg); }
@@ -430,8 +467,10 @@ body:has(#rpnl.visible) {
   }
   .rp-dates {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     flex: 1 1 100%;
+    min-width: 0;
+    max-width: 100%;
     gap: 4px 6px;
   }
   .rp-dates label {
@@ -446,6 +485,8 @@ body:has(#rpnl.visible) {
   }
   .rp-dates input[type="datetime-local"] {
     width: 100%;
+    min-width: 0 !important;
+    max-width: 100%;
     min-height: 32px !important;
     padding: 2px 4px !important;
     text-transform: none;

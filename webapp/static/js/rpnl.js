@@ -1180,7 +1180,7 @@ function rpnlInrFormat() {
 function rpnlChartBase(timeScaleVisible) {
   const mobile = window.matchMedia('(max-width: 720px)').matches;
   return {
-    autoSize: true,
+    autoSize: false,
     layout: { background: { color: '#0e1117' }, textColor: '#d1d4dc', fontSize: mobile ? 10 : 11 },
     grid:   { vertLines: { color: '#1c2130' }, horzLines: { color: '#1c2130' } },
     crosshair: { mode: LightweightCharts.CrosshairMode.Magnet },
@@ -1426,6 +1426,7 @@ function initRpnl() {
   bindRpnlSelectLayer();
 
   window.addEventListener('resize', resizeRpnlCharts);
+  requestAnimationFrame(resizeRpnlCharts);
   if (window.ResizeObserver) {
     const stack = document.querySelector('#rpnl .rp-charts');
     if (stack && !stack.dataset.ro) {
@@ -1492,19 +1493,26 @@ function closeRpnlPopovers(ev) {
   }
 }
 
+function rpnlFitWidth(el) {
+  const page = document.getElementById('rpnl');
+  const cap = Math.max(0, (page && page.clientWidth) || window.innerWidth || 0);
+  const pane = el && el.parentElement;
+  const raw = (el && el.clientWidth) || (pane && pane.clientWidth) || cap;
+  return cap ? Math.min(raw, cap) : raw;
+}
 function resizeRpnlCharts() {
   if (!rpnlChart || !ohlcChart) return;
   const o = document.getElementById('ohlcChart');
   const r = document.getElementById('rpnlChart');
   if (!o) return;
   const paneO = o.parentElement;
-  const ow = o.clientWidth || (paneO && paneO.clientWidth) || 0;
+  const ow = rpnlFitWidth(o);
   if (ow < 8) return;
   try {
     const oh = o.clientHeight || (paneO && paneO.clientHeight) || 0;
     if (oh > 8) ohlcChart.applyOptions({ width: ow, height: oh });
     const paneR = r && r.parentElement;
-    const rw = r ? (r.clientWidth || (paneR && paneR.clientWidth) || 0) : 0;
+    const rw = r ? rpnlFitWidth(r) : 0;
     const rh = r ? (r.clientHeight || (paneR && paneR.clientHeight) || 0) : 0;
     if (r && rw > 8 && rh > 8) {
       rpnlChart.applyOptions({ width: rw, height: rh });
