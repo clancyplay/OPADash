@@ -95,10 +95,19 @@ function showPage(name) {
   } else if (dataReady) { clearInterval(fxTimer); clearInterval(evTimer); clearInterval(pxTimer); clearInterval(lgTimer); }
   // Charts need a resize when their container becomes visible
   if (name === 'rpnl') {
-    if (rpnlChart) requestAnimationFrame(resizeRpnlCharts);
+    if (rpnlChart) {
+      requestAnimationFrame(() => {
+        resizeRpnlCharts();
+        requestAnimationFrame(resizeRpnlCharts);
+      });
+    }
     startRpnlLive();
   } else {
     stopRpnlLive();
+    const rp = document.getElementById('rpnl');
+    if (rp && rp.classList.contains('more-open') && typeof toggleRpnlMore === 'function') toggleRpnlMore();
+    const foot = document.getElementById('rpnlTools');
+    if (foot && foot.classList.contains('export-open') && typeof toggleRpnlExports === 'function') toggleRpnlExports();
   }
 }
 

@@ -755,7 +755,10 @@ function renderRpnlInspect(row) {
     s && s.max_usd, s && s.max_pos,
     cfgSig, modeTxt,
   ].join('|');
-  box.className = 'rpnl-inspect open';
+  const wasOpen = box.classList.contains('open');
+  const wasFolded = box.classList.contains('folded');
+  const mobile = window.matchMedia('(max-width: 720px)').matches;
+  box.className = 'rpnl-inspect open' + ((wasFolded || (!wasOpen && mobile)) ? ' folded' : '');
   box.dataset.contract = row.contract || '';
   box.dataset.account = row.account || '';
   box.dataset.qsym = qsym;
@@ -769,6 +772,7 @@ function renderRpnlInspect(row) {
   box.dataset.sig = sig;
   box.innerHTML =
     '<div class="ri-bar">' +
+      '<button type="button" class="ri-fold" title="Contract setup" onclick="toggleRpnlInspectFold()">▾</button>' +
       '<div class="ri-stats">' +
         rpnlPosHtml(s, 'ri-pos', row.quote_venue) +
         '<span class="ri-chip">' + escHtml(qlab) + ' ' + (row.fills || 0) + ' fills' +
@@ -780,6 +784,7 @@ function renderRpnlInspect(row) {
         rpnlMaxHtml(row) +
       '</div>' +
     '</div>' +
+    '<div class="ri-extra">' +
     '<div class="ri-setup">' +
       '<div class="ri-setup-h">Contract setup</div>' +
       (hedged
@@ -788,7 +793,8 @@ function renderRpnlInspect(row) {
         : '') +
       rpnlCfgHtml(s) +
     '</div>' +
-    rpnlGatesHtml(s);
+    rpnlGatesHtml(s) +
+    '</div>';
   if (keepMax) {
     const el = document.getElementById('rpnlMaxInput');
     if (el) {
@@ -1439,19 +1445,69 @@ function initRpnl() {
     }
   }
   loadRpnl(false);
+  document.addEventListener('click', closeRpnlPopovers);
+}
+
+function toggleRpnlMore() {
+  const page = document.getElementById('rpnl');
+  if (!page) return;
+  const open = page.classList.toggle('more-open');
+  const btn = document.getElementById('rpnlMoreBtn');
+  if (btn) {
+    btn.textContent = open ? 'Less' : 'More';
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  if (open) {
+    const foot = document.getElementById('rpnlTools');
+    if (foot) foot.classList.remove('export-open');
+    const ex = document.getElementById('rpnlExportBtn');
+    if (ex) ex.classList.remove('on');
+  }
+}
+function toggleRpnlExports() {
+  const foot = document.getElementById('rpnlTools');
+  if (!foot) return;
+  const open = foot.classList.toggle('export-open');
+  const btn = document.getElementById('rpnlExportBtn');
+  if (btn) btn.classList.toggle('on', open);
+  if (open) {
+    const page = document.getElementById('rpnl');
+    if (page && page.classList.contains('more-open')) toggleRpnlMore();
+  }
+}
+function toggleRpnlInspectFold() {
+  const box = document.getElementById('rpnlInspect');
+  if (!box || !box.classList.contains('open')) return;
+  box.classList.toggle('folded');
+}
+function closeRpnlPopovers(ev) {
+  const page = document.getElementById('rpnl');
+  if (!page || !page.classList.contains('visible')) return;
+  if (page.classList.contains('more-open') && !(ev && ev.target && ev.target.closest('.rp-bar'))) {
+    toggleRpnlMore();
+  }
+  const foot = document.getElementById('rpnlTools');
+  if (foot && foot.classList.contains('export-open') && !(ev && ev.target && ev.target.closest('.rp-foot'))) {
+    toggleRpnlExports();
+  }
 }
 
 function resizeRpnlCharts() {
   if (!rpnlChart || !ohlcChart) return;
   const o = document.getElementById('ohlcChart');
   const r = document.getElementById('rpnlChart');
-  if (!o || o.clientWidth < 8) return;
+  if (!o) return;
+  const paneO = o.parentElement;
+  const ow = o.clientWidth || (paneO && paneO.clientWidth) || 0;
+  if (ow < 8) return;
   try {
-    const oh = o.clientHeight || 0;
-    if (oh > 8) ohlcChart.applyOptions({ width: o.clientWidth, height: oh });
-    const rh = r ? (r.clientHeight || 0) : 0;
-    if (r && r.clientWidth > 8 && rh > 8) {
-      rpnlChart.applyOptions({ width: r.clientWidth, height: rh });
+    const oh = o.clientHeight || (paneO && paneO.clientHeight) || 0;
+    if (oh > 8) ohlcChart.applyOptions({ width: ow, height: oh });
+    const paneR = r && r.parentElement;
+    const rw = r ? (r.clientWidth || (paneR && paneR.clientWidth) || 0) : 0;
+    const rh = r ? (r.clientHeight || (paneR && paneR.clientHeight) || 0) : 0;
+    if (r && rw > 8 && rh > 8) {
+      rpnlChart.applyOptions({ width: rw, height: rh });
     }
   } catch (e) {}
   requestAnimationFrame(() => {

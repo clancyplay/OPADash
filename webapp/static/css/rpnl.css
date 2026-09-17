@@ -1,16 +1,26 @@
-/* rPnL page — viewport layout. Chart logic lives in js/rpnl.js */
+/* rPnL page — charts own leftover height. Chrome never squishes them to 0. */
 
 body:has(#rpnl.visible) {
   overflow: hidden;
+  height: 100svh;
+  max-height: 100svh;
   padding-bottom: 0;
 }
 
 #rpnl.page.visible {
-  display: flex;
-  flex-direction: column;
-  height: calc(100dvh - var(--nav-h) - var(--safe-t));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: calc(100svh - var(--nav-h) - var(--safe-t));
   max-height: calc(100dvh - var(--nav-h) - var(--safe-t));
   overflow: hidden;
+  min-height: 0;
+}
+
+.rp-top {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
 }
 
 #rpnl .rp-bar,
@@ -33,6 +43,7 @@ body:has(#rpnl.visible) {
 
 /* Toolbar */
 .rp-bar {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -40,6 +51,7 @@ body:has(#rpnl.visible) {
   padding: 8px max(12px, var(--safe-r)) 8px max(12px, var(--safe-l));
   background: rgba(22, 26, 37, .92);
   border-bottom: 1px solid var(--border);
+  z-index: 30;
 }
 .rp-bar select {
   min-width: 0;
@@ -47,6 +59,8 @@ body:has(#rpnl.visible) {
 }
 .rp-bar #rpnlSymbol { flex: 1 1 140px; max-width: 220px; }
 .rp-bar .btn { min-height: 30px; padding: 4px 10px; }
+.rp-more { display: contents; }
+.rp-more-btn { display: none; }
 .rp-check {
   display: inline-flex;
   align-items: center;
@@ -187,6 +201,15 @@ body:has(#rpnl.visible) {
 .rpnl-inspect .ri-gate .wait { color: #ffb74d; font-weight: 650; }
 .rpnl-inspect .ri-gate .bad { color: var(--red); font-weight: 650; }
 .rpnl-inspect .ri-gate .then { color: #6b7385; font-weight: 650; }
+.ri-fold {
+  display: none;
+  flex: 0 0 auto;
+  width: 28px; height: 28px;
+  align-items: center; justify-content: center;
+  border: 1px solid var(--border2); border-radius: 6px;
+  background: rgba(255, 255, 255, .06); color: var(--muted);
+  cursor: pointer; font-size: 12px; line-height: 1;
+}
 
 /* Legend strip */
 .rpnl-key {
@@ -201,9 +224,9 @@ body:has(#rpnl.visible) {
 
 /* Charts fill leftover height */
 .rp-charts {
+  position: relative;
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
 }
@@ -286,45 +309,123 @@ body:has(#rpnl.visible) {
 }
 .rp-foot .range-mode.pin { color: #90caf9; border-color: rgba(41, 98, 255, .45); }
 .rp-foot .range-mode.sel { color: #ffb74d; border-color: rgba(255, 183, 77, .45); }
+.rp-foot { position: relative; }
 .rp-exports { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; align-items: center; }
 .rp-exports .hint { font-size: 10px; color: var(--muted); margin-right: 4px; }
+.rp-export-btn { display: none; }
 
 @media (max-width: 720px) {
+  /* Cap chrome so the 1fr chart row cannot collapse to 0. Overlays stay visible. */
+  .rp-top { max-height: 36%; overflow: visible; }
+  .rp-foot { max-height: 24%; overflow: visible; }
+  #rpnl .status-bar.ok { display: none; }
+
+  #rpnl select, #rpnl button.btn, #rpnl input[type="datetime-local"] {
+    min-height: 32px;
+  }
+
   .rp-bar {
+    flex-wrap: nowrap;
     padding: 4px max(8px, var(--safe-r)) 4px max(8px, var(--safe-l));
     gap: 4px;
   }
   .rp-bar select {
-    flex: 1 1 calc(25% - 4px);
+    flex: 0 0 auto;
     max-width: none;
-    min-height: 28px !important;
-    padding: 2px 4px !important;
+    min-height: 32px !important;
+    padding: 2px 6px !important;
     font-size: 16px;
   }
-  .rp-bar #rpnlSymbol { flex: 1 1 100%; max-width: none; }
+  .rp-bar #rpnlSymbol {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+    width: auto;
+  }
+  .rp-bar #rpnlHours, .rp-bar #rpnlCandle { max-width: 5.6em; }
   .rp-bar .btn {
-    min-height: 26px !important;
+    min-height: 32px !important;
     padding: 2px 8px !important;
-    font-size: 11px !important;
+    font-size: 12px !important;
   }
+  .rp-more-btn { display: inline-flex; margin-left: auto; }
+  .rp-more {
+    display: none;
+    position: absolute;
+    top: calc(100% + 1px);
+    left: 0; right: 0;
+    z-index: 40;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 16px 28px rgba(0,0,0,.45);
+    padding: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  #rpnl.more-open .rp-more { display: flex; }
   .rp-views { width: 100%; margin-left: 0; display: grid; grid-template-columns: 1fr 1fr 1fr; }
-  .rp-check { font-size: 11px; }
+  .rp-check { font-size: 12px; }
 
-  .rpnl-inspect { padding: 6px max(8px, var(--safe-r)); max-height: 26vh; }
-  .rpnl-inspect .ri-setup-h { display: none; }
-  .rpnl-inspect .p-acts button {
-    min-height: 24px; padding: 2px 7px; font-size: 10px;
+  .rpnl-pills { padding: 4px max(8px, var(--safe-r)); gap: 6px; }
+  .rpnl-pill { padding: 4px 8px; min-width: 108px; border-radius: 8px; }
+  .rpnl-pill .p-val { font-size: 13px; margin-top: 1px; }
+  .rpnl-pill .p-mode { display: none; }
+
+  .rpnl-inspect { padding: 4px max(8px, var(--safe-r)) 4px max(8px, var(--safe-l)); overflow: visible; max-height: none; }
+  .rpnl-inspect.open { position: relative; }
+  .ri-fold { display: inline-flex; }
+  .rpnl-inspect.folded .ri-fold { transform: rotate(-90deg); }
+  .rpnl-inspect .ri-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
-  .rpnl-inspect .ri-max input { min-height: 28px; padding: 3px 6px; }
-  .rpnl-inspect .ri-max button { min-height: 28px; padding: 3px 8px; font-size: 10px; }
+  .rpnl-inspect .ri-col, .rpnl-inspect .p-acts, .rpnl-inspect .ri-stats {
+    flex-wrap: nowrap;
+  }
+  .rpnl-inspect .ri-setup-h { display: none; }
+  .rpnl-inspect.folded .ri-extra { display: none; }
+  .rpnl-inspect.open:not(.folded) .ri-extra {
+    position: absolute;
+    left: 0; right: 0;
+    top: 100%;
+    z-index: 22;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: min(36vh, 240px);
+    overflow: auto;
+    padding: 8px max(8px, var(--safe-r)) 10px max(8px, var(--safe-l));
+    background: #12161f;
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 12px 24px rgba(0,0,0,.4);
+  }
+  .rpnl-inspect .ri-bar { gap: 6px; }
+  .rpnl-inspect .p-acts button {
+    min-height: 28px; padding: 2px 7px; font-size: 10px;
+  }
+  .rpnl-inspect .ri-max input { min-height: 32px; padding: 3px 6px; width: 72px; }
+  .rpnl-inspect .ri-max button { min-height: 32px; padding: 3px 8px; font-size: 10px; }
 
-  .rp-pane-lab { right: 48px; top: 6px; font-size: 9px; }
-  .rpnl-pills { padding: 6px max(8px, var(--safe-r)); }
-  .rpnl-key { padding: 6px max(8px, var(--safe-r)); }
-  .rpnl-key .kitem-end { margin-left: 0; flex: 1 1 100%; }
+  .rp-pane-lab { right: 48px; top: 22px; font-size: 9px; }
+  .rpnl-key {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    z-index: 12;
+    padding: 3px 8px;
+    gap: 8px 10px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    background: rgba(14, 17, 23, .82);
+    pointer-events: none;
+    border-bottom: 0;
+  }
+  .rpnl-key .kitem-end { display: none; }
+  .chart-legend { top: 22px; }
 
   .rp-foot {
-    padding: 6px max(8px, var(--safe-r)) calc(6px + var(--safe-b)) max(8px, var(--safe-l));
+    padding: 4px max(8px, var(--safe-r)) calc(4px + var(--safe-b)) max(8px, var(--safe-l));
     gap: 4px;
   }
   .rp-dates {
@@ -345,7 +446,7 @@ body:has(#rpnl.visible) {
   }
   .rp-dates input[type="datetime-local"] {
     width: 100%;
-    min-height: 30px !important;
+    min-height: 32px !important;
     padding: 2px 4px !important;
     text-transform: none;
     font-weight: 500;
@@ -355,7 +456,22 @@ body:has(#rpnl.visible) {
   .rp-dates input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     width: 14px; height: 14px; padding: 0; margin: 0 0 0 2px;
   }
-  .rp-foot .btn { min-height: 26px !important; padding: 2px 8px !important; font-size: 11px !important; }
-  .rp-exports { width: 100%; margin-left: 0; }
+  .rp-foot .btn { min-height: 28px !important; padding: 2px 8px !important; font-size: 11px !important; }
+  .rp-foot .range-mode { display: none; }
+  .rp-export-btn { display: inline-flex; margin-left: auto; }
+  .rp-exports {
+    display: none;
+    position: absolute;
+    left: 0; right: 0;
+    bottom: 100%;
+    width: auto;
+    margin: 0;
+    padding: 8px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -12px 24px rgba(0,0,0,.4);
+    z-index: 25;
+  }
+  .rp-foot.export-open .rp-exports { display: flex; }
   .rp-exports .hint { display: none; }
 }
