@@ -377,6 +377,7 @@ def _hedge_venue_label(raw: str | None) -> str:
 
 
 _SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold"}
+_SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "mark", "usdinr", "cv"}
 _SETUP_KEYS = (
     "hem", "span", "step", "fit_auto", "vol_gate", "vol_stable",
     "orders", "live_orders", "max_pos", "max_usd", "ignore", "ignore_usd",
@@ -427,6 +428,11 @@ def _setup_public(setup: dict | None) -> dict | None:
             continue
         if isinstance(val, bool):
             out[key] = val
+        elif key in _SETUP_FLOAT_KEYS:
+            try:
+                out[key] = float(val)
+            except (TypeError, ValueError):
+                continue
         elif isinstance(val, (int, float)):
             out[key] = int(val) if isinstance(val, int) or (isinstance(val, float) and val.is_integer()) else float(val)
         elif isinstance(val, str) and val.lower() in ("true", "false", "on", "off", "1", "0"):

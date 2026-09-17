@@ -1871,25 +1871,42 @@ function ohlcLastPx() {
   return isFinite(px) && px > 0 ? px : 0;
 }
 
-function liveUpnlInr(s) {
-  if (!s) return null;
-  const size = Number(s.pos);
-  const entry = Number(s.entry);
-  const reported = Number(s.upnl);
-  const last = ohlcLastPx();
-  const mark = Number(s.mark);
-  const px = mark > 0 ? mark : last;
-  if (isFinite(size) && size && entry > 0 && px > 0) {
-    const rate = Number(s.usdinr);
-    const r = isFinite(rate) && rate > 0 ? rate : 87;
-    const cv = Number(s.cv);
-    const mult = isFinite(cv) && cv > 0 ? cv : 1;
-    return size * (px - entry) * r * mult;
-  }
-  return isFinite(reported) ? reported : null;
+function liveVenueCv(s, venue) {
+  const cv = Number(s && s.cv);
+  if (isFinite(cv) && cv > 0) return cv;
+  const v = String(venue || '').toLowerCase();
+  if (v === 'aster' || v === 'binance' || v === 'kucoin' || v === 'bybit' ||
+      v === 'coinbase' || v === 'coindcx') return 1;
+  return 10;
 }
 
-function rpnlPosHtml(s, cls) {
+function liveUsdInr(s) {
+  const rate = Number(s && s.usdinr);
+  return isFinite(rate) && rate > 0 ? rate : 87;
+}
+
+function liveUpnlInr(s, venue) {
+  if (!s) return null;
+  if (s.upnl != null && s.upnl !== '') {
+    const reported = Number(s.upnl);
+    if (isFinite(reported)) return reported;
+  }
+  const size = Number(s.pos);
+  const entry = Number(s.entry);
+  const mark = Number(s.mark);
+  if (!(isFinite(size) && size && entry > 0 && mark > 0)) return null;
+  return size * (mark - entry) * liveUsdInr(s) * liveVenueCv(s, venue);
+}
+
+function usdFmtDec(n, d) {
+  const v = Number(n) || 0;
+  const sign = v < 0 ? '−' : '+';
+  return sign + '$' + Math.abs(v).toLocaleString('en-US', {
+    minimumFractionDigits: d, maximumFractionDigits: d,
+  });
+}
+
+function rpnlPosHtml(s, cls, venue) {
   if (!s || s.pos == null) return '';
   const n = Number(s.pos);
   if (!isFinite(n)) return '';
@@ -1899,11 +1916,11 @@ function rpnlPosHtml(s, cls) {
   let t = side + ' ' + fmtG(Math.abs(n));
   if (s.entry != null && Number(s.entry) > 0) t += ' @ ' + fmtG(s.entry);
   let extra = '';
-  const u = liveUpnlInr(s);
+  const u = liveUpnlInr(s, venue);
   if (u != null && isFinite(u)) {
     const d = Math.abs(u) < 100 ? 2 : 0;
     extra = ' · <span class="' + (u >= 0 ? 'up' : 'dn') + '">uPnL ' +
-      escHtml(inrFmtDec(u, d)) + '</span>';
+      escHtml(inrFmtDec(u, d) + ' (' + usdFmtDec(u / liveUsdInr(s), 2) + ')') + '</span>';
   }
   return '<div class="' + cls + ' ' + side + '">' + escHtml(t) + extra + '</div>';
 }
@@ -2235,7 +2252,7 @@ function renderRpnlInspect(row) {
   const modeTxt = rpnlModeText(s, true);
   const sig = [
     row.contract, row.account, Number(!!row.live), quote, hedge, row.fills, row.hedge_fills,
-    s && s.pos, s && s.entry, s && s.upnl, s && s.mark, ohlcLastPx(), s && s.mode, s && s.hold, s && s.pause_left,
+    s && s.pos, s && s.entry, s && s.upnl, s && s.mark, s && s.cv, s && s.usdinr, s && s.mode, s && s.hold, s && s.pause_left,
     s && s.win_rpnl, s && s.burst_rpnl, s && s.probing, s && s.rest_left,
     s && s.trip_why, s && s.probe_hold, s && s.probe_lock_left, s && s.probe_n_have,
     s && s.probe_win_ok, s && s.fate_peak, s && s.grind_rpnl, s && s.pause_clock,
@@ -2258,7 +2275,7 @@ function renderRpnlInspect(row) {
   box.innerHTML =
     '<div class="ri-bar">' +
       '<div class="ri-stats">' +
-        rpnlPosHtml(s, 'ri-pos') +
+        rpnlPosHtml(s, 'ri-pos', row.quote_venue) +
         '<span class="ri-chip">' + escHtml(qlab) + ' ' + (row.fills || 0) + ' fills' +
           (hedged ? ' · ' + escHtml(hlab) + ' ' + (row.hedge_fills || 0) : '') + '</span>' +
         (row.live && modeTxt ? '<span class="ri-chip">' + escHtml(modeTxt) + '</span>' : '') +
