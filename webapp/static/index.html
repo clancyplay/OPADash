@@ -1871,15 +1871,6 @@ function ohlcLastPx() {
   return isFinite(px) && px > 0 ? px : 0;
 }
 
-function liveVenueCv(s, venue) {
-  const cv = Number(s && s.cv);
-  if (isFinite(cv) && cv > 0) return cv;
-  const v = String(venue || '').toLowerCase();
-  if (v === 'aster' || v === 'binance' || v === 'kucoin' || v === 'bybit' ||
-      v === 'coinbase' || v === 'coindcx') return 1;
-  return 10;
-}
-
 function liveUsdInr(s) {
   const rate = Number(s && s.usdinr);
   return isFinite(rate) && rate > 0 ? rate : 87;
@@ -1891,11 +1882,18 @@ function liveUpnlInr(s, venue) {
     const reported = Number(s.upnl);
     if (isFinite(reported)) return reported;
   }
-  const size = Number(s.pos);
-  const entry = Number(s.entry);
-  const mark = Number(s.mark);
-  if (!(isFinite(size) && size && entry > 0 && mark > 0)) return null;
-  return size * (mark - entry) * liveUsdInr(s) * liveVenueCv(s, venue);
+  return null;
+}
+
+function liveUpnlUsd(s) {
+  if (!s) return null;
+  if (s.upnl_usd != null && s.upnl_usd !== '') {
+    const usd = Number(s.upnl_usd);
+    if (isFinite(usd)) return usd;
+  }
+  const u = liveUpnlInr(s);
+  if (u == null) return null;
+  return u / liveUsdInr(s);
 }
 
 function usdFmtDec(n, d) {
@@ -1919,8 +1917,10 @@ function rpnlPosHtml(s, cls, venue) {
   const u = liveUpnlInr(s, venue);
   if (u != null && isFinite(u)) {
     const d = Math.abs(u) < 100 ? 2 : 0;
+    const usd = liveUpnlUsd(s);
+    const usdBit = (usd != null && isFinite(usd)) ? ' (' + usdFmtDec(usd, 2) + ')' : '';
     extra = ' · <span class="' + (u >= 0 ? 'up' : 'dn') + '">uPnL ' +
-      escHtml(inrFmtDec(u, d) + ' (' + usdFmtDec(u / liveUsdInr(s), 2) + ')') + '</span>';
+      escHtml(inrFmtDec(u, d) + usdBit) + '</span>';
   }
   return '<div class="' + cls + ' ' + side + '">' + escHtml(t) + extra + '</div>';
 }
@@ -2252,7 +2252,7 @@ function renderRpnlInspect(row) {
   const modeTxt = rpnlModeText(s, true);
   const sig = [
     row.contract, row.account, Number(!!row.live), quote, hedge, row.fills, row.hedge_fills,
-    s && s.pos, s && s.entry, s && s.upnl, s && s.mark, s && s.cv, s && s.usdinr, s && s.mode, s && s.hold, s && s.pause_left,
+    s && s.pos, s && s.entry, s && s.upnl, s && s.upnl_usd, s && s.mark, s && s.cv, s && s.usdinr, s && s.mode, s && s.hold, s && s.pause_left,
     s && s.win_rpnl, s && s.burst_rpnl, s && s.probing, s && s.rest_left,
     s && s.trip_why, s && s.probe_hold, s && s.probe_lock_left, s && s.probe_n_have,
     s && s.probe_win_ok, s && s.fate_peak, s && s.grind_rpnl, s && s.pause_clock,

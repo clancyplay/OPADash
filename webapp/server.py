@@ -377,14 +377,14 @@ def _hedge_venue_label(raw: str | None) -> str:
 
 
 _SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold"}
-_SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "mark", "usdinr", "cv"}
+_SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv"}
 _SETUP_KEYS = (
     "hem", "span", "step", "fit_auto", "vol_gate", "vol_stable",
     "orders", "live_orders", "max_pos", "max_usd", "ignore", "ignore_usd",
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
     "mode", "mode_why", "pause_left", "size_pct",
     "min_spread", "spread_pad",
-    "pos", "entry", "upnl", "mark", "usdinr", "cv", "hold",
+    "pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "hold",
     "grind", "grind_window", "grind_rpnl", "grind_secs",
     "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "probing",
     "rest_left",
@@ -472,7 +472,7 @@ def _setup_public(setup: dict | None) -> dict | None:
 
 
 _LIVE_SETUP_KEYS = (
-    "pos", "entry", "upnl", "mark", "usdinr", "cv", "hold", "mode", "mode_why", "pause_left", "size_pct",
+    "pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "hold", "mode", "mode_why", "pause_left", "size_pct",
     "rest_left", "probing", "quotes",
     "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "grind_rpnl", "grind_secs",
     "fate_peak", "fate_now", "fate_dd", "fate_burst_need", "fate_dd_need",
