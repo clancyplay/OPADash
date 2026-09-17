@@ -88,6 +88,8 @@ let rpnlSummaryCache = [];
 let rpnlLoadSeq = 0;
 let rpnlQuoteTimer = null;
 let rpnlLoadBusy = false;
+let rpnlNeedsFit = false;
+let rpnlFitTimer = 0;
 let rpnlView         = 'cumul';
 let rpnlPtsCache     = [];
 let rpnlHedgeCache   = [];
@@ -427,13 +429,15 @@ function rpnlPosHtml(s, cls, venue) {
 
 function rpnlActsHtml(r) {
   if (!r.live) return '';
-  const held = !!(r.settings && (r.settings.hold || r.settings.mode === 'stopped'));
+  const s = r.settings || {};
+  const held = !!(s.hold || s.mode === 'stopped' || s.mode === 'flattening');
+  const flattening = s.mode === 'flattening';
   return '<div class="p-acts">' +
     '<button type="button" data-bot-cmd="stop"' + (held ? ' class="on"' : '') + '>Stop</button>' +
     '<button type="button" data-bot-cmd="resume">Resume</button>' +
     '<button type="button" data-bot-cmd="cancel">Cancel</button>' +
     '<button type="button" data-bot-cmd="clear" title="Cancel pause, size-cool, and all limit orders — keep quoting">Clear</button>' +
-    '<button type="button" class="danger" data-bot-cmd="flatten">Close</button>' +
+    '<button type="button" class="danger' + (flattening ? ' on' : '') + '" data-bot-cmd="flatten">Close</button>' +
     '</div>';
 }
 
@@ -1109,8 +1113,30 @@ function fitRpnlView() {
   if (!ohlcChart || !rpnlChart) return;
   rpnlSyncing = true;
   try { ohlcChart.timeScale().fitContent(); } catch (e) {}
+  try { rpnlChart.timeScale().fitContent(); } catch (e) {}
   rpnlSyncing = false;
   syncRpnlTimeScale('ohlc');
+}
+
+function scheduleRpnlFit() {
+  rpnlNeedsFit = true;
+  const go = () => {
+    if (!ohlcChart || !rpnlChart) return;
+    applyRpnlChartSize();
+    if (!ohlcBarsCache.length && !rpnlPtsCache.length) return;
+    fitRpnlView();
+  };
+  requestAnimationFrame(() => {
+    go();
+    requestAnimationFrame(go);
+  });
+  clearTimeout(rpnlFitTimer);
+  rpnlFitTimer = setTimeout(() => {
+    go();
+    rpnlNeedsFit = false;
+    if (!rpnlRangePinned) rpnlSyncRangeFromView();
+    rpnlPaintBrush();
+  }, 120);
 }
 
 function toggleAutoY() {
@@ -1447,6 +1473,14 @@ function initRpnl() {
   }
   loadRpnl(false);
   document.addEventListener('click', closeRpnlPopovers);
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => {
+      const page = document.getElementById('rpnl');
+      if (page && page.classList.contains('visible') && (ohlcBarsCache.length || rpnlPtsCache.length)) {
+        scheduleRpnlFit();
+      }
+    });
+  }
 }
 
 function toggleRpnlMore() {
@@ -1500,14 +1534,14 @@ function rpnlFitWidth(el) {
   const raw = (el && el.clientWidth) || (pane && pane.clientWidth) || cap;
   return cap ? Math.min(raw, cap) : raw;
 }
-function resizeRpnlCharts() {
-  if (!rpnlChart || !ohlcChart) return;
+function applyRpnlChartSize() {
+  if (!rpnlChart || !ohlcChart) return false;
   const o = document.getElementById('ohlcChart');
   const r = document.getElementById('rpnlChart');
-  if (!o) return;
+  if (!o) return false;
   const paneO = o.parentElement;
   const ow = rpnlFitWidth(o);
-  if (ow < 8) return;
+  if (ow < 8) return false;
   try {
     const oh = o.clientHeight || (paneO && paneO.clientHeight) || 0;
     if (oh > 8) ohlcChart.applyOptions({ width: ow, height: oh });
@@ -1518,13 +1552,21 @@ function resizeRpnlCharts() {
       rpnlChart.applyOptions({ width: rw, height: rh });
     }
   } catch (e) {}
+  return true;
+}
+function resizeRpnlCharts() {
+  if (!applyRpnlChartSize()) return;
   requestAnimationFrame(() => {
-    if (ohlcBarsCache.length) {
-      try {
-        const vr = ohlcChart.timeScale().getVisibleLogicalRange();
-        if (!vr || vr.to - vr.from < 1) fitRpnlView();
-        else syncRpnlTimeScale('ohlc');
-      } catch (e) { fitRpnlView(); }
+    if (ohlcBarsCache.length || rpnlPtsCache.length) {
+      if (rpnlNeedsFit) {
+        fitRpnlView();
+      } else {
+        try {
+          const vr = ohlcChart.timeScale().getVisibleLogicalRange();
+          if (!vr || vr.to - vr.from < 1) fitRpnlView();
+          else syncRpnlTimeScale('ohlc');
+        } catch (e) { fitRpnlView(); }
+      }
     }
     rpnlPaintBrush();
     ohlcOrderSig = '';
@@ -1712,6 +1754,7 @@ function clearRpnlCharts() {
 async function loadRpnl(keepRange) {
   const seq = ++rpnlLoadSeq;
   rpnlLoadBusy = true;
+  if (!keepRange) rpnlNeedsFit = true;
   try {
   const winQ   = rpnlWindowQuery();
   const winLab = rpnlWindowTag();
@@ -1861,13 +1904,13 @@ async function loadRpnl(keepRange) {
     ohlcOrderSig = '';
     applyOhlcOrderLines(quotesForCurrentRpnl());
 
+    applyRpnlChartSize();
     if (savedLogical && savedLogical.to > savedLogical.from) {
       rpnlSyncing = true;
       try { ohlcChart.timeScale().setVisibleLogicalRange(savedLogical); } catch (e) {}
       rpnlSyncing = false;
       syncRpnlTimeScale('ohlc');
-    } else {
-      fitRpnlView();
+      rpnlNeedsFit = false;
     }
 
     if (filled.length === 0 && !hedgeRaw.length && !ohlcBarsCache.length) {
@@ -1875,6 +1918,7 @@ async function loadRpnl(keepRange) {
         (winLab === 'today' ? 'today (IST midnight → now)' : 'in the last ' + winLab) +
         '. Try a longer window.</span>' +
         (candleNote ? '<span style="color:var(--muted)">' + escHtml(candleNote) + '</span>' : ''));
+      if (rpnlNeedsFit) scheduleRpnlFit();
       return;
     }
 
@@ -1897,6 +1941,7 @@ async function loadRpnl(keepRange) {
       (candleNote ? '<span style="color:var(--muted)">' + escHtml(candleNote) + '</span>' : ''), 'ok');
     if (!rpnlRangePinned) rpnlSyncRangeFromView();
     rpnlPaintBrush();
+    if (rpnlNeedsFit) scheduleRpnlFit();
   } catch(e) {
     console.error('[rPnL] fetch threw:', e);
     showRpnlError('Network or parse error', e.message);
