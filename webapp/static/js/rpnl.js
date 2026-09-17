@@ -1109,8 +1109,14 @@ function loadRpnlFresh() {
   loadRpnl(false);
 }
 
+function rpnlPageVisible() {
+  const page = document.getElementById('rpnl');
+  return !!(page && page.classList.contains('visible'));
+}
+
 function fitRpnlView() {
   if (!ohlcChart || !rpnlChart) return;
+  applyRpnlChartSize();
   rpnlSyncing = true;
   try { ohlcChart.timeScale().fitContent(); } catch (e) {}
   try { rpnlChart.timeScale().fitContent(); } catch (e) {}
@@ -1118,25 +1124,49 @@ function fitRpnlView() {
   syncRpnlTimeScale('ohlc');
 }
 
+function rpnlLogicalLooksUnfitted() {
+  const n = Math.max(ohlcBarsCache.length, rpnlPtsCache.length);
+  if (!n || !ohlcChart) return false;
+  try {
+    const vr = ohlcChart.timeScale().getVisibleLogicalRange();
+    if (!vr) return true;
+    if (vr.from < -1) return true;
+    const span = vr.to - vr.from;
+    if (span < 1) return true;
+    if (span > n + 16) return true;
+    return false;
+  } catch (e) { return true; }
+}
+
+function tryRpnlFit() {
+  if (!rpnlPageVisible() || !ohlcChart || !rpnlChart) return false;
+  if (!applyRpnlChartSize()) return false;
+  if (!ohlcBarsCache.length && !rpnlPtsCache.length) return false;
+  fitRpnlView();
+  if (rpnlLogicalLooksUnfitted()) return false;
+  rpnlNeedsFit = false;
+  if (!rpnlRangePinned) rpnlSyncRangeFromView();
+  rpnlPaintBrush();
+  return true;
+}
+
 function scheduleRpnlFit() {
+  if (!rpnlPageVisible()) return;
   rpnlNeedsFit = true;
-  const go = () => {
-    if (!ohlcChart || !rpnlChart) return;
-    applyRpnlChartSize();
-    if (!ohlcBarsCache.length && !rpnlPtsCache.length) return;
-    fitRpnlView();
-  };
+  const kick = () => { if (rpnlNeedsFit) tryRpnlFit(); };
   requestAnimationFrame(() => {
-    go();
-    requestAnimationFrame(go);
+    kick();
+    requestAnimationFrame(kick);
   });
   clearTimeout(rpnlFitTimer);
-  rpnlFitTimer = setTimeout(() => {
-    go();
-    rpnlNeedsFit = false;
-    if (!rpnlRangePinned) rpnlSyncRangeFromView();
-    rpnlPaintBrush();
-  }, 120);
+  let n = 0;
+  const tick = () => {
+    if (!rpnlNeedsFit || !rpnlPageVisible()) return;
+    tryRpnlFit();
+    n += 1;
+    if (rpnlNeedsFit && n < 10) rpnlFitTimer = setTimeout(tick, Math.min(400, 60 * n));
+  };
+  rpnlFitTimer = setTimeout(tick, 40);
 }
 
 function toggleAutoY() {
@@ -1231,7 +1261,7 @@ function rpnlChartBase(timeScaleVisible) {
       rightOffset: mobile ? 2 : 3,
       barSpacing: 6,
       minBarSpacing: 2,
-      lockVisibleTimeRangeOnResize: false,
+      lockVisibleTimeRangeOnResize: true,
       tickMarkFormatter: (time) => {
         const d = new Date(time * 1000);
         return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
@@ -1538,34 +1568,37 @@ function applyRpnlChartSize() {
   if (!rpnlChart || !ohlcChart) return false;
   const o = document.getElementById('ohlcChart');
   const r = document.getElementById('rpnlChart');
-  if (!o) return false;
+  if (!o || !r) return false;
   const paneO = o.parentElement;
+  const paneR = r.parentElement;
   const ow = rpnlFitWidth(o);
-  if (ow < 8) return false;
+  const rw = rpnlFitWidth(r);
+  const oh = o.clientHeight || (paneO && paneO.clientHeight) || 0;
+  const rh = r.clientHeight || (paneR && paneR.clientHeight) || 0;
+  if (ow < 8 || oh < 8 || rw < 8 || rh < 8) return false;
   try {
-    const oh = o.clientHeight || (paneO && paneO.clientHeight) || 0;
-    if (oh > 8) ohlcChart.applyOptions({ width: ow, height: oh });
-    const paneR = r && r.parentElement;
-    const rw = r ? rpnlFitWidth(r) : 0;
-    const rh = r ? (r.clientHeight || (paneR && paneR.clientHeight) || 0) : 0;
-    if (r && rw > 8 && rh > 8) {
-      rpnlChart.applyOptions({ width: rw, height: rh });
-    }
-  } catch (e) {}
+    ohlcChart.applyOptions({ width: ow, height: oh });
+    rpnlChart.applyOptions({ width: rw, height: rh });
+  } catch (e) { return false; }
   return true;
 }
 function resizeRpnlCharts() {
-  if (!applyRpnlChartSize()) return;
+  if (!rpnlPageVisible()) return;
+  if (!applyRpnlChartSize()) {
+    if (rpnlNeedsFit || rpnlLogicalLooksUnfitted()) scheduleRpnlFit();
+    return;
+  }
   requestAnimationFrame(() => {
     if (ohlcBarsCache.length || rpnlPtsCache.length) {
-      if (rpnlNeedsFit) {
-        fitRpnlView();
+      if (rpnlNeedsFit || rpnlLogicalLooksUnfitted()) {
+        if (!tryRpnlFit()) scheduleRpnlFit();
       } else {
         try {
           const vr = ohlcChart.timeScale().getVisibleLogicalRange();
-          if (!vr || vr.to - vr.from < 1) fitRpnlView();
-          else syncRpnlTimeScale('ohlc');
-        } catch (e) { fitRpnlView(); }
+          if (!vr || vr.to - vr.from < 1) {
+            if (!tryRpnlFit()) scheduleRpnlFit();
+          } else syncRpnlTimeScale('ohlc');
+        } catch (e) { scheduleRpnlFit(); }
       }
     }
     rpnlPaintBrush();
@@ -1905,12 +1938,15 @@ async function loadRpnl(keepRange) {
     applyOhlcOrderLines(quotesForCurrentRpnl());
 
     applyRpnlChartSize();
-    if (savedLogical && savedLogical.to > savedLogical.from) {
+    const rangeOk = savedLogical && savedLogical.to > savedLogical.from && savedLogical.from >= -1;
+    if (keepRange && rangeOk) {
       rpnlSyncing = true;
       try { ohlcChart.timeScale().setVisibleLogicalRange(savedLogical); } catch (e) {}
       rpnlSyncing = false;
       syncRpnlTimeScale('ohlc');
       rpnlNeedsFit = false;
+    } else {
+      rpnlNeedsFit = true;
     }
 
     if (filled.length === 0 && !hedgeRaw.length && !ohlcBarsCache.length) {
