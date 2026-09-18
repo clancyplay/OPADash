@@ -202,36 +202,42 @@ function setLoading(id, text) {
 }
 
 // Strategy filter — restored from localStorage so the last pick comes back.
-let currentStrategy = lsGet(LS_STRATEGY, 'opa3');
+let currentStrategy = lsGet(LS_STRATEGY, 'all');
+function strategyIsAll(s) {
+  return !s || ['all', '*', 'any'].includes(String(s).toLowerCase().trim());
+}
 // Append the active strategy to any strategy-tagged /api/* URL.
 function withStrategy(url) {
-  return url + (url.includes('?') ? '&' : '?') + 'strategy=' + encodeURIComponent(currentStrategy);
-}
-function withAllStrategies(url) {
-  return url + (url.includes('?') ? '&' : '?') + 'strategy=all';
+  const tag = strategyIsAll(currentStrategy) ? 'all' : currentStrategy;
+  return url + (url.includes('?') ? '&' : '?') + 'strategy=' + encodeURIComponent(tag);
 }
 async function fetchStrategies() {
   try {
     const r = await fetch('/api/strategies');
     const list = await r.json();
     const sel = document.getElementById('strategy-select');
-    if (sel && Array.isArray(list) && list.length) {
-      sel.innerHTML = list.map(s => '<option value="' + s + '">' + s + '</option>').join('');
-      const saved = lsGet(LS_STRATEGY, currentStrategy);
-      if ([...sel.options].some(o => o.value === saved)) currentStrategy = saved;
-      else if (![...sel.options].some(o => o.value === currentStrategy)) currentStrategy = list[0];
-      sel.value = currentStrategy;
-      lsSet(LS_STRATEGY, currentStrategy);
-    }
-  } catch { /* keep default opa3 */ }
+    if (!sel) return;
+    const tags = (Array.isArray(list) ? list : []).filter(Boolean);
+    sel.innerHTML = '<option value="all">all</option>' +
+      tags.map(s => '<option value="' + escHtml(s) + '">' + escHtml(s) + '</option>').join('');
+    const saved = lsGet(LS_STRATEGY, currentStrategy);
+    if ([...sel.options].some(o => o.value === saved)) currentStrategy = saved;
+    else currentStrategy = 'all';
+    sel.value = currentStrategy;
+    lsSet(LS_STRATEGY, currentStrategy);
+  } catch { /* keep default all */ }
 }
 async function onStrategyChange(val) {
-  currentStrategy = val || 'opa3';
+  currentStrategy = val || 'all';
   lsSet(LS_STRATEGY, currentStrategy);
+  if (typeof rpnlForceKeepSel !== 'undefined') rpnlForceKeepSel = false;
   const cur = document.querySelector('.page.visible');
   const name = cur ? cur.id : 'home';
+  if (typeof fetchRpnlSymbols === 'function') await fetchRpnlSymbols();
+  if (rpnlReady && typeof loadRpnlFresh === 'function') loadRpnlFresh();
   if (name === 'data' && dataReady) initData();
-  if (name === 'balances' && balancesReady) loadBalances();
+  if (balancesReady) loadBalances();
+  if (reportsReady) loadReports();
   checkHealth();
 }
 

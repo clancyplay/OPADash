@@ -1,7 +1,7 @@
 // rPnL symbol list — fetched from DB fills table
 async function fetchRpnlSymbols() {
   try {
-    const r = await fetch(withAllStrategies('/api/rpnl/symbols'));
+    const r = await fetch(withStrategy('/api/rpnl/symbols'));
     const rows = await r.json();
     const sel = document.getElementById('rpnlSymbol');
     const list = (Array.isArray(rows) ? rows : []).map(c => typeof c === 'string'
@@ -476,7 +476,10 @@ async function sendBotCmd(pill, cmd) {
   if (!contract || !cmd) return;
   if (cmd === 'flatten' && !confirm('Close ' + name + ' with a market flatten and stop quoting?')) return;
   if (cmd === 'stop' && !confirm('Stop quoting ' + name + '? Open orders cancel; position stays.')) return;
-  const body = { cmd: cmd, contract: contract, account: account, strategy: pill.dataset.strategy || currentRpnlSel().strategy || currentStrategy };
+  const body = {
+    cmd: cmd, contract: contract, account: account,
+    strategy: pill.dataset.strategy || currentRpnlSel().strategy || (strategyIsAll(currentStrategy) ? '' : currentStrategy),
+  };
   if (cmd === 'max') {
     const inp = document.getElementById('rpnlMaxInput');
     const n = Number(inp && inp.value);
@@ -742,7 +745,7 @@ async function refreshRpnlLive() {
   const winLab = rpnlWindowTag();
   const hoursArg = winLab === 'today' ? 'today' : (rpnlCurrentHours !== null ? rpnlCurrentHours : rpnlHoursSel());
   try {
-    const sR = await fetch(withAllStrategies('/api/rpnl/summary' + (winQ ? '?' + winQ.slice(1) : '')));
+    const sR = await fetch(withStrategy('/api/rpnl/summary' + (winQ ? '?' + winQ.slice(1) : '')));
     if (!sR.ok) return;
     const rows = filterRpnlWindowRows(await sR.json());
     renderRpnlSummary(rows, hoursArg);
@@ -1858,7 +1861,7 @@ async function loadRpnl(keepRange) {
 
   let rows = null;
   try {
-    const sR = await fetch(withAllStrategies('/api/rpnl/summary' + (winQ ? '?' + winQ.slice(1) : '')));
+    const sR = await fetch(withStrategy('/api/rpnl/summary' + (winQ ? '?' + winQ.slice(1) : '')));
     if (seq !== rpnlLoadSeq) return;
     if (sR.ok) rows = filterRpnlWindowRows(await sR.json());
   } catch (e) { /* chart load can still proceed with the current symbol */ }
@@ -1887,7 +1890,9 @@ async function loadRpnl(keepRange) {
   const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + (picked.account ? sym + ' · ' + picked.account : sym) + ' (' + winLab + ')...';
   setLoading('rpnlStatus', loadingLabel);
   try {
-    const stratQ = '&strategy=' + encodeURIComponent(picked.strategy || 'all');
+    const stratQ = '&strategy=' + encodeURIComponent(
+      picked.strategy || (strategyIsAll(currentStrategy) ? 'all' : currentStrategy)
+    );
     const candleIvl = (document.getElementById('rpnlCandle') || {}).value || '5m';
     const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit + '&exchange=' + venue + stratQ;
     const fillUrl = '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit + stratQ;

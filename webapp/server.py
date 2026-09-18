@@ -2768,8 +2768,9 @@ async def fills_list(
     elif exchange:
         params.append(exchange.lower())
         wheres.append(f"exchange = ${len(params)}")
-    params.append(strategy)
-    wheres.append(f"strategy::text = ${len(params)}")
+    if not strategy_is_all(strategy):
+        params.append(strategy)
+        wheres.append(f"strategy::text = ${len(params)}")
     params.append(limit)
     async with _db.pool.acquire() as conn:
         rows = await conn.fetch(
@@ -3029,9 +3030,15 @@ async def positions_snapshots(
 ) -> list[dict]:
     """Recent raw position snapshots for one contract, newest first."""
     _require_db()
+    args: list = [contract.upper()]
+    where = "contract = $1"
+    if not strategy_is_all(strategy):
+        args.append(strategy)
+        where += f" AND strategy = ${len(args)}"
+    args.append(limit)
     async with _db.pool.acquire() as conn:
         rows = await conn.fetch(
-            """
+            f"""
             SELECT created_at,
                    delta_size::float    AS delta_size,
                    delta_entry::float   AS delta_entry,
@@ -3039,10 +3046,10 @@ async def positions_snapshots(
                    binance_entry::float AS binance_entry,
                    mark_price::float    AS mark_price,
                    net_upnl::float      AS net_upnl
-            FROM positions WHERE contract = $1 AND strategy = $2
-            ORDER BY created_at DESC LIMIT $3
+            FROM positions WHERE {where}
+            ORDER BY created_at DESC LIMIT ${len(args)}
             """,
-            contract.upper(), strategy, limit,
+            *args,
         )
     cv = _CONTRACT_VALUE.get(contract.upper(), 1.0)
     return [

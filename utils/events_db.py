@@ -731,9 +731,12 @@ class EventsDB:
         elif exchange:
             params.append(exchange.lower())
             wheres.append(f"o.exchange = ${len(params)}")
-        params.append(strategy)
-        strat_idx = len(params)
-        wheres.append(f"o.strategy = ${strat_idx}")
+        fill_strat_sql = "WHERE fee IS NOT NULL"
+        if not strategy_is_all(strategy):
+            params.append(strategy)
+            strat_idx = len(params)
+            wheres.append(f"o.strategy = ${strat_idx}")
+            fill_strat_sql = f"WHERE fee IS NOT NULL AND strategy = ${strat_idx}"
         where_sql = ("WHERE " + " AND ".join(wheres)) if wheres else ""
         params.append(limit)
         try:
@@ -752,7 +755,7 @@ class EventsDB:
                     LEFT JOIN (
                         SELECT exchange, order_id, SUM(fee) AS total_fee
                         FROM fills
-                        WHERE fee IS NOT NULL AND strategy = ${strat_idx}
+                        {fill_strat_sql}
                         GROUP BY exchange, order_id
                     ) f ON f.exchange = o.exchange AND f.order_id = o.order_id
                     {where_sql}
@@ -1476,19 +1479,24 @@ class EventsDB:
         if not self.pool:
             return []
         try:
+            args: list = [contract, since]
+            strat_sql = ""
+            if not strategy_is_all(strategy):
+                args.append(strategy)
+                strat_sql = f" AND strategy = ${len(args)}"
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
-                    """
+                    f"""
                     SELECT created_at,
                            COALESCE(delta_size,   0)::float AS delta_size,
                            COALESCE(binance_size, 0)::float AS binance_size,
                            COALESCE(mark_price,   0)::float AS mark_price,
                            COALESCE(net_upnl,     0)::float AS net_upnl
                     FROM positions
-                    WHERE contract = $1 AND created_at >= $2 AND strategy = $3
+                    WHERE contract = $1 AND created_at >= $2{strat_sql}
                     ORDER BY created_at
                     """,
-                    contract, since, strategy,
+                    *args,
                 )
             return [
                 {
@@ -1509,10 +1517,15 @@ class EventsDB:
         if not self.pool:
             return []
         try:
+            args: list = []
+            where = ""
+            if not strategy_is_all(strategy):
+                args.append(strategy)
+                where = "WHERE strategy = $1"
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
-                    "SELECT DISTINCT contract FROM positions WHERE strategy = $1 ORDER BY contract",
-                    strategy,
+                    f"SELECT DISTINCT contract FROM positions {where} ORDER BY contract",
+                    *args,
                 )
             return [r["contract"] for r in rows]
         except Exception as e:
@@ -1855,23 +1868,23 @@ class EventsDB:
             return []
         try:
             async with self.pool.acquire() as conn:
+                args: list = [limit]
+                where = []
                 if contract:
-                    rows = await conn.fetch(
-                        """
-                        SELECT created_at, contract, event_type, side, price, quantity, status
-                        FROM events WHERE contract = $2 AND strategy = $3
-                        ORDER BY id DESC LIMIT $1
-                        """,
-                        limit, contract.upper(), strategy,
-                    )
-                else:
-                    rows = await conn.fetch(
-                        """
-                        SELECT created_at, contract, event_type, side, price, quantity, status
-                        FROM events WHERE strategy = $2 ORDER BY id DESC LIMIT $1
-                        """,
-                        limit, strategy,
-                    )
+                    args.append(contract.upper())
+                    where.append(f"contract = ${len(args)}")
+                if not strategy_is_all(strategy):
+                    args.append(strategy)
+                    where.append(f"strategy = ${len(args)}")
+                where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+                rows = await conn.fetch(
+                    f"""
+                    SELECT created_at, contract, event_type, side, price, quantity, status
+                    FROM events {where_sql}
+                    ORDER BY id DESC LIMIT $1
+                    """,
+                    *args,
+                )
             return [
                 {
                     "time":       int(r["created_at"].timestamp()),
