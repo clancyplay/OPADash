@@ -128,12 +128,18 @@ body:has(#rpnl.visible) {
   display: flex; align-items: center; gap: 6px;
 }
 .rpnl-pill .rpnl-venue { margin-left: auto; }
+.rpnl-pill .rpnl-strat, .rpnl-strat {
+  font-size: 9px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
+  color: #b4c0d9; background: rgba(255,255,255,.07); border-radius: 4px;
+  padding: 1px 5px; flex-shrink: 0;
+}
 .rpnl-pill .p-name .p-sym {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 148px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 132px;
 }
 .rpnl-pill .p-val {
   font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 4px;
 }
+.rpnl-pill .p-max { font-size: 10px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .rpnl-pill .p-mode { font-size: 10px; color: #ffb74d; margin-top: 3px; }
 
 /* Inspect + setup */

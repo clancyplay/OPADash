@@ -30,9 +30,9 @@ from pydantic import BaseModel
 from config.settings import Settings
 from config.symbol import SYMBOL_LAB, SYMBOL_MMT, SYMBOL_VELVET, SYMBOL_AIOT
 from config import symbol as _symbol_module
-from utils.events_db import EventsDB, canon_contract, contract_aliases, ping_is_live
+from utils.events_db import EventsDB, canon_contract, contract_aliases, ping_is_live, strategy_is_all
 from utils.logger import start_db_log_forwarder
-from webapp.wallets import live_balances_board
+from webapp.wallets import live_balances_board, filter_balances_scope
 
 logger = logging.getLogger("webapp")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -487,10 +487,13 @@ _LIVE_SETUP_KEYS = (
 
 
 def _lookup_setup(
-    setups: dict[tuple[str, str], dict], contract: str, account: str,
+    setups: dict[tuple, dict], contract: str, account: str, strategy: str = "",
 ) -> dict | None:
     c = canon_contract(contract)
     a = account or ""
+    strat = (strategy or "").strip()
+    if strat and (c, a, strat) in setups:
+        return setups[(c, a, strat)]
     if (c, a) in setups:
         return setups[(c, a)]
     return None
@@ -515,9 +518,13 @@ def _annotate_rpnl_row(
     row["hedge_fills"] = sum(n for k, n in counts.items() if k != qv)
     acct = row.get("account") or ""
     row["label"] = meta["label"] + (f" · {acct}" if acct else "")
+    if row.get("strategy"):
+        row["label"] = row["label"] + f" · {row['strategy']}"
     live = bool(row.get("live"))
     row["live"] = live
-    setup = _setup_public(_lookup_setup(setups or {}, row.get("contract") or "", acct))
+    setup = _setup_public(_lookup_setup(
+        setups or {}, row.get("contract") or "", acct, row.get("strategy") or strategy,
+    ))
     if setup and not live:
         for key in _LIVE_SETUP_KEYS:
             setup.pop(key, None)
@@ -794,35 +801,42 @@ async def position_history(
 
 @app.get("/api/rpnl/symbols")
 async def rpnl_symbols(
-    strategy: str = Query("opa3", description="strategy tag, e.g. opa3 | opa4"),
+    strategy: str = Query("all", description="strategy tag, or all"),
 ) -> list[dict]:
-    """Distinct contract+account pairs that have fills in the DB."""
+    """Distinct contract+account+strategy triples that have fills in the DB."""
     if _db is None or not _db.pool:
         return []
     try:
+        args: list = []
+        where = ""
+        if not strategy_is_all(strategy):
+            args.append(strategy)
+            where = "WHERE strategy::text = $1"
         async with _db.pool.acquire() as conn:
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT contract,
                        COALESCE(account::text, '') AS account,
                        LOWER(exchange) AS exchange,
+                       COALESCE(strategy::text, '') AS strategy,
                        COUNT(*)::int AS n
                 FROM fills
-                WHERE strategy::text = $1
-                GROUP BY contract, COALESCE(account::text, ''), LOWER(exchange)
-                ORDER BY contract, account
+                {where}
+                GROUP BY contract, COALESCE(account::text, ''), LOWER(exchange),
+                         COALESCE(strategy::text, '')
+                ORDER BY contract, account, strategy
                 """,
-                strategy,
+                *args,
             )
-        # Keyed on the account id, exactly like /api/rpnl/summary, so every pill
-        # has one matching dropdown entry and the account filter resolves.
-        merged: dict[tuple[str, str], dict] = {}
+        merged: dict[tuple[str, str, str], dict] = {}
         for r in rows:
             account = r["account"] or ""
             contract = canon_contract(r["contract"])
-            entry = merged.setdefault((contract, account), {
+            strat = r["strategy"] or ""
+            entry = merged.setdefault((contract, account, strat), {
                 "contract": contract,
                 "account": account,
+                "strategy": strat,
                 "counts": {},
             })
             venue = (r["exchange"] or "delta").lower()
@@ -834,25 +848,33 @@ async def rpnl_symbols(
                 continue
             meta = venue_meta(entry["contract"], entry.pop("counts"))
             name = entry["account"]
+            strat = entry.get("strategy") or ""
             out.append({
                 **entry,
                 **{k: meta[k] for k in (
                     "quote_venue", "quote_label", "quote_symbol",
                     "hedge_venue", "hedge_label", "hedge_symbol", "has_hedge",
                 )},
-                "label": meta["label"] + (f" · {name}" if name else ""),
+                "label": meta["label"]
+                    + (f" · {name}" if name else "")
+                    + (f" · {strat}" if strat else ""),
             })
         if _db is not None:
             keys = await _db.get_live_ping_keys(strategy)
-            have = {(e["contract"], e.get("account") or "") for e in out}
-            for contract, account in await _db.get_live_bots(strategy):
-                if (contract, account) in have:
+            have = {
+                (e["contract"], e.get("account") or "", e.get("strategy") or "")
+                for e in out
+            }
+            for contract, account, strat in await _db.get_live_bots(strategy):
+                key = (contract, account, strat)
+                if key in have:
                     continue
                 meta = venue_meta(contract, {})
                 name = account
                 out.append({
                     "contract": contract,
                     "account": account,
+                    "strategy": strat,
                     "quote_venue": meta["quote_venue"],
                     "quote_label": meta["quote_label"],
                     "quote_symbol": meta["quote_symbol"],
@@ -860,13 +882,19 @@ async def rpnl_symbols(
                     "hedge_label": meta["hedge_label"],
                     "hedge_symbol": meta["hedge_symbol"],
                     "has_hedge": meta["has_hedge"],
-                    "label": meta["label"] + (f" · {name}" if name else ""),
+                    "label": meta["label"]
+                        + (f" · {name}" if name else "")
+                        + (f" · {strat}" if strat else ""),
                     "live": True,
                 })
-                have.add((contract, account))
+                have.add(key)
             for entry in out:
-                entry["live"] = ping_is_live(entry["contract"], entry["account"], keys) or bool(entry.get("live"))
-            out.sort(key=lambda e: (0 if e.get("live") else 1, e["contract"], e["account"]))
+                entry["live"] = ping_is_live(
+                    entry["contract"], entry["account"], keys, entry.get("strategy"),
+                ) or bool(entry.get("live"))
+            out.sort(key=lambda e: (
+                0 if e.get("live") else 1, e.get("strategy") or "", e["contract"], e["account"],
+            ))
         return out
     except Exception as e:
         logger.warning("webapp: rpnl_symbols failed: %s", e)
@@ -926,7 +954,7 @@ async def rpnl_chart(
 
 @app.get("/api/rpnl/summary")
 async def rpnl_summary(
-    strategy: str = Query("opa3"),
+    strategy: str = Query("all", description="strategy tag, or all"),
     hours: int | None = Query(None, ge=1, le=2160, description="lookback window; omit for all-time"),
     today: bool = Query(False, description="Restrict to IST calendar day"),
 ) -> list[dict]:
@@ -936,12 +964,12 @@ async def rpnl_summary(
     since = _window_since(hours, today)
     rows = await _db.get_contract_rpnl_summary(strategy=strategy, since=since)
     setups = await _db.get_bot_setups(strategy)
-    return [_annotate_rpnl_row(r, setups, strategy) for r in rows]
+    return [_annotate_rpnl_row(r, setups, r.get("strategy") or strategy) for r in rows]
 
 
 @app.get("/api/rpnl/rollup")
 async def rpnl_rollup(
-    strategy: str = Query("opa3"),
+    strategy: str = Query("all", description="strategy tag, or all"),
     hours: int | None = Query(None, ge=1, le=8760, description="omit for all time"),
     today: bool = Query(False, description="Restrict to IST calendar day"),
 ) -> dict:
@@ -1745,6 +1773,7 @@ def _blank_acct(account: str, name: str = "") -> dict:
         "positions": [],
         "exchanges": {},
         "contracts": {},
+        "strategies": [],
         "first_at": None,
         "last_at": None,
     }
@@ -1766,8 +1795,13 @@ def _add_fill_row(acct: dict, row: dict) -> None:
     slot["fills"] += row["fills"]
     slot["rpnl"] += row["rpnl"]
     slot["fees"] += row["fee"]
-    con = acct["contracts"].setdefault(row["contract"], {
+    strat = (row.get("strategy") or "").strip()
+    if strat and strat not in acct["strategies"]:
+        acct["strategies"].append(strat)
+    con_key = (row["contract"], strat)
+    con = acct["contracts"].setdefault(con_key, {
         "contract": row["contract"],
+        "strategy": strat,
         "venue_fills": {},
         "venue_rpnl": {},
         "fills": 0,
@@ -1806,6 +1840,7 @@ def _finish_account(acct: dict) -> dict:
         venues.sort(key=lambda v: abs(v["rpnl"]), reverse=True)
         contracts.append({
             "contract": con["contract"],
+            "strategy": con.get("strategy") or "",
             "quote_venue": qv,
             "quote_label": meta["quote_label"],
             "quote_symbol": meta["quote_symbol"],
@@ -1843,14 +1878,19 @@ def _assemble_reports_overview(
 
     by_contract: dict[str, list[str]] = {}
     for aid, acct in accounts.items():
-        for contract in acct["contracts"]:
-            by_contract.setdefault(contract, []).append(aid)
+        for con in acct["contracts"].values():
+            by_contract.setdefault(con["contract"], []).append(aid)
     for row in orphans:
         cands = by_contract.get(row["contract"]) or []
         if len(cands) == 1:
             target = cands[0]
         elif cands:
-            target = max(cands, key=lambda i: accounts[i]["contracts"][row["contract"]]["fills"])
+            def _fills_for(aid: str, contract: str = row["contract"]) -> int:
+                return sum(
+                    c["fills"] for c in accounts[aid]["contracts"].values()
+                    if c["contract"] == contract
+                )
+            target = max(cands, key=_fills_for)
         else:
             target = ""
             accounts.setdefault("", _blank_acct("", "unattributed"))
@@ -1894,9 +1934,11 @@ def _assemble_reports_overview(
     for acct in finished:
         aid = acct.get("account") or ""
         acct["live"] = any(
-            ping_is_live(c["contract"], aid, live_keys) for c in acct["contracts"]
+            ping_is_live(c["contract"], aid, live_keys, c.get("strategy"))
+            for c in acct["contracts"]
         )
         acct.setdefault("positions", [])
+        acct["strategies"] = sorted(acct.get("strategies") or [])
     finished.sort(key=lambda a: (not a["live"], -abs(a["rpnl"])))
 
     by_exchange: dict[str, dict] = {}
@@ -1954,7 +1996,7 @@ def _assemble_reports_overview(
 
 @app.get("/api/reports/overview")
 async def reports_overview(
-    strategy: str = Query("opa3"),
+    strategy: str = Query("all", description="strategy tag, or all"),
     hours: int | None = Query(None, ge=1, le=8760),
     today: bool = Query(False, description="Restrict to IST calendar day"),
 ) -> dict:
@@ -1980,18 +2022,128 @@ async def reports_overview(
     return out
 
 
+def _wallet_label(exchange: str) -> str:
+    return {
+        "delta": "Delta", "binance": "Binance", "kucoin": "KuCoin",
+        "coindcx": "CoinDCX", "aster": "Aster", "bybit": "Bybit",
+        "coinbase": "Coinbase",
+    }.get((exchange or "").lower(), (exchange or "").title())
+
+
+async def _persist_live_balances(board: dict, strategy: str) -> None:
+    if _db is None or not _db.pool:
+        return
+    rows = []
+    for a in board.get("accounts") or []:
+        errs = a.get("venue_errors") or {}
+        for exch, bal in (a.get("venues") or {}).items():
+            if bal is None or exch in errs:
+                continue
+            tags = a.get("strategies") or []
+            rows.append({
+                "account": a.get("account") or "",
+                "account_name": a.get("account_name") or "",
+                "exchange": exch,
+                "strategy": (tags[0] if tags else strategy) or "",
+                "balance": bal,
+            })
+    try:
+        n = await _db.record_account_balances(rows)
+        if n:
+            logger.info("webapp: stored %s wallet snapshots", n)
+    except Exception as e:
+        logger.warning("webapp: wallet snapshot failed — %s", e)
+
+
 @app.get("/api/balances")
 async def balances_board(
     strategy: str = Query("opa3"),
     scope: str = Query("all", description="all | strategy"),
 ) -> dict:
     """Live wallet equity from each subaccount API key. Not from fills."""
-    out = await live_balances_board(
-        usdinr_rate=settings.usdinr_rate, strategy=strategy, scope=scope,
+    full = await live_balances_board(
+        usdinr_rate=settings.usdinr_rate, strategy=strategy, scope="all",
     )
+    full["strategy"] = strategy
+    full["generated_at"] = int(datetime.now(timezone.utc).timestamp())
+    if full.get("accounts"):
+        await _persist_live_balances(full, strategy)
+    out = filter_balances_scope(full, strategy, scope)
     out["strategy"] = strategy
-    out["generated_at"] = int(datetime.now(timezone.utc).timestamp())
+    out["generated_at"] = full["generated_at"]
     return out
+
+
+@app.get("/api/balances/history")
+async def balances_history(
+    hours: int = Query(168, ge=1, le=720),
+    account: str = Query(""),
+    exchange: str = Query(""),
+    accounts: str = Query("", description="comma-separated account ids"),
+) -> dict:
+    """Equity curve from stored live-wallet snapshots (INR)."""
+    _require_db()
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    if hours <= 48:
+        bucket = 60
+    elif hours <= 168:
+        bucket = 300
+    else:
+        bucket = 900
+    ids = [a.strip() for a in (accounts or "").split(",") if a.strip()]
+    hist = await _db.get_equity_history(
+        since=since,
+        account=(account or "").strip(),
+        accounts=ids or None,
+        exchange=(exchange or "").strip(),
+        bucket_secs=bucket,
+    )
+    for e in hist.get("exchanges") or []:
+        e["label"] = _wallet_label(e.get("exchange") or "")
+    hist["hours"] = hours
+    hist["bucket_secs"] = bucket
+    hist["since"] = int(since.timestamp())
+    return hist
+
+
+@app.get("/api/balances/activity")
+async def balances_activity(
+    account: str = Query(..., min_length=1),
+    hours: int = Query(72, ge=1, le=720),
+    exchange: str = Query(""),
+    limit: int = Query(80, ge=1, le=300),
+) -> dict:
+    """Recent fills for one wallet (all strategies)."""
+    _require_db()
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    rows = await _db.get_account_fills(
+        account=account, since=since, limit=limit, exchange=exchange,
+    )
+    fills = []
+    rpnl_sum = 0.0
+    for r in rows:
+        exch = (r.get("exchange") or "").lower()
+        rpnl = _db._rpnl_inr(r.get("rpnl") or 0, exch)
+        rpnl_sum += rpnl
+        fills.append({
+            "id": r["id"],
+            "time": int(r["created_at"].timestamp()) if r.get("created_at") else None,
+            "contract": r.get("contract") or "",
+            "exchange": exch,
+            "label": _wallet_label(exch),
+            "side": r.get("side") or "",
+            "quantity": r.get("quantity"),
+            "price": r.get("price"),
+            "rpnl": rpnl,
+            "account": r.get("account") or account,
+        })
+    return {
+        "account": account,
+        "hours": hours,
+        "fills": fills,
+        "rpnl": round(rpnl_sum, 2),
+        "count": len(fills),
+    }
 
 
 @app.get("/api/reports")
@@ -2784,7 +2936,10 @@ async def positions_latest(
     seen: set[str] = set()
     setups = await _db.get_bot_setups(strategy)
     keys = await _db.get_live_ping_keys(strategy)
-    for (contract, account), setup in setups.items():
+    for key, setup in setups.items():
+        if len(key) != 2:
+            continue
+        contract, account = key
         if not ping_is_live(contract, account, keys):
             continue
         if setup.get("pos") is None:

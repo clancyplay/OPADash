@@ -51,8 +51,8 @@ async function loadReports() {
   try {
     const qs = rptHoursQuery();
     const [oR, dR] = await Promise.all([
-      fetch(withStrategy('/api/reports/overview') + qs),
-      fetch(withStrategy('/api/rpnl/rollup') + qs),
+      fetch(withAllStrategies('/api/reports/overview') + qs),
+      fetch(withAllStrategies('/api/rpnl/rollup') + qs),
     ]);
     if (!oR.ok) {
       const b = await oR.json().catch(() => ({}));
@@ -67,9 +67,9 @@ async function loadReports() {
     document.getElementById('reportsCount').textContent =
       accts.length + ' account' + (accts.length === 1 ? '' : 's') +
       (liveN ? ' · ' + liveN + ' live' : '') +
-      ' · ' + (d.window || '') + ' · ' + (d.strategy || '');
+      ' · ' + (d.window || '') + (d.strategy && d.strategy !== 'all' ? ' · ' + d.strategy : ' · all strategies');
     if (!accts.length) {
-      empty.innerHTML = 'No fills for this strategy in the selected window.';
+      empty.innerHTML = 'No fills in the selected window.';
       shell.style.display = 'none';
       return;
     }
@@ -98,7 +98,7 @@ async function loadReports() {
       } else {
         pendingReportAcct = null;
         pendingReportWiden = false;
-        toast('No report for account ' + id + ' in this strategy', 'err');
+        toast('No report for account ' + id + ' in this window', 'err');
       }
     }
   } catch (e) {
@@ -122,7 +122,7 @@ function renderReportHero(d) {
     '<div class="hero-top">' +
       '<div><div class="hero-label">Net realized PnL</div>' +
         '<div class="hero-bal" style="color:' + rptCol(t.rpnl) + '">' + rptSigned(t.rpnl) + '</div>' +
-        '<div class="hero-sub">' + escHtml((d.strategy || '') + ' · ' + (d.window || '') +
+        '<div class="hero-sub">' + escHtml((d.strategy && d.strategy !== 'all' ? d.strategy : 'all strategies') + ' · ' + (d.window || '') +
           ' · IST ' + new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false })) + '</div></div>' +
     '</div>' +
     '<div class="rpt-kpis">' + kpis.map(function (x) {
@@ -222,7 +222,8 @@ function renderReportAccounts(accts, snapshot, sharedPos) {
     const idBit = a.account && a.account !== a.account_name
       ? '<div class="aid">' + escHtml(a.account) + '</div>' : '';
     const hay = [a.account, a.account_name].concat(
-      (a.contracts || []).map(function (c) { return c.quote_symbol || c.contract; }),
+      a.strategies || [],
+      (a.contracts || []).map(function (c) { return (c.quote_symbol || c.contract) + ' ' + (c.strategy || ''); }),
       (a.exchanges || []).map(function (e) { return e.exchange + ' ' + (e.label || ''); })
     ).join(' ');
     const chips = (a.exchanges || []).map(function (e) {
@@ -243,8 +244,10 @@ function renderReportAccounts(accts, snapshot, sharedPos) {
       }).join(' · ');
       return '<tr class="rpt-click" data-contract="' + escHtml(c.contract || c.quote_symbol || '') +
         '" data-account="' + escHtml(a.account || '') +
-        '" onclick="goToRpnlChart(this.dataset.contract, this.dataset.account)" title="Open rPnL chart">' +
+        '" data-strategy="' + escHtml(c.strategy || '') +
+        '" onclick="goToRpnlChart(this.dataset.contract, this.dataset.account, this.dataset.strategy)" title="Open rPnL chart">' +
         '<td>' + escHtml(c.quote_symbol || c.contract) +
+        (c.strategy ? ' <span class="rpnl-strat">' + escHtml(c.strategy) + '</span>' : '') +
         (c.has_hedge ? ' <span style="color:var(--muted);font-size:11px">hedged</span>' : '') +
         '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + venueBits + '</div></td>' +
         '<td class="num" style="color:' + rptCol(c.rpnl) + '">' + rptSigned(c.rpnl) + '</td>' +
@@ -252,9 +255,13 @@ function renderReportAccounts(accts, snapshot, sharedPos) {
         '<td class="num" style="color:' + rptCol(c.net) + '">' + rptSigned(c.net) + '</td>' +
         '<td class="num">' + (c.fills || 0) + (c.hedge_fills ? ' + ' + c.hedge_fills : '') + '</td></tr>';
     }).join('');
+    const stratBits = (a.strategies || []).map(function (s) {
+      return '<span class="rpnl-strat">' + escHtml(s) + '</span>';
+    }).join(' ');
     return '<div class="rpt-acct' + open + '" id="acct-' + key + '" data-filter="' + escHtml(hay) + '">' +
       '<div class="rpt-acct-h" onclick="toggleReportAcct(\'' + key + '\')">' +
-        '<div><div class="aname">' + (a.live ? '<span class="rpt-live" title="live"></span>' : '') + name + '</div>' + idBit + '</div>' +
+        '<div><div class="aname">' + (a.live ? '<span class="rpt-live" title="live"></span>' : '') + name +
+          (stratBits ? ' ' + stratBits : '') + '</div>' + idBit + '</div>' +
         '<div class="rpt-vchips">' + chips + '</div>' +
         '<div class="ameta">' + (a.fills || 0) + ' fills' +
           (a.last_at ? ' · last ' + fmtIST(a.last_at) : '') +

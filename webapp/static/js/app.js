@@ -77,6 +77,12 @@ function showPage(name) {
   if (name === 'balances') {
     if (!balancesReady) { initBalances(); balancesReady = true; }
     else loadBalances();
+    requestAnimationFrame(() => {
+      if (typeof resizeBalCharts === 'function') {
+        resizeBalCharts();
+        requestAnimationFrame(resizeBalCharts);
+      }
+    });
   }
   if (name === 'reports') {
     if (!reportsReady) { initReports(); reportsReady = true; }
@@ -118,11 +124,18 @@ function goToReportAccount(accountId) {
   pendingReportWiden = false;
   showPage('reports');
 }
-function goToRpnlChart(contract, account) {
+function goToRpnlChart(contract, account, strategy) {
   if (!contract) return;
-  const key = contract + '::' + (account || '');
+  strategy = strategy || '';
+  if (!strategy && typeof rpnlSummaryCache !== 'undefined') {
+    const hit = (rpnlSummaryCache || []).find(r =>
+      (r.contract || '') === contract && (r.account || '') === (account || '')
+    );
+    if (hit && hit.strategy) strategy = hit.strategy;
+  }
+  const key = contract + '::' + (account || '') + '::' + strategy;
   const wasReady = rpnlReady;
-  ensureRpnlOption(key, contract + (account ? ' · ' + account : ''));
+  ensureRpnlOption(key, contract + (account ? ' · ' + account : '') + (strategy ? ' · ' + strategy : ''));
   const sel = document.getElementById('rpnlSymbol');
   if (sel) sel.value = key;
   pendingRpnlKey = wasReady ? key : null;
@@ -194,6 +207,9 @@ let currentStrategy = lsGet(LS_STRATEGY, 'opa3');
 function withStrategy(url) {
   return url + (url.includes('?') ? '&' : '?') + 'strategy=' + encodeURIComponent(currentStrategy);
 }
+function withAllStrategies(url) {
+  return url + (url.includes('?') ? '&' : '?') + 'strategy=all';
+}
 async function fetchStrategies() {
   try {
     const r = await fetch('/api/strategies');
@@ -212,14 +228,9 @@ async function fetchStrategies() {
 async function onStrategyChange(val) {
   currentStrategy = val || 'opa3';
   lsSet(LS_STRATEGY, currentStrategy);
-  // Refresh strategy-scoped symbol dropdowns (contracts differ per strategy)
-  await fetchRpnlSymbols();
-  // Re-run whichever page is currently visible
   const cur = document.querySelector('.page.visible');
   const name = cur ? cur.id : 'home';
-  if (name === 'rpnl'     && rpnlReady) loadRpnlFresh();
-  if (name === 'data'     && dataReady) initData();
-  if (name === 'reports'  && reportsReady) loadReports();
+  if (name === 'data' && dataReady) initData();
   if (name === 'balances' && balancesReady) loadBalances();
   checkHealth();
 }

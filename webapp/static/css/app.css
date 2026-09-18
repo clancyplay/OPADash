@@ -285,6 +285,41 @@
     border-bottom: 1px solid var(--border); letter-spacing: .3px; text-transform: uppercase;
   }
   #rptDayChart { width: 100%; height: 180px; }
+  #balEqChart, #balAcctChart { width: 100%; height: 240px; }
+  #balDetailChart { width: 100%; height: 160px; }
+  .rpt-daywrap .hint { padding: 0 14px 12px; }
+  .bal-legend { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 14px 4px; }
+  .bal-leg {
+    background: #1e2230; color: var(--muted); border: 1px solid var(--border2);
+    border-left: 3px solid var(--sw, var(--accent));
+    border-radius: 8px; padding: 4px 10px; font-size: 11px; cursor: pointer;
+  }
+  .bal-leg.on { color: var(--text); }
+  .bal-leg.off { opacity: .45; text-decoration: line-through; }
+  .bal-leg.sel { color: #fff; border-color: var(--accent); background: rgba(41,98,255,.14); }
+  .hero-delta { font-size: 15px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .bal-delta.up, .hero-delta.up { color: var(--green); }
+  .bal-delta.dn, .hero-delta.dn { color: var(--red); }
+  .bal-movers { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .bal-mover {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--surface); border: 1px solid var(--border2); border-radius: 10px;
+    padding: 7px 12px; cursor: pointer; color: var(--text); font-size: 12px;
+  }
+  .bal-mover .an { font-weight: 700; }
+  .bal-detail {
+    background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
+    padding: 16px 18px; margin-bottom: 14px;
+  }
+  .bal-detail-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .bal-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .bal-detail h4 { margin: 4px 0 0; font-size: 20px; color: #fff; }
+  .bal-fills-h {
+    margin: 14px 0 8px; font-size: 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .3px;
+  }
+  #balDetail .fill-scroll { max-height: 360px; border: 1px solid var(--border); border-radius: 8px; }
+  table.rpt-matrix tr.bal-sel td { background: rgba(41,98,255,.12); }
   .rpt-matrix-wrap {
     background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
     margin-bottom: 14px; overflow: hidden;
@@ -558,6 +593,9 @@
     .rpt-acct .anet { font-size: 18px; }
     .rpt-acct-b { padding: 4px 12px 14px; }
     #rptDayChart { height: 140px; }
+    #balEqChart, #balAcctChart { height: 200px; }
+    #balDetailChart { height: 140px; }
+    #balDetail .fill-scroll { max-height: 50vh; }
     .insights-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .fill-scroll { max-height: 42vh; }
     .logs-box { max-height: 58vh; font-size: 11px; }

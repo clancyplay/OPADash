@@ -75,9 +75,20 @@ def ping_contract(contract: str) -> str:
     return canon_contract(contract)
 
 
-def ping_is_live(contract: str, account: str, keys: set[tuple[str, str]]) -> bool:
+def strategy_is_all(strategy: str | None) -> bool:
+    return (strategy or "").strip().lower() in ("", "all", "*", "any")
+
+
+def ping_is_live(
+    contract: str, account: str, keys: set[tuple], strategy: str | None = None,
+) -> bool:
     c = ping_contract(contract)
     a = account or ""
+    strat = (strategy or "").strip()
+    if strat and (c, a, strat) in keys:
+        return True
+    if strat and any(len(k) > 2 and k[0] == c and k[1] == a for k in keys):
+        return False
     if (c, a) in keys:
         return True
     if not a:
@@ -411,29 +422,40 @@ class EventsDB:
 
     async def get_live_ping_keys(
         self, strategy: str, stale_secs: float | None = None,
-    ) -> set[tuple[str, str]]:
-        """(contract, account) pairs whose bot pinged within stale_secs."""
+    ) -> set[tuple]:
+        """(contract, account) and (contract, account, strategy) pinging within stale_secs."""
         if not self.pool:
             return set()
         window = self.LIVE_PING_SECS if stale_secs is None else float(stale_secs)
         try:
+            args: list = [window]
+            where = "pinged_at >= NOW() - ($1::float * INTERVAL '1 second')"
+            if not strategy_is_all(strategy):
+                args.append(strategy)
+                where += f" AND strategy::text = ${len(args)}"
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
-                    """
-                    SELECT contract, COALESCE(account, '') AS account
+                    f"""
+                    SELECT contract, COALESCE(account, '') AS account,
+                           COALESCE(strategy::text, '') AS strategy
                     FROM bot_ping
-                    WHERE strategy::text = $1
-                      AND pinged_at >= NOW() - ($2::float * INTERVAL '1 second')
+                    WHERE {where}
                     """,
-                    strategy, window,
+                    *args,
                 )
-            keys: set[tuple[str, str]] = set()
+            keys: set[tuple] = set()
             for r in rows:
                 acct = r["account"] or ""
+                strat = r["strategy"] or ""
                 name = ping_contract(r["contract"])
                 keys.add((name, acct))
+                if strat:
+                    keys.add((name, acct, strat))
                 for alias in contract_aliases(r["contract"]):
-                    keys.add((ping_contract(alias), acct))
+                    alias_n = ping_contract(alias)
+                    keys.add((alias_n, acct))
+                    if strat:
+                        keys.add((alias_n, acct, strat))
             return keys
         except Exception as e:
             self.logger.debug("events_db: get_live_ping_keys failed — %s", e)
@@ -441,26 +463,35 @@ class EventsDB:
 
     async def get_live_bots(
         self, strategy: str, stale_secs: float | None = None,
-    ) -> list[tuple[str, str]]:
-        """Canonical (contract, account) currently pinging. No aliases."""
+    ) -> list[tuple[str, str, str]]:
+        """Canonical (contract, account, strategy) currently pinging. No aliases."""
         if not self.pool:
             return []
         window = self.LIVE_PING_SECS if stale_secs is None else float(stale_secs)
         try:
+            args: list = [window]
+            where = "pinged_at >= NOW() - ($1::float * INTERVAL '1 second')"
+            if not strategy_is_all(strategy):
+                args.append(strategy)
+                where += f" AND strategy::text = ${len(args)}"
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
-                    """
-                    SELECT DISTINCT contract, COALESCE(account, '') AS account
+                    f"""
+                    SELECT DISTINCT contract, COALESCE(account, '') AS account,
+                           COALESCE(strategy::text, '') AS strategy
                     FROM bot_ping
-                    WHERE strategy::text = $1
-                      AND pinged_at >= NOW() - ($2::float * INTERVAL '1 second')
+                    WHERE {where}
                     """,
-                    strategy, window,
+                    *args,
                 )
-            seen: set[tuple[str, str]] = set()
-            out: list[tuple[str, str]] = []
+            seen: set[tuple[str, str, str]] = set()
+            out: list[tuple[str, str, str]] = []
             for r in rows:
-                key = (canon_contract(r["contract"]), r["account"] or "")
+                key = (
+                    canon_contract(r["contract"]),
+                    r["account"] or "",
+                    r["strategy"] or "",
+                )
                 if not key[0] or key in seen:
                     continue
                 seen.add(key)
@@ -470,22 +501,28 @@ class EventsDB:
             self.logger.debug("events_db: get_live_bots failed — %s", extra)
             return []
 
-    async def get_bot_setups(self, strategy: str) -> dict[tuple[str, str], dict]:
-        """Last known strategy knobs keyed by (canon_contract, account)."""
+    async def get_bot_setups(self, strategy: str) -> dict[tuple, dict]:
+        """Last known knobs keyed by (contract, account) and (contract, account, strategy)."""
         if not self.pool:
             return {}
         try:
+            args: list = []
+            where = ""
+            if not strategy_is_all(strategy):
+                args.append(strategy)
+                where = "WHERE strategy::text = $1"
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
-                    """
-                    SELECT contract, COALESCE(account, '') AS account, setup, updated_at
+                    f"""
+                    SELECT contract, COALESCE(account, '') AS account,
+                           COALESCE(strategy::text, '') AS strategy, setup, updated_at
                     FROM bot_setup
-                    WHERE strategy::text = $1
+                    {where}
                     ORDER BY updated_at DESC NULLS LAST
                     """,
-                    strategy,
+                    *args,
                 )
-            out: dict[tuple[str, str], dict] = {}
+            out: dict[tuple, dict] = {}
             for r in rows:
                 raw = r["setup"]
                 if isinstance(raw, str):
@@ -496,10 +533,14 @@ class EventsDB:
                 if not isinstance(raw, dict) or not raw:
                     continue
                 acct = r["account"] or ""
+                strat = r["strategy"] or ""
                 name = ping_contract(r["contract"])
-                if not name or (name, acct) in out:
+                if not name:
                     continue
-                out[(name, acct)] = raw
+                if (name, acct, strat) not in out:
+                    out[(name, acct, strat)] = raw
+                if (name, acct) not in out:
+                    out[(name, acct)] = raw
             return out
         except Exception as e:
             self.logger.debug("events_db: get_bot_setups failed — %s", e)
@@ -1152,6 +1193,248 @@ class EventsDB:
         except Exception as e:
             self.logger.warning("events_db: log_balance_snapshot failed — %s", e)
 
+    @staticmethod
+    def _as_utc(dt: datetime) -> datetime:
+        if dt is None:
+            return datetime.now(timezone.utc)
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+
+    async def record_account_balances(
+        self,
+        rows: list[dict],
+        min_age_sec: int = 120,
+        min_change: float = 50.0,
+    ) -> int:
+        """Append live wallet snapshots. Skip if the last row is fresh and almost unchanged."""
+        if not self.pool or not rows:
+            return 0
+        cleaned = []
+        for r in rows:
+            acct = str(r.get("account") or "")[:40]
+            exch = str(r.get("exchange") or "").lower()[:20]
+            if not acct or not exch:
+                continue
+            try:
+                bal = float(r.get("balance"))
+            except (TypeError, ValueError):
+                continue
+            cleaned.append({
+                "account": acct,
+                "account_name": str(r.get("account_name") or "")[:80],
+                "exchange": exch,
+                "strategy": (str(r.get("strategy") or "")[:40] or None),
+                "balance": round(bal, 4),
+            })
+        if not cleaned:
+            return 0
+        try:
+            async with self.pool.acquire() as conn:
+                accts = list({c["account"] for c in cleaned})
+                last = await conn.fetch(
+                    """
+                    SELECT DISTINCT ON (account, LOWER(exchange))
+                           account, LOWER(exchange) AS exchange,
+                           balance::float AS balance, created_at
+                    FROM account_balances
+                    WHERE account = ANY($1::text[])
+                    ORDER BY account, LOWER(exchange), created_at DESC
+                    """,
+                    accts,
+                )
+                prev = {(r["account"], r["exchange"]): r for r in last}
+                now = datetime.now(timezone.utc)
+                to_insert = []
+                for c in cleaned:
+                    old = prev.get((c["account"], c["exchange"]))
+                    if old:
+                        age = (now - self._as_utc(old["created_at"])).total_seconds()
+                        delta = abs(float(old["balance"] or 0) - c["balance"])
+                        if age < min_age_sec and delta < min_change:
+                            continue
+                    to_insert.append(c)
+                if not to_insert:
+                    return 0
+                await conn.executemany(
+                    """
+                    INSERT INTO account_balances
+                        (strategy, account, account_name, exchange, balance)
+                    VALUES ($1, $2, $3, $4, $5)
+                    """,
+                    [
+                        (r["strategy"], r["account"], r["account_name"], r["exchange"], r["balance"])
+                        for r in to_insert
+                    ],
+                )
+                return len(to_insert)
+        except Exception as e:
+            self.logger.warning("events_db: record_account_balances failed — %s", e)
+            return 0
+
+    async def get_equity_history(
+        self,
+        since: datetime,
+        account: str = "",
+        accounts: list[str] | None = None,
+        exchange: str = "",
+        bucket_secs: int = 300,
+    ) -> dict:
+        """Wallet equity over time from account_balances snapshots (INR)."""
+        empty = {"total": [], "exchanges": [], "accounts": []}
+        if not self.pool:
+            return empty
+        acct = (account or "").strip()
+        exch = (exchange or "").strip().lower()
+        ids = [a for a in (accounts or []) if a]
+        bucket_secs = max(30, int(bucket_secs or 300))
+        try:
+            async with self.pool.acquire() as conn:
+                extra, args = [], [since]
+                if acct:
+                    args.append(acct)
+                    extra.append(f"account = ${len(args)}")
+                elif ids:
+                    args.append(ids)
+                    extra.append(f"account = ANY(${len(args)}::text[])")
+                if exch:
+                    args.append(exch)
+                    extra.append(f"LOWER(exchange) = ${len(args)}")
+                where_extra = (" AND " + " AND ".join(extra)) if extra else ""
+                prior = await conn.fetch(
+                    f"""
+                    SELECT DISTINCT ON (account, LOWER(exchange))
+                           account, COALESCE(account_name, '') AS account_name,
+                           LOWER(exchange) AS exchange, balance::float AS balance, created_at
+                    FROM account_balances
+                    WHERE created_at < $1 {where_extra}
+                    ORDER BY account, LOWER(exchange), created_at DESC
+                    """,
+                    *args,
+                )
+                rows = await conn.fetch(
+                    f"""
+                    SELECT account, COALESCE(account_name, '') AS account_name,
+                           LOWER(exchange) AS exchange, balance::float AS balance, created_at
+                    FROM account_balances
+                    WHERE created_at >= $1 {where_extra}
+                    ORDER BY created_at ASC
+                    """,
+                    *args,
+                )
+        except Exception as e:
+            self.logger.warning("events_db: get_equity_history failed — %s", e)
+            return empty
+
+        names: dict[str, str] = {}
+        state: dict[tuple[str, str], float] = {}
+        for r in prior:
+            key = (r["account"], r["exchange"])
+            state[key] = float(r["balance"] or 0)
+            if r["account_name"]:
+                names[r["account"]] = r["account_name"]
+
+        def values() -> tuple[float, dict[str, float], dict[str, float]]:
+            by_ex: dict[str, float] = {}
+            by_ac: dict[str, float] = {}
+            total = 0.0
+            for (a, e), bal in state.items():
+                total += bal
+                by_ex[e] = by_ex.get(e, 0.0) + bal
+                by_ac[a] = by_ac.get(a, 0.0) + bal
+            return total, by_ex, by_ac
+
+        total_pts: list[dict] = []
+        ex_pts: dict[str, list[dict]] = {}
+        ac_pts: dict[str, list[dict]] = {}
+
+        def emit(t: int) -> None:
+            if t <= 0:
+                return
+            tot, by_ex, by_ac = values()
+            def put(series: list[dict], val: float) -> None:
+                v = round(val, 2)
+                if series and series[-1]["t"] == t:
+                    series[-1]["v"] = v
+                else:
+                    series.append({"t": t, "v": v})
+            put(total_pts, tot)
+            for e, v in by_ex.items():
+                put(ex_pts.setdefault(e, []), v)
+            for a, v in by_ac.items():
+                put(ac_pts.setdefault(a, []), v)
+
+        def bucket(dt: datetime) -> int:
+            return int(self._as_utc(dt).timestamp()) // bucket_secs * bucket_secs
+
+        if prior:
+            emit(int(since.timestamp()) // bucket_secs * bucket_secs)
+        last_b = None
+        for r in rows:
+            if r["account_name"]:
+                names[r["account"]] = r["account_name"]
+            b = bucket(r["created_at"])
+            if last_b is not None and b > last_b:
+                emit(last_b)
+            state[(r["account"], r["exchange"])] = float(r["balance"] or 0)
+            last_b = b
+        if last_b is not None:
+            emit(last_b)
+        now_b = int(datetime.now(timezone.utc).timestamp()) // bucket_secs * bucket_secs
+        if state and (not total_pts or total_pts[-1]["t"] != now_b):
+            emit(now_b)
+
+        return {
+            "total": total_pts,
+            "exchanges": [
+                {"exchange": e, "points": pts}
+                for e, pts in sorted(ex_pts.items())
+            ],
+            "accounts": [
+                {
+                    "account": a,
+                    "account_name": names.get(a, a),
+                    "points": pts,
+                    "last": pts[-1]["v"] if pts else None,
+                }
+                for a, pts in sorted(ac_pts.items(), key=lambda kv: -(kv[1][-1]["v"] if kv[1] else 0))
+            ],
+        }
+
+    async def get_account_fills(
+        self,
+        account: str,
+        since: datetime,
+        limit: int = 80,
+        exchange: str = "",
+    ) -> list[dict]:
+        if not self.pool or not (account or "").strip():
+            return []
+        try:
+            async with self.pool.acquire() as conn:
+                args: list = [since, account.strip()]
+                extra = ""
+                if exchange:
+                    args.append(exchange.lower())
+                    extra = f" AND LOWER(exchange) = ${len(args)}"
+                args.append(max(1, min(int(limit), 300)))
+                rows = await conn.fetch(
+                    f"""
+                    SELECT id, created_at, contract, exchange, side,
+                           quantity::float AS quantity, price::float AS price,
+                           rpnl::float AS rpnl, COALESCE(account::text, '') AS account
+                    FROM fills
+                    WHERE created_at >= $1 AND account::text = $2 {extra}
+                    ORDER BY created_at DESC
+                    LIMIT ${len(args)}
+                    """,
+                    *args,
+                )
+                return [dict(r) for r in rows]
+        except Exception as e:
+            self.logger.warning("events_db: get_account_fills failed — %s", e)
+            return []
+
     async def get_balance_at(self, ts: "datetime", strategy: str = "opa3") -> float:
         """Return total_balance from the row closest to ts (UTC). 0.0 if none found."""
         if not self.pool:
@@ -1745,43 +2028,51 @@ class EventsDB:
         if not self.pool:
             return []
         try:
+            params: list = []
+            where_sql = ""
+            if not strategy_is_all(strategy):
+                params.append(strategy)
+                where_sql = "WHERE strategy::text = $1"
+            params.append(since)
+            since_i = len(params)
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
-                    """
+                    f"""
                     SELECT contract,
                            COALESCE(account::text, '') AS account,
                            LOWER(exchange) AS exchange,
+                           COALESCE(strategy::text, '') AS strategy,
                            COUNT(*)::int AS n_all,
                            COUNT(*) FILTER (
-                               WHERE $2::timestamptz IS NULL OR created_at >= $2
+                               WHERE ${since_i}::timestamptz IS NULL OR created_at >= ${since_i}
                            )::int AS n,
                            COALESCE(SUM(rpnl) FILTER (
-                               WHERE $2::timestamptz IS NULL OR created_at >= $2
+                               WHERE ${since_i}::timestamptz IS NULL OR created_at >= ${since_i}
                            ), 0)::float AS rpnl,
                            COALESCE(SUM(fee) FILTER (
-                               WHERE $2::timestamptz IS NULL OR created_at >= $2
+                               WHERE ${since_i}::timestamptz IS NULL OR created_at >= ${since_i}
                            ), 0)::float AS fee,
                            MIN(created_at) AS first_at,
                            MAX(created_at) FILTER (
-                               WHERE $2::timestamptz IS NULL OR created_at >= $2
+                               WHERE ${since_i}::timestamptz IS NULL OR created_at >= ${since_i}
                            ) AS last_at
                     FROM fills
-                    WHERE strategy::text = $1
-                    GROUP BY contract, COALESCE(account::text, ''), LOWER(exchange)
+                    {where_sql}
+                    GROUP BY contract, COALESCE(account::text, ''), LOWER(exchange),
+                             COALESCE(strategy::text, '')
                     """,
-                    strategy,
-                    since,
+                    *params,
                 )
             live_keys = await self.get_live_ping_keys(strategy)
-            # Keyed on the account id — the id is what the fills queries filter
-            # on, so it has to be what the dashboard round-trips.
-            grouped: dict[tuple[str, str], dict] = {}
+            grouped: dict[tuple[str, str, str], dict] = {}
             for r in rows:
                 account = r["account"] or ""
                 contract = canon_contract(r["contract"])
-                item = grouped.setdefault((contract, account), {
+                strat = r["strategy"] or ""
+                item = grouped.setdefault((strat, contract, account), {
                     "contract": contract,
                     "account": account,
+                    "strategy": strat,
                     "venue_fills": {},
                     "venue_fills_all": {},
                     "venue_rpnl": {},
@@ -1810,38 +2101,41 @@ class EventsDB:
                     item["last_at"] = last
 
             out: list[dict] = []
-            venue_only: dict[str, dict] = {}
+            venue_only: dict[tuple[str, str], dict] = {}
             for item in grouped.values():
-                # Hedge fills are logged without the quote venue's account id —
-                # hold them aside so they can be folded onto the real pill.
                 if not item["account"] and not item["venue_fills_all"].get("delta"):
-                    venue_only[item["contract"]] = item
+                    venue_only[(item["contract"], item.get("strategy") or "")] = item
                 elif not item["account"]:
-                    # Quote fills with a blank account are leftover REST /
-                    # insufficient-balance rows — they are not a real subaccount.
                     continue
                 else:
                     out.append(item)
-            used = set()
+            used: set[tuple[str, str]] = set()
             for item in out:
-                h = venue_only.get(item["contract"])
+                h = venue_only.get((item["contract"], item.get("strategy") or ""))
                 if h and set(item["venue_fills_all"]) <= {"delta"}:
                     for field in ("venue_fills", "venue_fills_all", "venue_rpnl", "venue_fees"):
                         for venue, val in h[field].items():
                             if venue != "delta":
                                 item[field][venue] = val
-                    used.add(item["contract"])
-            for contract, h in venue_only.items():
-                if contract not in used and not any(m["contract"] == contract for m in out):
+                    used.add((item["contract"], item.get("strategy") or ""))
+            for key, h in venue_only.items():
+                if key not in used and not any(
+                    m["contract"] == key[0] and (m.get("strategy") or "") == key[1]
+                    for m in out
+                ):
                     out.append(h)
-            have = {(canon_contract(i["contract"]), i.get("account") or "") for i in out}
-            for contract, account in await self.get_live_bots(strategy):
-                key = (contract, account)
+            have = {
+                (i.get("strategy") or "", canon_contract(i["contract"]), i.get("account") or "")
+                for i in out
+            }
+            for contract, account, strat in await self.get_live_bots(strategy):
+                key = (strat, contract, account)
                 if key in have:
                     continue
                 out.append({
                     "contract": contract,
                     "account": account,
+                    "strategy": strat,
                     "venue_fills": {},
                     "venue_fills_all": {},
                     "venue_rpnl": {},
@@ -1851,8 +2145,12 @@ class EventsDB:
                 })
                 have.add(key)
             for item in out:
+                if not item.get("strategy") and not strategy_is_all(strategy):
+                    item["strategy"] = strategy
                 self._add_legacy_rpnl_fields(item)
-                item["live"] = ping_is_live(item["contract"], item["account"], live_keys)
+                item["live"] = ping_is_live(
+                    item["contract"], item["account"], live_keys, item.get("strategy"),
+                )
             if since is not None:
                 out = [
                     i for i in out
@@ -1861,6 +2159,7 @@ class EventsDB:
                 ]
             out.sort(key=lambda i: (
                 0 if i.get("live") else 1,
+                i.get("strategy") or "",
                 -i["venue_rpnl"].get("delta", 0.0),
             ))
             return out
@@ -1879,7 +2178,7 @@ class EventsDB:
         if not self.pool:
             return []
         try:
-            params: list = [strategy]
+            params: list = []
             sql = """
                 SELECT (created_at AT TIME ZONE 'Asia/Kolkata')::date AS day,
                        contract,
@@ -1888,11 +2187,13 @@ class EventsDB:
                        COALESCE(SUM(rpnl), 0)::float AS rpnl,
                        COALESCE(SUM(fee), 0)::float AS fee
                 FROM fills
-                WHERE strategy::text = $1
             """
+            if not strategy_is_all(strategy):
+                params.append(strategy)
+                sql += " WHERE strategy::text = $1"
             if since is not None:
                 params.append(since)
-                sql += f" AND created_at >= ${len(params)}"
+                sql += (" AND " if params[:-1] else " WHERE ") + f"created_at >= ${len(params)}"
             sql += " GROUP BY 1, 2, 3 ORDER BY 1 DESC"
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(sql, *params)
@@ -1941,7 +2242,7 @@ class EventsDB:
         quoted = ", ".join(f'"{c}"' for c in select)
         args: list = []
         where = ""
-        if "strategy" in cols:
+        if "strategy" in cols and not strategy_is_all(strategy):
             args.append(strategy)
             where = "WHERE strategy::text = $1"
         order_col = "id DESC" if "id" in cols else "created_at DESC"
@@ -1975,7 +2276,7 @@ class EventsDB:
             return []
         args: list = []
         where = ""
-        if "strategy" in cols:
+        if "strategy" in cols and not strategy_is_all(strategy):
             args.append(strategy)
             where = "WHERE strategy::text = $1"
         order_col = "id DESC" if "id" in cols else "created_at DESC"
@@ -2236,7 +2537,7 @@ class EventsDB:
         quoted = ", ".join(f'"{c}"' for c in select)
         args: list = []
         where = ""
-        if "strategy" in cols:
+        if "strategy" in cols and not strategy_is_all(strategy):
             args.append(strategy)
             where = f"WHERE strategy::text = ${len(args)}"
         keys = "contract"
@@ -2276,24 +2577,27 @@ class EventsDB:
         if not self.pool:
             return empty
         try:
-            params: list = [strategy]
+            params: list = []
             sql = """
                 SELECT COALESCE(account::text, '') AS account,
                        COALESCE(MAX(details->>'account_name'), '') AS account_name,
                        contract,
                        LOWER(exchange) AS exchange,
+                       COALESCE(strategy::text, '') AS strategy,
                        COUNT(*)::int AS fills,
                        COALESCE(SUM(rpnl), 0)::float AS rpnl,
                        COALESCE(SUM(fee), 0)::float AS fee,
                        MIN(created_at) AS first_at,
                        MAX(created_at) AS last_at
                 FROM fills
-                WHERE strategy::text = $1
             """
+            if not strategy_is_all(strategy):
+                params.append(strategy)
+                sql += " WHERE strategy::text = $1"
             if since is not None:
                 params.append(since)
-                sql += f" AND created_at >= ${len(params)}"
-            sql += " GROUP BY 1, 3, 4"
+                sql += (" AND " if "WHERE" in sql else " WHERE ") + f"created_at >= ${len(params)}"
+            sql += " GROUP BY 1, 3, 4, 5"
             async with self.pool.acquire() as conn:
                 fill_rows = await conn.fetch(sql, *params)
                 bal_cols = await self._table_columns(conn, "balances")
@@ -2308,6 +2612,7 @@ class EventsDB:
                     "account_name": r["account_name"] or "",
                     "contract": canon_contract(r["contract"]),
                     "exchange": exch,
+                    "strategy": r["strategy"] or "",
                     "fills": int(r["fills"] or 0),
                     "rpnl": round(self._rpnl_inr(float(r["rpnl"] or 0), exch), 4),
                     "fee": round(self._rpnl_inr(float(r["fee"] or 0), exch), 4),
@@ -2379,11 +2684,14 @@ class EventsDB:
             return {}
         try:
             aliases = contract_aliases(contract)
-            params: list = [aliases, strategy]
+            params: list = [aliases]
             sql = (
                 "SELECT LOWER(exchange) AS exchange, COUNT(*)::int AS n FROM fills "
-                "WHERE UPPER(contract) = ANY($1::text[]) AND strategy::text = $2"
+                "WHERE UPPER(contract) = ANY($1::text[])"
             )
+            if not strategy_is_all(strategy):
+                params.append(strategy)
+                sql += f" AND strategy::text = ${len(params)}"
             if since is not None:
                 params.append(since)
                 sql += f" AND created_at >= ${len(params)}"
@@ -2412,11 +2720,24 @@ class EventsDB:
         try:
             step = max(60, int(bucket_seconds or 300))
             aliases = contract_aliases(contract)
-            exch_sql, exch_args = self._exchange_filter(exchange, 5, quote_venue=quote_venue)
+            params: list = [aliases]
+            where = "UPPER(contract) = ANY($1::text[])"
+            if not strategy_is_all(strategy):
+                params.append(strategy)
+                where += f" AND strategy::text = ${len(params)}"
+            params.append(since)
+            where += f" AND created_at >= ${len(params)}"
+            params.append(step)
+            step_i = len(params)
+            exch_sql, exch_args = self._exchange_filter(exchange, len(params) + 1, quote_venue=quote_venue)
+            params.extend(exch_args)
             if self._skip_account_filter(exchange):
                 acct_sql, acct_args = "", []
             else:
-                acct_sql, acct_args = self._account_filter(account, 5 + len(exch_args))
+                acct_sql, acct_args = self._account_filter(account, len(params) + 1)
+            params.extend(acct_args)
+            params.append(max(1, int(limit)))
+            limit_i = len(params)
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
                     f"""
@@ -2425,13 +2746,12 @@ class EventsDB:
                            quantity::float AS quantity, rpnl::float AS rpnl,
                              COALESCE(account::text, '') AS account, exchange
                     FROM fills
-                      WHERE UPPER(contract) = ANY($1::text[]) AND strategy::text = $2
-                      AND created_at >= $3{exch_sql}{acct_sql}
+                      WHERE {where}{exch_sql}{acct_sql}
                     ),
                     ranked AS (
                       SELECT *,
                         ROW_NUMBER() OVER (
-                          PARTITION BY (FLOOR(EXTRACT(EPOCH FROM created_at) / $4)::bigint), side
+                          PARTITION BY (FLOOR(EXTRACT(EPOCH FROM created_at) / ${step_i})::bigint), side
                           ORDER BY ABS(COALESCE(rpnl, 0)) DESC, created_at
                         ) AS rn
                       FROM src
@@ -2440,9 +2760,9 @@ class EventsDB:
                     FROM ranked
                     WHERE rn = 1 AND ABS(COALESCE(rpnl, 0)) > 1e-9
                     ORDER BY created_at
-                    LIMIT ${5 + len(exch_args) + len(acct_args)}
+                    LIMIT ${limit_i}
                     """,
-                    aliases, strategy, since, step, *exch_args, *acct_args, limit,
+                    *params,
                 )
             return [
                 {
@@ -2483,7 +2803,11 @@ class EventsDB:
         try:
             bucket_secs = bucket_minutes * 60
             aliases = contract_aliases(contract)
-            params: list = [aliases, since, float(bucket_secs), strategy]
+            params: list = [aliases, since, float(bucket_secs)]
+            strat_sql = ""
+            if not strategy_is_all(strategy):
+                params.append(strategy)
+                strat_sql = f" AND strategy::text = ${len(params)}"
             exch_sql, exch_args = self._exchange_filter(exchange, len(params) + 1, quote_venue=quote_venue)
             params.extend(exch_args)
             if self._skip_account_filter(exchange):
@@ -2500,7 +2824,7 @@ class EventsDB:
                            exchange,
                            COALESCE(SUM(rpnl), 0)    AS bucket_pnl
                     FROM fills
-                    WHERE UPPER(contract) = ANY($1::text[]) AND created_at >= $2 AND strategy::text = $4
+                    WHERE UPPER(contract) = ANY($1::text[]) AND created_at >= $2{strat_sql}
                       {exch_sql}{acct_sql}
                     GROUP BY bucket, exchange
                     ORDER BY bucket

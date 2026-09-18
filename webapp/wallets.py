@@ -431,6 +431,56 @@ def _empty(configured: int = 0) -> dict:
     }
 
 
+def filter_balances_scope(board: dict, strategy: str = "", scope: str = "all") -> dict:
+    """Subset a live board to one strategy. If nothing matches, keep the full board."""
+    accounts = list(board.get("accounts") or [])
+    if (scope or "all").lower() != "strategy" or not strategy:
+        out = dict(board)
+        out["scope"] = "all"
+        return out
+    keep = [a for a in accounts if strategy in (a.get("strategies") or [])]
+    if not keep:
+        out = dict(board)
+        out["scope"] = "all"
+        return out
+    exchanges: dict[str, float] = {}
+    equity = 0.0
+    with_bal = 0
+    errors = 0
+    for acct in keep:
+        known = {k: v for k, v in (acct.get("venues") or {}).items() if v is not None}
+        if acct.get("total") is not None:
+            equity += acct["total"]
+            with_bal += 1
+        errors += len(acct.get("venue_errors") or {})
+        for k, v in known.items():
+            exchanges[k] = exchanges.get(k, 0.0) + v
+        for k in (acct.get("venues") or {}):
+            exchanges.setdefault(k, 0.0)
+    exch_list = sorted(exchanges, key=lambda e: (-abs(exchanges[e]), e))
+    out = dict(board)
+    out["accounts"] = keep
+    out["exchanges"] = [
+        {
+            "exchange": e,
+            "label": _LABELS.get(e, e.title()),
+            "balance": round(exchanges[e], 4) if any(
+                (a.get("venues") or {}).get(e) is not None for a in keep
+            ) else None,
+        }
+        for e in exch_list
+    ]
+    out["totals"] = {
+        "balance": round(equity, 4) if with_bal else None,
+        "accounts": len(keep),
+        "with_balance": with_bal,
+        "errors": errors,
+    }
+    out["snapshots"] = with_bal
+    out["scope"] = "strategy"
+    return out
+
+
 async def live_balances_board(usdinr_rate: float = 87.0, strategy: str = "", scope: str = "all") -> dict:
     """Fetch every configured subaccount in parallel. Values are INR."""
     accts = load_wallet_accounts()

@@ -1,7 +1,7 @@
 // rPnL symbol list — fetched from DB fills table
 async function fetchRpnlSymbols() {
   try {
-    const r = await fetch(withStrategy('/api/rpnl/symbols'));
+    const r = await fetch(withAllStrategies('/api/rpnl/symbols'));
     const rows = await r.json();
     const sel = document.getElementById('rpnlSymbol');
     const list = (Array.isArray(rows) ? rows : []).map(c => typeof c === 'string'
@@ -17,6 +17,10 @@ async function fetchRpnlSymbols() {
           escHtml((c.live ? '● ' : '') + (c.label || c.contract)) + '</option>'
       ).join('');
       if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
+      else {
+        const hit = keep && [...sel.options].find(o => rpnlSelMatch(o.value, keep));
+        if (hit) sel.value = hit.value;
+      }
     }
   } catch {
     const sel = document.getElementById('rpnlSymbol');
@@ -25,13 +29,21 @@ async function fetchRpnlSymbols() {
 }
 
 function rpnlOptionValue(r) {
-  return (r.contract || '') + '::' + (r.account || '');
+  return (r.contract || '') + '::' + (r.account || '') + '::' + (r.strategy || '');
 }
 function parseRpnlSel(v) {
-  v = v || '';
-  const i = v.indexOf('::');
-  if (i < 0) return { contract: v, account: '' };
-  return { contract: v.slice(0, i), account: v.slice(i + 2) };
+  const parts = String(v || '').split('::');
+  return {
+    contract: parts[0] || '',
+    account: parts[1] || '',
+    strategy: parts.slice(2).join('::') || '',
+  };
+}
+function rpnlSelMatch(a, b) {
+  const x = parseRpnlSel(a), y = parseRpnlSel(b);
+  if (x.contract !== y.contract || x.account !== y.account) return false;
+  if (!x.strategy || !y.strategy) return true;
+  return x.strategy === y.strategy;
 }
 function currentRpnlSel() {
   return parseRpnlSel((document.getElementById('rpnlSymbol') || {}).value || '');
@@ -464,7 +476,7 @@ async function sendBotCmd(pill, cmd) {
   if (!contract || !cmd) return;
   if (cmd === 'flatten' && !confirm('Close ' + name + ' with a market flatten and stop quoting?')) return;
   if (cmd === 'stop' && !confirm('Stop quoting ' + name + '? Open orders cancel; position stays.')) return;
-  const body = { cmd: cmd, contract: contract, account: account, strategy: currentStrategy };
+  const body = { cmd: cmd, contract: contract, account: account, strategy: pill.dataset.strategy || currentRpnlSel().strategy || currentStrategy };
   if (cmd === 'max') {
     const inp = document.getElementById('rpnlMaxInput');
     const n = Number(inp && inp.value);
@@ -473,7 +485,7 @@ async function sendBotCmd(pill, cmd) {
     body.payload = usd ? { max_usd: n } : { max_pos: n };
   }
   try {
-    const r = await fetch(withStrategy('/api/bot/command'), {
+    const r = await fetch('/api/bot/command', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -627,26 +639,32 @@ function syncRpnlSymbolSelect(rows) {
       escHtml((c.live ? '● ' : '') + (c.label || pillOptionLabel(c))) + '</option>'
   ).join('');
   if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
-  else if (keepMissing && keep && keep.indexOf('::') >= 0) {
-    const opt = document.createElement('option');
-    opt.value = keep;
-    opt.textContent = keep.replace('::', ' · ');
-    sel.appendChild(opt);
-    sel.value = keep;
+  else if (keep) {
+    const hit = [...sel.options].find(o => rpnlSelMatch(o.value, keep));
+    if (hit) sel.value = hit.value;
+    else if (keepMissing && keep.indexOf('::') >= 0) {
+      const opt = document.createElement('option');
+      opt.value = keep;
+      opt.textContent = keep.replace(/::/g, ' · ');
+      sel.appendChild(opt);
+      sel.value = keep;
+    } else sel.selectedIndex = 0;
   } else sel.selectedIndex = 0;
   return sel.value;
 }
 
 function quotesForCurrentRpnl(rows) {
-  const cur = (document.getElementById('rpnlSymbol') || {}).value || '';
-  const row = (rows || rpnlSummaryCache || []).find(r => rpnlOptionValue(r) === cur);
+  const row = currentRpnlRow(rows);
   if (!row || !row.live || !row.settings || !Array.isArray(row.settings.quotes)) return [];
   return row.settings.quotes;
 }
 
 function currentRpnlRow(rows) {
   const cur = (document.getElementById('rpnlSymbol') || {}).value || '';
-  return (rows || rpnlSummaryCache || []).find(r => rpnlOptionValue(r) === cur) || null;
+  const list = rows || rpnlSummaryCache || [];
+  return list.find(r => rpnlOptionValue(r) === cur)
+    || list.find(r => rpnlSelMatch(rpnlOptionValue(r), cur))
+    || null;
 }
 
 function clearOhlcOrderLines() {
@@ -724,7 +742,7 @@ async function refreshRpnlLive() {
   const winLab = rpnlWindowTag();
   const hoursArg = winLab === 'today' ? 'today' : (rpnlCurrentHours !== null ? rpnlCurrentHours : rpnlHoursSel());
   try {
-    const sR = await fetch(withStrategy('/api/rpnl/summary' + (winQ ? '?' + winQ.slice(1) : '')));
+    const sR = await fetch(withAllStrategies('/api/rpnl/summary' + (winQ ? '?' + winQ.slice(1) : '')));
     if (!sR.ok) return;
     const rows = filterRpnlWindowRows(await sR.json());
     renderRpnlSummary(rows, hoursArg);
@@ -765,6 +783,7 @@ function renderRpnlInspect(row) {
   box.className = 'rpnl-inspect open' + ((wasFolded || (!wasOpen && mobile)) ? ' folded' : '');
   box.dataset.contract = row.contract || '';
   box.dataset.account = row.account || '';
+  box.dataset.strategy = row.strategy || '';
   box.dataset.qsym = qsym;
   const maxInp = document.getElementById('rpnlMaxInput');
   const keepMax = (document.activeElement === maxInp) ? {
@@ -781,6 +800,7 @@ function renderRpnlInspect(row) {
         rpnlPosHtml(s, 'ri-pos', row.quote_venue) +
         '<span class="ri-chip">' + escHtml(qlab) + ' ' + (row.fills || 0) + ' fills' +
           (hedged ? ' · ' + escHtml(hlab) + ' ' + (row.hedge_fills || 0) : '') + '</span>' +
+        (row.strategy ? '<span class="ri-chip">' + escHtml(row.strategy) + '</span>' : '') +
         (row.live && modeTxt ? '<span class="ri-chip">' + escHtml(modeTxt) + '</span>' : '') +
       '</div>' +
       '<div class="ri-col">' +
@@ -828,6 +848,14 @@ function rpnlPillMode(r) {
   return rpnlModeText(r && r.settings, true) || '';
 }
 
+function rpnlPillMax(r) {
+  const s = r && r.settings || {};
+  if (s.max_usd != null && isFinite(Number(s.max_usd))) return 'max $' + fmtG(s.max_usd);
+  if (s.max_pos != null && isFinite(Number(s.max_pos))) return 'max ' + fmtG(s.max_pos);
+  if (s.max_position != null && isFinite(Number(s.max_position))) return 'max ' + fmtG(s.max_position);
+  return '';
+}
+
 function rpnlPillHtml(r, cur, nameCount) {
   const key = rpnlOptionValue(r);
   const active = key === cur ? ' active' : '';
@@ -841,11 +869,15 @@ function rpnlPillHtml(r, cur, nameCount) {
   const main = rpnlPillMain(r);
   const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
   const mode = rpnlPillMode(r);
+  const maxBit = rpnlPillMax(r);
+  const strat = r.strategy || '';
   return '<button type="button" class="rpnl-pill' + active + liveCls + '" data-rpnl-key="' + escHtml(key) + '">' +
     '<div class="p-name">' + (r.live ? '<span class="p-live" title="live"></span>' : '') +
       '<span class="p-sym">' + escHtml(name) + '</span>' +
+      (strat ? '<span class="rpnl-strat">' + escHtml(strat) + '</span>' : '') +
       '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
     '<div class="p-val" style="color:' + mainCol + '">' + inrFmt(main) + '</div>' +
+    (maxBit ? '<div class="p-max">' + escHtml(maxBit) + '</div>' : '') +
     (mode ? '<div class="p-mode">' + escHtml(mode) + '</div>' : '') +
     '</button>';
 }
@@ -904,11 +936,38 @@ function renderRpnlSummary(rows, hours) {
       } else if (modeEl) {
         modeEl.remove();
       }
+      const maxBit = rpnlPillMax(r);
+      let maxEl = el.querySelector('.p-max');
+      if (maxBit) {
+        if (!maxEl) {
+          maxEl = document.createElement('div');
+          maxEl.className = 'p-max';
+          const valEl = el.querySelector('.p-val');
+          if (valEl && valEl.nextSibling) el.insertBefore(maxEl, valEl.nextSibling);
+          else el.appendChild(maxEl);
+        }
+        maxEl.textContent = maxBit;
+      } else if (maxEl) {
+        maxEl.remove();
+      }
       const nameEl = el.querySelector('.p-name');
       if (nameEl) {
         const dot = nameEl.querySelector('.p-live');
         if (r.live && !dot) nameEl.insertAdjacentHTML('afterbegin', '<span class="p-live" title="live"></span>');
         if (!r.live && dot) dot.remove();
+        let stratEl = nameEl.querySelector('.rpnl-strat');
+        if (r.strategy) {
+          if (!stratEl) {
+            stratEl = document.createElement('span');
+            stratEl.className = 'rpnl-strat';
+            const venueEl = nameEl.querySelector('.rpnl-venue');
+            if (venueEl) nameEl.insertBefore(stratEl, venueEl);
+            else nameEl.appendChild(stratEl);
+          }
+          stratEl.textContent = r.strategy;
+        } else if (stratEl) {
+          stratEl.remove();
+        }
       }
     });
   }
@@ -927,7 +986,8 @@ function pillOptionLabel(r) {
   const acct = rpnlAccountLabel(r);
   return (r.quote_symbol || r.contract || '') +
     (r.quote_label ? ' · ' + r.quote_label : '') +
-    (acct ? ' · ' + acct : '');
+    (acct ? ' · ' + acct : '') +
+    (r.strategy ? ' · ' + r.strategy : '');
 }
 
 // Returns the <option> for a key, creating it when the dropdown doesn't have it.
@@ -1798,7 +1858,7 @@ async function loadRpnl(keepRange) {
 
   let rows = null;
   try {
-    const sR = await fetch(withStrategy('/api/rpnl/summary' + (winQ ? '?' + winQ.slice(1) : '')));
+    const sR = await fetch(withAllStrategies('/api/rpnl/summary' + (winQ ? '?' + winQ.slice(1) : '')));
     if (seq !== rpnlLoadSeq) return;
     if (sR.ok) rows = filterRpnlWindowRows(await sR.json());
   } catch (e) { /* chart load can still proceed with the current symbol */ }
@@ -1827,15 +1887,16 @@ async function loadRpnl(keepRange) {
   const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + (picked.account ? sym + ' · ' + picked.account : sym) + ' (' + winLab + ')...';
   setLoading('rpnlStatus', loadingLabel);
   try {
+    const stratQ = '&strategy=' + encodeURIComponent(picked.strategy || 'all');
     const candleIvl = (document.getElementById('rpnlCandle') || {}).value || '5m';
-    const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit + '&exchange=' + venue;
-    const fillUrl = '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit;
-    const candleUrl = withStrategy('/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + winQ + acctBit);
+    const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit + '&exchange=' + venue + stratQ;
+    const fillUrl = '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit + stratQ;
+    const candleUrl = '/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + winQ + acctBit;
     const settled = await Promise.allSettled([
-      fetch(withStrategy(url)),
+      fetch(url),
       fetch(candleUrl),
-      fetch(withStrategy(fillUrl + '&exchange=quote')),
-      venue === 'quote' ? Promise.resolve(null) : fetch(withStrategy(fillUrl + '&exchange=hedge')),
+      fetch(fillUrl + '&exchange=quote'),
+      venue === 'quote' ? Promise.resolve(null) : fetch(fillUrl + '&exchange=hedge'),
     ]);
     if (seq !== rpnlLoadSeq) return;
     const take = i => settled[i].status === 'fulfilled' ? settled[i].value : null;
@@ -2180,7 +2241,7 @@ function rpnlExportFilters() {
   return {
     since: String(Math.floor(r.from)),
     until: String(Math.floor(r.to) + 1),
-    strategy: currentStrategy,
+    strategy: picked.strategy || 'all',
     contract: picked.contract,
     account: picked.account || '',
     exchange,

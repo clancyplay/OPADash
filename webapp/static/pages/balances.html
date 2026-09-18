@@ -1,6 +1,15 @@
 <!-- BALANCES -->
 <div id="balances" class="page">
   <div class="ctrl-bar">
+    <div class="ctrl-fields">
+      <label class="ctrl-field">Range
+        <select id="balHours" onchange="loadBalHistory()">
+          <option value="24">24h</option>
+          <option value="168" selected>7d</option>
+          <option value="720">30d</option>
+        </select>
+      </label>
+    </div>
     <div class="ctrl-actions">
       <button class="btn" onclick="loadBalances()">Refresh</button>
       <label class="ctrl-check"><input type="checkbox" id="balThisStrategy" onchange="loadBalances()" /> This strategy</label>
@@ -13,10 +22,39 @@
     <div id="balShell" style="display:none;">
       <div class="rpt-hero" id="balHero"></div>
       <div class="rpt-exch" id="balExch"></div>
+      <div class="bal-movers" id="balMovers"></div>
+      <div class="rpt-daywrap">
+        <h4>Total equity</h4>
+        <div class="bal-legend" id="balEqLegend"></div>
+        <div id="balEqChart"></div>
+        <div class="hint" id="balEqHint">Live wallet snapshots. History fills in as balances are refreshed.</div>
+      </div>
+      <div class="rpt-daywrap">
+        <h4>Wallets</h4>
+        <div class="bal-legend" id="balAcctLegend"></div>
+        <div id="balAcctChart"></div>
+      </div>
       <div class="rpt-matrix-wrap">
-        <h4>Live wallets × exchange</h4>
+        <h4>Live wallets × exchange <span style="font-weight:400;text-transform:none;letter-spacing:0">· click a row</span></h4>
         <div class="rpt-matrix-scroll" id="balMatrix"></div>
-        <div class="hint">Pulled live from each subaccount API key (INR). Same account id on two venues shares a row. Failed keys show in red.</div>
+        <div class="hint">Pulled live from each subaccount API key (INR). Same account id on two venues shares a row. Failed keys show in red. Δ is vs the start of the selected range.</div>
+      </div>
+      <div class="bal-detail" id="balDetail" style="display:none;">
+        <div class="bal-detail-h">
+          <div>
+            <div class="hero-label" id="balDetailKicker">Wallet</div>
+            <h4 id="balDetailTitle"></h4>
+            <div class="hero-sub" id="balDetailSub"></div>
+          </div>
+          <div class="bal-detail-actions">
+            <button class="btn" type="button" id="balDetailReports">Reports</button>
+            <button class="btn" type="button" onclick="closeBalDetail()">Close</button>
+          </div>
+        </div>
+        <div class="rpt-exch" id="balDetailVenues"></div>
+        <div id="balDetailChart"></div>
+        <h4 class="bal-fills-h">Recent fills</h4>
+        <div class="fill-scroll" id="balDetailFills"></div>
       </div>
     </div>
   </div>
