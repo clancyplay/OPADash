@@ -3,8 +3,10 @@
   <div class="ctrl-bar">
     <div class="ctrl-fields">
       <label class="ctrl-field">Window
-        <select id="rptHours" onchange="loadReports()">
+        <select id="rptHours" onchange="onRptHoursChange()">
           <option value="today" selected>Today (IST)</option>
+          <option value="yesterday">Yesterday (IST)</option>
+          <option value="day">IST day…</option>
           <option value="1">1h</option>
           <option value="3">3h</option>
           <option value="6">6h</option>
@@ -15,6 +17,13 @@
           <option value="">All time</option>
         </select>
       </label>
+      <label class="ctrl-field" id="rptDayWrap" style="display:none">Day
+        <input type="date" id="rptDay" onchange="loadReports()" />
+      </label>
+      <span class="ctrl-daynav" id="rptDayNav">
+        <button class="btn" type="button" onclick="rptShiftDay(-1)" title="Previous IST day">◀</button>
+        <button class="btn" type="button" id="rptNextDay" onclick="rptShiftDay(1)" title="Next IST day">▶</button>
+      </span>
     </div>
     <div class="ctrl-actions">
       <button class="btn" onclick="loadReports()">Refresh</button>
@@ -32,7 +41,7 @@
         <div class="rpt-matrix-scroll" id="rptMatrix"></div>
       </div>
       <div class="rpt-daywrap">
-        <h4>Daily realized PnL (IST)</h4>
+        <h4>Daily realized PnL (IST) · click a bar for that day</h4>
         <div id="rptDayChart"></div>
       </div>
       <div class="rpt-tools">
