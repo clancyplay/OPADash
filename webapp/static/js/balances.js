@@ -294,7 +294,7 @@ async function loadBalances() {
     empty.textContent = 'Loading live wallets…';
   }
   try {
-    const scope = (document.getElementById('balThisStrategy') || {}).checked ? 'strategy' : 'all';
+    const scope = strategyIsAll(currentStrategy) ? 'all' : 'strategy';
     const r = await fetch(withStrategy('/api/balances') + '&scope=' + scope);
     if (!r.ok) {
       const b = await r.json().catch(function () { return {}; });
@@ -309,10 +309,15 @@ async function loadBalances() {
       (d.configured || accts.length) + ' key' + ((d.configured || accts.length) === 1 ? '' : 's') +
       ' · ' + accts.length + ' account' + (accts.length === 1 ? '' : 's') +
       (withBal ? ' · ' + withBal + ' live' : '') +
-      (errN ? ' · ' + errN + ' failed' : '');
+      (errN ? ' · ' + errN + ' failed' : '') +
+      (strategyIsAll(currentStrategy) ? ' · all strategies' : ' · ' + currentStrategy);
     if (!accts.length) {
-      empty.innerHTML = escHtml(d.hint || 'No wallet API keys configured.') +
-        '<div style="margin-top:10px">Add <code>BAL_1_EXCHANGE</code> / <code>BAL_1_KEY</code> / <code>BAL_1_SECRET</code> in the webapp env, or copy <code>config/accounts.example.json</code> to <code>config/accounts.json</code>.</div>';
+      const filtered = !strategyIsAll(currentStrategy);
+      empty.innerHTML = escHtml(d.hint || (filtered ? 'No wallets tagged ' + currentStrategy + '.' : 'No wallet API keys configured.'));
+      if (!filtered) {
+        empty.innerHTML +=
+          '<div style="margin-top:10px">Add <code>BAL_1_EXCHANGE</code> / <code>BAL_1_KEY</code> / <code>BAL_1_SECRET</code> in the webapp env, or copy <code>config/accounts.example.json</code> to <code>config/accounts.json</code>.</div>';
+      }
       shell.style.display = 'none';
       balLastBoard = null;
       return;

@@ -431,17 +431,26 @@ def _empty(configured: int = 0) -> dict:
     }
 
 
+def _strategy_is_all(strategy: str = "") -> bool:
+    return (strategy or "").strip().lower() in ("", "all", "*", "any")
+
+
 def filter_balances_scope(board: dict, strategy: str = "", scope: str = "all") -> dict:
-    """Subset a live board to one strategy. If nothing matches, keep the full board."""
+    """Subset a live board to one strategy. `all` keeps every wallet."""
     accounts = list(board.get("accounts") or [])
-    if (scope or "all").lower() != "strategy" or not strategy:
+    if (scope or "all").lower() != "strategy" or _strategy_is_all(strategy):
         out = dict(board)
         out["scope"] = "all"
         return out
     keep = [a for a in accounts if strategy in (a.get("strategies") or [])]
     if not keep:
         out = dict(board)
-        out["scope"] = "all"
+        out["accounts"] = []
+        out["exchanges"] = []
+        out["totals"] = {"balance": None, "accounts": 0, "with_balance": 0, "errors": 0}
+        out["snapshots"] = 0
+        out["scope"] = "strategy"
+        out["hint"] = f"No wallets tagged {strategy}."
         return out
     exchanges: dict[str, float] = {}
     equity = 0.0
@@ -532,13 +541,12 @@ async def live_balances_board(usdinr_rate: float = 87.0, strategy: str = "", sco
             row["venues"].setdefault(exch, None)
             row["venue_errors"][exch] = rec.get("error") or "failed"
 
-    if (scope or "all").lower() == "strategy" and strategy:
+    if (scope or "all").lower() == "strategy" and not _strategy_is_all(strategy):
         keep = {
             k: v for k, v in by_acct.items()
             if strategy in (v.get("strategies") or [])
         }
-        if keep:
-            by_acct = keep
+        by_acct = keep
 
     accounts = []
     exchanges: dict[str, float] = {}

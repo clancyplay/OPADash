@@ -51,8 +51,8 @@ async function loadReports() {
   try {
     const qs = rptHoursQuery();
     const [oR, dR] = await Promise.all([
-      fetch(withAllStrategies('/api/reports/overview') + qs),
-      fetch(withAllStrategies('/api/rpnl/rollup') + qs),
+      fetch(withStrategy('/api/reports/overview') + qs),
+      fetch(withStrategy('/api/rpnl/rollup') + qs),
     ]);
     if (!oR.ok) {
       const b = await oR.json().catch(() => ({}));
