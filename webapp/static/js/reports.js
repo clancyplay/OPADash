@@ -213,7 +213,7 @@ function filterReportAccts() {
 function renderReportAccounts(accts, snapshot, sharedPos) {
   const snapHtml = snapshot ? '<div class="rpt-sec">Strategy balance snapshot</div>' + fmtBalanceCards(snapshot) : '';
   const sharedPosHtml = (sharedPos && sharedPos.length)
-    ? '<div class="rpt-sec">Open positions (not tagged to an account)</div>' + posTable(sharedPos)
+    ? '<div class="rpt-sec">Open positions (no account on snapshot)</div>' + posTable(sharedPos)
     : '';
   document.getElementById('rptAccts').innerHTML = snapHtml + sharedPosHtml + accts.map(function (a, i) {
     const key = rptAcctKey(a, i);

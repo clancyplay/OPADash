@@ -2366,6 +2366,34 @@ class EventsDB:
             "venues": {k: round(v, 4) for k, v in venues.items()},
         }
 
+    async def latest_account_wallets(self) -> dict[str, float]:
+        """Latest INR equity per account, summed across venues."""
+        if not self.pool:
+            return {}
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT DISTINCT ON (COALESCE(account::text, ''), LOWER(exchange))
+                           COALESCE(account::text, '') AS account,
+                           LOWER(exchange) AS exchange,
+                           balance::float AS balance
+                    FROM account_balances
+                    WHERE COALESCE(account::text, '') <> ''
+                    ORDER BY COALESCE(account::text, ''), LOWER(exchange), created_at DESC
+                    """
+                )
+        except Exception as e:
+            self.logger.debug("events_db: latest_account_wallets skipped — %s", e)
+            return {}
+        totals: dict[str, float] = {}
+        for r in rows:
+            aid = r["account"] or ""
+            if not aid:
+                continue
+            totals[aid] = round(totals.get(aid, 0.0) + float(r["balance"] or 0), 2)
+        return totals
+
     async def get_balances_board(self, strategy: str = "opa3", scope: str = "all") -> dict:
         """Latest wallet per exchange account. Wallet is account-level, so snapshots
         are matched by account id even if they were written under another strategy.

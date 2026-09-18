@@ -439,6 +439,13 @@ function rpnlPosHtml(s, cls, venue) {
   return '<div class="' + cls + ' ' + side + '">' + escHtml(t) + extra + '</div>';
 }
 
+function rpnlWalletHtml(s) {
+  if (!s || s.wallet_inr == null) return '';
+  const n = Number(s.wallet_inr);
+  if (!isFinite(n)) return '';
+  return '<span class="ri-chip">wallet ' + inrFmt(n) + '</span>';
+}
+
 function rpnlActsHtml(r) {
   if (!r.live) return '';
   const s = r.settings || {};
@@ -772,7 +779,7 @@ function renderRpnlInspect(row) {
   const cfgSig = s ? rpnlCfgBits(s).join(',') : '';
   const sig = [
     row.contract, row.account, Number(!!row.live), quote, hedge, row.fills, row.hedge_fills,
-    s && s.pos, s && s.entry, s && s.upnl, s && s.upnl_usd, s && s.mark, s && s.cv, s && s.usdinr, s && s.mode, s && s.hold, s && s.pause_left,
+    s && s.pos, s && s.entry, s && s.upnl, s && s.upnl_usd, s && s.mark, s && s.cv, s && s.usdinr, s && s.wallet_inr, s && s.mode, s && s.hold, s && s.pause_left,
     s && s.win_rpnl, s && s.burst_rpnl, s && s.probing, s && s.rest_left,
     s && s.trip_why, s && s.probe_hold, s && s.probe_lock_left, s && s.probe_n_have,
     s && s.probe_win_ok, s && s.fate_peak, s && s.grind_rpnl, s && s.pause_clock,
@@ -801,6 +808,7 @@ function renderRpnlInspect(row) {
       '<button type="button" class="ri-fold" title="Contract setup" onclick="toggleRpnlInspectFold()">▾</button>' +
       '<div class="ri-stats">' +
         rpnlPosHtml(s, 'ri-pos', row.quote_venue) +
+        rpnlWalletHtml(s) +
         '<span class="ri-chip">' + escHtml(qlab) + ' ' + (row.fills || 0) + ' fills' +
           (hedged ? ' · ' + escHtml(hlab) + ' ' + (row.hedge_fills || 0) : '') + '</span>' +
         (row.strategy ? '<span class="ri-chip">' + escHtml(row.strategy) + '</span>' : '') +
@@ -859,6 +867,12 @@ function rpnlPillMax(r) {
   return '';
 }
 
+function rpnlPillWallet(r) {
+  const n = Number(r && r.settings && r.settings.wallet_inr);
+  if (!isFinite(n) || n <= 0) return '';
+  return 'bal ' + inrFmt(n);
+}
+
 function rpnlPillHtml(r, cur, nameCount) {
   const key = rpnlOptionValue(r);
   const active = key === cur ? ' active' : '';
@@ -873,6 +887,7 @@ function rpnlPillHtml(r, cur, nameCount) {
   const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
   const mode = rpnlPillMode(r);
   const maxBit = rpnlPillMax(r);
+  const walletBit = rpnlPillWallet(r);
   const strat = r.strategy || '';
   return '<button type="button" class="rpnl-pill' + active + liveCls + '" data-rpnl-key="' + escHtml(key) + '">' +
     '<div class="p-name">' + (r.live ? '<span class="p-live" title="live"></span>' : '') +
@@ -881,6 +896,7 @@ function rpnlPillHtml(r, cur, nameCount) {
       '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
     '<div class="p-val" style="color:' + mainCol + '">' + inrFmt(main) + '</div>' +
     (maxBit ? '<div class="p-max">' + escHtml(maxBit) + '</div>' : '') +
+    (walletBit ? '<div class="p-bal">' + escHtml(walletBit) + '</div>' : '') +
     (mode ? '<div class="p-mode">' + escHtml(mode) + '</div>' : '') +
     '</button>';
 }
@@ -952,6 +968,20 @@ function renderRpnlSummary(rows, hours) {
         maxEl.textContent = maxBit;
       } else if (maxEl) {
         maxEl.remove();
+      }
+      const walletBit = rpnlPillWallet(r);
+      let balEl = el.querySelector('.p-bal');
+      if (walletBit) {
+        if (!balEl) {
+          balEl = document.createElement('div');
+          balEl.className = 'p-bal';
+          const after = el.querySelector('.p-max') || el.querySelector('.p-val');
+          if (after && after.nextSibling) el.insertBefore(balEl, after.nextSibling);
+          else el.appendChild(balEl);
+        }
+        balEl.textContent = walletBit;
+      } else if (balEl) {
+        balEl.remove();
       }
       const nameEl = el.querySelector('.p-name');
       if (nameEl) {
@@ -1260,6 +1290,7 @@ function setRpnlView(v) {
 
 function showRpnlError(msg, detail) {
   const el = document.getElementById('rpnlError');
+  if (!el) return;
   el.style.display = 'block';
   el.innerHTML = '<div class="err-title">Failed to load rPnL data</div>' +
     '<div>' + msg + '</div>' +
@@ -1268,7 +1299,8 @@ function showRpnlError(msg, detail) {
 }
 
 function hideRpnlError() {
-  document.getElementById('rpnlError').style.display = 'none';
+  const el = document.getElementById('rpnlError');
+  if (el) el.style.display = 'none';
 }
 
 function rpnlIstTick(time) {
@@ -1871,7 +1903,7 @@ async function loadRpnl(keepRange) {
     const key = syncRpnlSymbolSelect(rows);
     renderRpnlSummary(rows, hoursArg);
     if (!key) {
-      setStatus('rpnlStatus', '<span>No contracts with fills in this window. Try a longer Window.</span>');
+      toast('No contracts with fills in this window. Try a longer Window.');
       setOhlcEmpty(true, 'No price candles for this window');
       clearRpnlCharts();
       return;
@@ -1887,8 +1919,6 @@ async function loadRpnl(keepRange) {
     ? ohlcChart.timeScale().getVisibleLogicalRange()
     : null;
   const acctBit = '&account=' + encodeURIComponent(picked.account);
-  const loadingLabel = rpnlLoadingMore ? 'Loading more history...' : 'Loading ' + (picked.account ? sym + ' · ' + picked.account : sym) + ' (' + winLab + ')...';
-  setLoading('rpnlStatus', loadingLabel);
   try {
     const stratQ = '&strategy=' + encodeURIComponent(
       picked.strategy || (strategyIsAll(currentStrategy) ? 'all' : currentStrategy)
@@ -1919,7 +1949,6 @@ async function loadRpnl(keepRange) {
       const body = r ? await r.json().catch(() => ({ detail: r.statusText })) : { detail: 'network error' };
       const status = r ? r.status : 0;
       showRpnlError('HTTP ' + status, body.detail || 'request failed');
-      setStatus('rpnlStatus', '<span>Error ' + status + ': ' + (body.detail || 'request failed') + '</span>', 'error');
       return;
     }
     const d   = await r.json();
@@ -2016,38 +2045,20 @@ async function loadRpnl(keepRange) {
     }
 
     if (filled.length === 0 && !hedgeRaw.length && !ohlcBarsCache.length) {
-      setStatus('rpnlStatus', '<span>No fills found for <b>' + d.contract + '</b> ' +
-        (winLab === 'today' ? 'today (IST midnight → now)' : 'in the last ' + winLab) +
-        '. Try a longer window.</span>' +
-        (candleNote ? '<span style="color:var(--muted)">' + escHtml(candleNote) + '</span>' : ''));
+      toast('No fills for ' + (d.contract || sym) + ' in this window.');
       if (rpnlNeedsFit) scheduleRpnlFit();
       return;
     }
 
     const quoteV  = pts.length ? pts[pts.length - 1].value : 0;
     const hedgeV  = rpnlMeta.has_hedge && hedgeRaw.length ? hedgeRaw[hedgeRaw.length - 1].value : 0;
-    const netV    = quoteV + hedgeV;
-    const col     = netV >= 0 ? '#26a69a' : '#ef5350';
-    const acctLab = picked.account ? (' · ' + picked.account) : '';
     setRpnlKey(quoteV, hedgeV, d.quote_symbol || d.contract, picked.account);
-    setStatus('rpnlStatus',
-      '<span style="font-weight:600;color:#fff;">' + (d.quote_symbol || d.contract) +
-      ' · ' + (d.quote_label || '') + acctLab + '</span>' +
-      ' · ' + winLab +
-      ' · ' + (d.quote_label || 'Quote') + ' <b style="color:#26a69a">' + inrFmtDec(quoteV, 0) + '</b>' +
-      (rpnlMeta.has_hedge
-        ? ' · ' + rpnlMeta.hedge_label + ' <b style="color:#ff9800">' + inrFmtDec(hedgeV, 0) + '</b>' +
-          ' · Net <b style="color:' + col + '">' + inrFmtDec(netV, 0) + '</b>'
-        : ' · <span style="color:var(--muted)">no hedge</span>') +
-      ' · IST ' + new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour12: false}) +
-      (candleNote ? '<span style="color:var(--muted)">' + escHtml(candleNote) + '</span>' : ''), 'ok');
     if (!rpnlRangePinned) rpnlSyncRangeFromView();
     rpnlPaintBrush();
     if (rpnlNeedsFit) scheduleRpnlFit();
   } catch(e) {
     console.error('[rPnL] fetch threw:', e);
     showRpnlError('Network or parse error', e.message);
-    setStatus('rpnlStatus', '<span>Error: ' + e.message + '</span>', 'error');
   }
   } finally {
     if (seq === rpnlLoadSeq) rpnlLoadBusy = false;
@@ -2258,9 +2269,7 @@ async function exportRpnlKind(kind) {
     const params = { since: f.since, until: f.until, strategy: f.strategy };
     if (f.account) params.account = f.account;
     if (f.exchange) params.exchange = f.exchange;
-    const label = document.getElementById('rpnlStatus');
     if (kind === 'all') {
-      if (label) setStatus('rpnlStatus', '<span>Exporting ZIP…</span>');
       params.contract = f.contract;
       params.kinds = 'fills,logs,orders,events,positions,account_balances';
       await downloadNamedCsv('/api/rpnl/export-pack?' + qsObj(params), 'rpnl_pack.zip');
@@ -2276,7 +2285,6 @@ async function exportRpnlKind(kind) {
     } else if (['fills', 'orders', 'events', 'positions'].includes(kind)) {
       params.contract = f.contract;
     }
-    if (label) setStatus('rpnlStatus', '<span>Exporting ' + kind + '…</span>');
     await downloadNamedCsv('/api/db/table/' + encodeURIComponent(kind) + '/export?' + qsObj(params), kind + '.csv');
     toast('Exported ' + kind, 'ok');
   } catch (e) {

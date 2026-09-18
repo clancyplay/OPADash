@@ -378,14 +378,14 @@ def _hedge_venue_label(raw: str | None) -> str:
 
 
 _SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold"}
-_SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv"}
+_SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr"}
 _SETUP_KEYS = (
     "hem", "span", "step", "fit_auto", "vol_gate", "vol_stable",
     "orders", "live_orders", "max_pos", "max_usd", "ignore", "ignore_usd",
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
     "mode", "mode_why", "pause_left", "size_pct",
     "min_spread", "spread_pad",
-    "pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "hold",
+    "pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr", "hold",
     "grind", "grind_window", "grind_rpnl", "grind_secs",
     "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "probing",
     "rest_left",
@@ -473,7 +473,7 @@ def _setup_public(setup: dict | None) -> dict | None:
 
 
 _LIVE_SETUP_KEYS = (
-    "pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "hold", "mode", "mode_why", "pause_left", "size_pct",
+    "pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr", "hold", "mode", "mode_why", "pause_left", "size_pct",
     "rest_left", "probing", "quotes",
     "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "grind_rpnl", "grind_secs",
     "fate_peak", "fate_now", "fate_dd", "fate_burst_need", "fate_dd_need",
@@ -964,7 +964,21 @@ async def rpnl_summary(
     since = _window_since(hours, today)
     rows = await _db.get_contract_rpnl_summary(strategy=strategy, since=since)
     setups = await _db.get_bot_setups(strategy)
-    return [_annotate_rpnl_row(r, setups, r.get("strategy") or strategy) for r in rows]
+    wallets = await _db.latest_account_wallets()
+    out = [_annotate_rpnl_row(r, setups, r.get("strategy") or strategy) for r in rows]
+    for row in out:
+        settings = row.get("settings")
+        if settings and settings.get("wallet_inr") is not None:
+            continue
+        aid = str(row.get("account") or "")
+        bal = wallets.get(aid)
+        if bal is None:
+            continue
+        if not settings:
+            settings = {"kind": "setup"}
+            row["settings"] = settings
+        settings["wallet_inr"] = bal
+    return out
 
 
 @app.get("/api/rpnl/rollup")
@@ -1908,6 +1922,11 @@ def _assemble_reports_overview(
         else:
             shared_balances.append(cleaned)
 
+    by_contract = {}
+    for aid, acct in accounts.items():
+        for con in acct["contracts"].values():
+            by_contract.setdefault(con["contract"], []).append(aid)
+
     shared_positions: list[dict] = []
     for pos in raw.get("positions") or []:
         aid = str(pos.get("account") or "")
@@ -1922,10 +1941,20 @@ def _assemble_reports_overview(
             upnl_f = None
         if upnl_f is not None:
             cleaned["net_upnl"] = round(upnl_f * usdinr, 2)
-        if aid and aid in accounts:
+        target = ""
+        if aid:
+            accounts.setdefault(aid, _blank_acct(aid, str(pos.get("account_name") or "")))
+            target = aid
+        else:
+            cands = list(dict.fromkeys(
+                by_contract.get(str(cleaned.get("contract") or pos.get("contract") or "")) or []
+            ))
+            if len(cands) == 1:
+                target = cands[0]
+        if target:
             if upnl_f is not None:
-                accounts[aid]["upnl"] += upnl_f * usdinr
-            accounts[aid].setdefault("positions", []).append(cleaned)
+                accounts[target]["upnl"] += upnl_f * usdinr
+            accounts[target].setdefault("positions", []).append(cleaned)
         else:
             shared_positions.append(cleaned)
 

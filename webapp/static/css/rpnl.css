@@ -43,7 +43,6 @@ body:has(#rpnl.visible) {
 }
 
 #rpnl .rp-bar,
-#rpnl .status-bar,
 #rpnl .rpnl-pills,
 #rpnl .rpnl-key,
 #rpnl .error-panel,
@@ -57,8 +56,6 @@ body:has(#rpnl.visible) {
   max-height: 18vh;
   overflow: auto;
 }
-
-#rpnl .status-bar { min-height: 0; padding: 4px 12px; }
 
 /* Toolbar */
 .rp-bar {
@@ -139,7 +136,8 @@ body:has(#rpnl.visible) {
 .rpnl-pill .p-val {
   font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 4px;
 }
-.rpnl-pill .p-max { font-size: 10px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.rpnl-pill .p-max,
+.rpnl-pill .p-bal { font-size: 10px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .rpnl-pill .p-mode { font-size: 10px; color: #ffb74d; margin-top: 3px; }
 
 /* Inspect + setup */

@@ -194,6 +194,7 @@ function fmtAgo(secs) {
 // Status helpers
 function setStatus(id, html, cls) {
   const el = document.getElementById(id);
+  if (!el) return;
   el.className = 'status-bar' + (cls ? ' ' + cls : '');
   el.innerHTML = html;
 }
