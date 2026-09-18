@@ -383,6 +383,65 @@ async def _bybit_wallet(client: httpx.AsyncClient, acct: dict, rate: float) -> d
     raise RuntimeError(last_err)
 
 
+_idle_lock = asyncio.Lock()
+_idle_cache: dict = {"t": 0.0, "skip": frozenset(), "rows": []}
+
+
+def _acct_tags(acct: dict) -> set[str]:
+    return {v for v in (
+        _clean(acct.get("id")),
+        _clean(acct.get("name")),
+        _clean(acct.get("uid")),
+    ) if v}
+
+
+async def fetch_idle_wallets(
+    skip_ids: set[str] | None = None,
+    usdinr_rate: float = 87.0,
+    min_age_sec: float = 300.0,
+) -> list[dict]:
+    """REST wallet GET for configured keys that are not running a bot.
+
+    Cached so the balances Auto timer does not hit the exchange every 30s.
+    Live bot accounts are skipped — those already publish from private WS.
+    """
+    skip = frozenset(str(x or "").strip() for x in (skip_ids or []) if str(x or "").strip())
+    accts = []
+    for acct in load_wallet_accounts():
+        if _acct_tags(acct) & skip:
+            continue
+        accts.append(acct)
+    if not accts:
+        return []
+    age = max(30.0, float(min_age_sec or 300.0))
+    async with _idle_lock:
+        now = time.time()
+        if (
+            _idle_cache["t"]
+            and now - float(_idle_cache["t"] or 0) < age
+            and _idle_cache["skip"] == skip
+        ):
+            return list(_idle_cache["rows"])
+        timeout = httpx.Timeout(12.0, connect=6.0)
+        async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
+            fetched = await asyncio.gather(
+                *[_fetch_one(client, a, float(usdinr_rate or 87)) for a in accts]
+            )
+        rows = []
+        for rec in fetched:
+            cfg = rec.get("cfg") or {}
+            aid = _clean(rec.get("uid") or cfg.get("id") or cfg.get("name"))
+            if aid and aid in skip:
+                continue
+            rec["uid"] = aid
+            rows.append(rec)
+        _idle_cache["t"] = now
+        _idle_cache["skip"] = skip
+        _idle_cache["rows"] = rows
+        logger.info("wallets: idle REST %s keys skip=%s", len(rows), len(skip))
+        return list(rows)
+
+
 _FETCHERS = {
     "delta": _delta_wallet,
     "binance": _binance_wallet,

@@ -32,6 +32,7 @@ from config.symbol import SYMBOL_LAB, SYMBOL_MMT, SYMBOL_VELVET, SYMBOL_AIOT
 from config import symbol as _symbol_module
 from utils.events_db import EventsDB, canon_contract, contract_aliases, ping_is_live, strategy_is_all
 from utils.logger import start_db_log_forwarder
+from webapp.wallets import fetch_idle_wallets
 
 logger = logging.getLogger("webapp")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -2173,27 +2174,121 @@ def _overlay_live_wallets(board: dict, setups: dict, live_keys: set) -> dict:
     return _finish_balance_board(board)
 
 
+def _merge_idle_wallets(board: dict, idle_rows: list[dict], live_ids: set[str]) -> dict:
+    now = int(datetime.now(timezone.utc).timestamp())
+    live = {str(x or "").strip() for x in (live_ids or []) if str(x or "").strip()}
+    by_acct = {str(a.get("account") or ""): a for a in (board.get("accounts") or [])}
+    for rec in idle_rows or []:
+        cfg = rec.get("cfg") or {}
+        aid = str(rec.get("uid") or cfg.get("id") or cfg.get("name") or "").strip()
+        if not aid or aid in live:
+            continue
+        exch = str(rec.get("exchange") or cfg.get("exchange") or "").strip().lower()
+        name = str(cfg.get("name") or aid)
+        row = by_acct.get(aid)
+        if row is None:
+            row = {
+                "account": aid,
+                "account_name": name,
+                "strategies": [],
+                "contracts": [],
+                "venues": {},
+                "venue_errors": {},
+                "time": now,
+                "total": None,
+            }
+            by_acct[aid] = row
+        if name and (not row.get("account_name") or row["account_name"] == row["account"]):
+            row["account_name"] = name
+        st = str(cfg.get("strategy") or "").strip()
+        if st and st not in (row.get("strategies") or []):
+            row.setdefault("strategies", []).append(st)
+        row.setdefault("venues", {})
+        row.setdefault("venue_errors", {})
+        if rec.get("ok"):
+            try:
+                row["venues"][exch] = round(float(rec.get("balance") or 0), 4)
+            except (TypeError, ValueError):
+                continue
+            row["venue_errors"].pop(exch, None)
+        else:
+            row["venues"].setdefault(exch, None)
+            if rec.get("error"):
+                row["venue_errors"][exch] = rec["error"]
+        row["time"] = now
+        row["idle"] = True
+        row["live"] = False
+    board["accounts"] = list(by_acct.values())
+    return _finish_balance_board(board)
+
+
+async def _persist_idle_wallets(idle_rows: list[dict], strategy: str) -> None:
+    if _db is None or not _db.pool or not idle_rows:
+        return
+    rows = []
+    for rec in idle_rows:
+        if not rec.get("ok"):
+            continue
+        cfg = rec.get("cfg") or {}
+        aid = str(rec.get("uid") or cfg.get("id") or cfg.get("name") or "").strip()
+        exch = str(rec.get("exchange") or cfg.get("exchange") or "").strip().lower()
+        if not aid or not exch:
+            continue
+        try:
+            bal = float(rec.get("balance") or 0)
+        except (TypeError, ValueError):
+            continue
+        rows.append({
+            "account": aid,
+            "account_name": str(cfg.get("name") or aid),
+            "exchange": exch,
+            "strategy": str(cfg.get("strategy") or strategy or ""),
+            "balance": bal,
+        })
+    if not rows:
+        return
+    try:
+        n = await _db.record_account_balances(rows, min_age_sec=240, min_change=50.0)
+        if n:
+            logger.info("webapp: stored %s idle wallet snapshots", n)
+    except Exception as e:
+        logger.warning("webapp: idle wallet snapshot failed — %s", e)
+
+
 @app.get("/api/balances")
 async def balances_board(
     strategy: str = Query("opa3"),
     scope: str = Query("all", description="all | strategy"),
 ) -> dict:
-    """Wallet equity from bot private WS + reporter snapshots. No dash REST to the exchange."""
+    """Live bots from private WS. Idle accounts REST at most every 5 min."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
     board = await _db.get_balances_board(strategy=strategy, scope=scope)
     setups = await _db.get_bot_setups(strategy)
     live_keys = await _db.get_live_ping_keys(strategy)
     out = _overlay_live_wallets(board, setups, live_keys)
-    out["source"] = "ws"
+    live_ids = {
+        str(a.get("account") or "")
+        for a in (out.get("accounts") or [])
+        if a.get("live") and a.get("account")
+    }
+    idle_secs = float(os.getenv("IDLE_WALLET_SECS", "300") or 300)
+    idle_rows = await fetch_idle_wallets(
+        skip_ids=live_ids, usdinr_rate=settings.usdinr_rate, min_age_sec=idle_secs,
+    )
+    if idle_rows:
+        out = _merge_idle_wallets(out, idle_rows, live_ids)
+        await _persist_idle_wallets(idle_rows, strategy)
+    out["source"] = "ws+idle"
     out["strategy"] = strategy
     out["scope"] = scope
     out["generated_at"] = int(datetime.now(timezone.utc).timestamp())
     out["configured"] = len(out.get("accounts") or [])
+    out["idle_secs"] = int(idle_secs)
     if not out.get("accounts"):
         out["hint"] = (
-            "No wallet snapshots yet. Running bots publish from the private WS; "
-            "reporter also writes once per REPORT_SECS (default 5 min)."
+            "No wallets yet. Running bots publish from the private WS. "
+            "Idle accounts need BAL_1_KEY / config/accounts.json so the dash can REST them every 5 min."
         )
     return out
 

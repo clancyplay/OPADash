@@ -40,6 +40,13 @@ function balMoney(n) {
   return '₹' + Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
+function balUpdatedHtml(a) {
+  const t = a.time ? fmtIST(a.time) : '—';
+  if (a.live) return t + '<div class="aid">live WS</div>';
+  if (a.idle) return t + '<div class="aid">idle · 5m REST</div>';
+  return t;
+}
+
 function balHours() {
   return parseInt((document.getElementById('balHours') || {}).value, 10) || 168;
 }
@@ -347,9 +354,10 @@ function renderBalBoard(d, hist) {
   const errN = tot.errors || 0;
   const asOf = d.as_of ? (' · ' + fmtIST(d.as_of)) : '';
   const liveN = accts.filter(function (a) { return a.live; }).length;
-  const src = (d.source === 'ws')
-    ? ('Bot WS' + (liveN ? ' · ' + liveN + ' live' : '') + ' · reporter every 5 min')
-    : 'Wallet snapshots';
+  const idleN = accts.filter(function (a) { return a.idle && !a.live; }).length;
+  const src = 'Live bots: private WS'
+    + (liveN ? ' · ' + liveN + ' live' : '')
+    + (idleN ? ' · ' + idleN + ' idle REST/5m' : '');
   const snapNote = src + asOf +
     (errN ? ' · ' + errN + ' key' + (errN === 1 ? '' : 's') + ' failed' : '');
   const totDelta = balDelta((hist && hist.total) || []);
@@ -423,7 +431,7 @@ function renderBalBoard(d, hist) {
       '<td><div class="an">' + escHtml(name) + '</div>' + idBit + '</td>' + cells +
       '<td>' + (a.total == null ? '—' : balMoney(a.total)) + '</td>' +
       dCell +
-      '<td>' + (a.time ? fmtIST(a.time) : '—') + '</td></tr>';
+      '<td>' + balUpdatedHtml(a) + '</td></tr>';
   }).join('');
   const foot = '<tr><td>Total</td>' + exch.map(function (e) {
     return '<td>' + (e.balance == null ? '—' : balMoney(e.balance)) + '</td>';
