@@ -398,7 +398,7 @@ def _acct_tags(acct: dict) -> set[str]:
 async def fetch_idle_wallets(
     skip_ids: set[str] | None = None,
     usdinr_rate: float = 87.0,
-    min_age_sec: float = 300.0,
+    min_age_sec: float = 900.0,
 ) -> list[dict]:
     """REST wallet GET for configured keys that are not running a bot.
 
@@ -413,7 +413,7 @@ async def fetch_idle_wallets(
         accts.append(acct)
     if not accts:
         return []
-    age = max(30.0, float(min_age_sec or 300.0))
+    age = max(30.0, float(min_age_sec or 900.0))
     async with _idle_lock:
         now = time.time()
         if (

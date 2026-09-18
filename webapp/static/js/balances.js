@@ -43,8 +43,15 @@ function balMoney(n) {
 function balUpdatedHtml(a) {
   const t = a.time ? fmtIST(a.time) : '—';
   if (a.live) return t + '<div class="aid">live WS</div>';
-  if (a.idle) return t + '<div class="aid">idle · 5m REST</div>';
+  if (a.idle) return t + '<div class="aid">idle · ' + balIdleLabel() + ' REST</div>';
   return t;
+}
+
+function balIdleLabel(secs) {
+  const n = Number(secs != null ? secs : ((balLastBoard || {}).idle_secs));
+  const s = (Number.isFinite(n) && n > 0) ? n : 900;
+  if (s % 60 === 0) return Math.round(s / 60) + 'm';
+  return Math.round(s) + 's';
 }
 
 function balHours() {
@@ -323,7 +330,7 @@ async function loadBalances() {
       empty.innerHTML = escHtml(d.hint || (filtered ? 'No wallets tagged ' + currentStrategy + '.' : 'No wallet snapshots yet.'));
       if (!filtered) {
         empty.innerHTML +=
-          '<div style="margin-top:10px">Start a bot on the account. Private WS publishes the wallet; reporter also writes it every 5 min. Dash does not hit the exchange.</div>';
+          '<div style="margin-top:10px">Start a bot, or add idle keys (BAL_* / accounts.json). Live wallets come from private WS; idle accounts REST every 15 min. Live keys are not polled.</div>';
       }
       shell.style.display = 'none';
       balLastBoard = null;
@@ -357,7 +364,7 @@ function renderBalBoard(d, hist) {
   const idleN = accts.filter(function (a) { return a.idle && !a.live; }).length;
   const src = 'Live bots: private WS'
     + (liveN ? ' · ' + liveN + ' live' : '')
-    + (idleN ? ' · ' + idleN + ' idle REST/5m' : '');
+    + (idleN ? ' · ' + idleN + ' idle REST/' + balIdleLabel(d.idle_secs) : '');
   const snapNote = src + asOf +
     (errN ? ' · ' + errN + ' key' + (errN === 1 ? '' : 's') + ' failed' : '');
   const totDelta = balDelta((hist && hist.total) || []);

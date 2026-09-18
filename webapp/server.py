@@ -2260,7 +2260,7 @@ async def balances_board(
     strategy: str = Query("opa3"),
     scope: str = Query("all", description="all | strategy"),
 ) -> dict:
-    """Live bots from private WS. Idle accounts REST at most every 5 min."""
+    """Live bots from private WS. Idle accounts REST at most every 15 min."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
     board = await _db.get_balances_board(strategy=strategy, scope=scope)
@@ -2272,7 +2272,7 @@ async def balances_board(
         for a in (out.get("accounts") or [])
         if a.get("live") and a.get("account")
     }
-    idle_secs = float(os.getenv("IDLE_WALLET_SECS", "300") or 300)
+    idle_secs = float(os.getenv("IDLE_WALLET_SECS", "900") or 900)
     idle_rows = await fetch_idle_wallets(
         skip_ids=live_ids, usdinr_rate=settings.usdinr_rate, min_age_sec=idle_secs,
     )
@@ -2288,7 +2288,7 @@ async def balances_board(
     if not out.get("accounts"):
         out["hint"] = (
             "No wallets yet. Running bots publish from the private WS. "
-            "Idle accounts need BAL_1_KEY / config/accounts.json so the dash can REST them every 5 min."
+            "Idle accounts need BAL_1_KEY / config/accounts.json so the dash can REST them every 15 min."
         )
     return out
 
