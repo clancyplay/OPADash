@@ -4,12 +4,94 @@ let rptDayChart = null, rptDaySeries = null;
 let rptCache = { accounts: [], exchanges: [] };
 const rptOpenAccts = new Set();
 
-function initReports() { loadReports(); setupReportsAuto(); }
+function initReports() { syncRptDayUi(); loadReports(); setupReportsAuto(); }
 
+function rptIstYmd(offsetDays) {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  const today = fmt.format(new Date());
+  if (!offsetDays) return today;
+  const [y, m, d] = today.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + offsetDays));
+  return dt.getUTCFullYear() + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-' +
+    String(dt.getUTCDate()).padStart(2, '0');
+}
 function rptHoursQuery() {
   const v = (document.getElementById('rptHours') || {}).value;
   if (v === 'today') return '&today=true';
+  if (v === 'yesterday') return '&yesterday=true';
+  if (v === 'day') {
+    const d = ((document.getElementById('rptDay') || {}).value || '').trim();
+    return d ? '&day=' + encodeURIComponent(d) : '&yesterday=true';
+  }
   if (v) return '&hours=' + encodeURIComponent(v);
+  return '';
+}
+function rptIsCalendarWindow() {
+  const v = (document.getElementById('rptHours') || {}).value;
+  return v === 'today' || v === 'yesterday' || v === 'day';
+}
+function rptCurrentDay() {
+  const v = (document.getElementById('rptHours') || {}).value;
+  if (v === 'today') return rptIstYmd(0);
+  if (v === 'yesterday') return rptIstYmd(-1);
+  if (v === 'day') return ((document.getElementById('rptDay') || {}).value || '').trim() || rptIstYmd(-1);
+  return null;
+}
+function syncRptDayUi() {
+  const sel = document.getElementById('rptHours');
+  const wrap = document.getElementById('rptDayWrap');
+  const nav = document.getElementById('rptDayNav');
+  const next = document.getElementById('rptNextDay');
+  const cal = rptIsCalendarWindow();
+  if (wrap) wrap.style.display = (sel && sel.value === 'day') ? '' : 'none';
+  if (nav) nav.style.display = cal ? '' : 'none';
+  const day = rptCurrentDay();
+  if (next) next.disabled = !day || day >= rptIstYmd(0);
+}
+function onRptHoursChange() {
+  const sel = document.getElementById('rptHours');
+  const dayEl = document.getElementById('rptDay');
+  if (sel && sel.value === 'day' && dayEl && !dayEl.value) dayEl.value = rptIstYmd(-1);
+  syncRptDayUi();
+  loadReports();
+}
+function rptSelectDay(day) {
+  if (!day) return;
+  const sel = document.getElementById('rptHours');
+  const dayEl = document.getElementById('rptDay');
+  const today = rptIstYmd(0);
+  const yday = rptIstYmd(-1);
+  if (!sel) return;
+  if (day === today) sel.value = 'today';
+  else if (day === yday) sel.value = 'yesterday';
+  else {
+    sel.value = 'day';
+    if (dayEl) dayEl.value = day;
+  }
+  syncRptDayUi();
+  loadReports();
+}
+function rptShiftDay(delta) {
+  const cur = rptCurrentDay() || rptIstYmd(0);
+  const [y, m, d] = cur.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + delta));
+  const next = dt.getUTCFullYear() + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-' +
+    String(dt.getUTCDate()).padStart(2, '0');
+  if (next > rptIstYmd(0)) return;
+  rptSelectDay(next);
+}
+function rptChartTimeToDay(t) {
+  if (t == null) return '';
+  if (typeof t === 'string') return t.slice(0, 10);
+  if (typeof t === 'object' && t.year) {
+    return t.year + '-' + String(t.month).padStart(2, '0') + '-' + String(t.day).padStart(2, '0');
+  }
+  if (typeof t === 'number') {
+    const ms = t < 1e12 ? t * 1000 : t;
+    return new Date(ms + 19800 * 1000).toISOString().slice(0, 10);
+  }
   return '';
 }
 
@@ -52,7 +134,7 @@ async function loadReports() {
     const qs = rptHoursQuery();
     const [oR, dR] = await Promise.all([
       fetch(withStrategy('/api/reports/overview') + qs),
-      fetch(withStrategy('/api/rpnl/rollup') + qs),
+      fetch(withStrategy('/api/rpnl/rollup') + '&hours=720'),
     ]);
     if (!oR.ok) {
       const b = await oR.json().catch(() => ({}));
@@ -62,7 +144,7 @@ async function loadReports() {
     let roll = { by_day: [] };
     if (dR.ok) roll = await dR.json();
     const accts = d.accounts || [];
-    rptCache = { accounts: accts, exchanges: d.by_exchange || [], snapshot: d.snapshot, shared_positions: d.shared_positions || [] };
+    rptCache = { accounts: accts, exchanges: d.by_exchange || [], snapshot: d.snapshot };
     const liveN = (d.totals && d.totals.live) || 0;
     document.getElementById('reportsCount').textContent =
       accts.length + ' account' + (accts.length === 1 ? '' : 's') +
@@ -81,8 +163,8 @@ async function loadReports() {
     renderReportHero(d);
     renderReportExchanges(d.by_exchange || []);
     renderReportMatrix(accts, d.by_exchange || []);
-    renderReportAccounts(accts, d.snapshot, d.shared_positions || []);
-    drawReportDays(roll.by_day || []);
+    renderReportAccounts(accts, d.snapshot);
+    drawReportDays(roll.by_day || [], d.day || rptCurrentDay());
     filterReportAccts();
     requestAnimationFrame(resizeReportChart);
     if (pendingReportAcct) {
@@ -210,12 +292,9 @@ function filterReportAccts() {
   });
 }
 
-function renderReportAccounts(accts, snapshot, sharedPos) {
+function renderReportAccounts(accts, snapshot) {
   const snapHtml = snapshot ? '<div class="rpt-sec">Strategy balance snapshot</div>' + fmtBalanceCards(snapshot) : '';
-  const sharedPosHtml = (sharedPos && sharedPos.length)
-    ? '<div class="rpt-sec">Open positions (no account on snapshot)</div>' + posTable(sharedPos)
-    : '';
-  document.getElementById('rptAccts').innerHTML = snapHtml + sharedPosHtml + accts.map(function (a, i) {
+  document.getElementById('rptAccts').innerHTML = snapHtml + accts.map(function (a, i) {
     const key = rptAcctKey(a, i);
     const open = rptOpenAccts.has(key) ? ' open' : '';
     const name = escHtml(rptAcctName(a));
@@ -302,14 +381,19 @@ function resizeReportChart() {
   if (el && el.clientWidth) rptDayChart.applyOptions({ width: el.clientWidth });
 }
 
-function drawReportDays(days) {
+function drawReportDays(days, selectedDay) {
   const el = document.getElementById('rptDayChart');
   if (!el) return;
+  const sel = selectedDay || '';
   const pts = (days || []).slice().reverse().map(function (d) {
+    const pos = (Number(d.total) || 0) >= 0;
+    const active = sel && d.date === sel;
     return {
       time: d.date,
       value: Number(d.total) || 0,
-      color: (Number(d.total) || 0) >= 0 ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)',
+      color: active
+        ? (pos ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)')
+        : (pos ? 'rgba(38,166,154,0.55)' : 'rgba(239,83,80,0.55)'),
     };
   }).filter(function (p) { return p.time; });
   if (!rptDayChart) {
@@ -325,6 +409,11 @@ function drawReportDays(days) {
         const n = Number(p) || 0;
         return (n < 0 ? '−' : '') + '₹' + Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 0 });
       } },
+    });
+    rptDayChart.subscribeClick(function (param) {
+      if (!param || !param.time) return;
+      const day = rptChartTimeToDay(param.time);
+      if (day) rptSelectDay(day);
     });
   }
   rptDaySeries.setData(pts);

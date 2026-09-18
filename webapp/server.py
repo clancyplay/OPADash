@@ -17,7 +17,7 @@ import secrets
 import time
 import zipfile
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, quote
 
@@ -545,18 +545,66 @@ _RESOLUTION_SECONDS = {
 }
 
 
-def _ist_midnight_utc() -> datetime:
-    now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return start - timedelta(hours=5, minutes=30)
+_IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _parse_ist_day(value: str | None) -> date | None:
+    if not value:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="day must be YYYY-MM-DD (IST)")
+
+
+def _ist_midnight_utc(days_ago: int = 0) -> datetime:
+    now = datetime.now(_IST)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days_ago)
+    return start.astimezone(timezone.utc)
+
+
+def _window_bounds(
+    hours: int | None = None,
+    today: bool = False,
+    yesterday: bool = False,
+    day: str | None = None,
+) -> tuple[datetime | None, datetime | None]:
+    """UTC (since, until_exclusive) for a reports/rPnL window."""
+    parsed = _parse_ist_day(day)
+    if parsed is not None:
+        start = datetime(parsed.year, parsed.month, parsed.day, tzinfo=_IST).astimezone(timezone.utc)
+        return start, start + timedelta(days=1)
+    if yesterday:
+        start = _ist_midnight_utc(1)
+        return start, start + timedelta(days=1)
+    if today:
+        return _ist_midnight_utc(0), None
+    if hours:
+        return datetime.now(timezone.utc) - timedelta(hours=hours), None
+    return None, None
+
+
+def _window_label(
+    hours: int | None, today: bool, yesterday: bool = False, day: str | None = None,
+) -> str:
+    parsed = _parse_ist_day(day)
+    if parsed is not None:
+        return parsed.isoformat()
+    if yesterday:
+        return "yesterday"
+    if today:
+        return "today"
+    if hours:
+        return f"{hours}h"
+    return "all"
 
 
 def _window_since(hours: int | None, today: bool = False) -> datetime | None:
-    if today:
-        return _ist_midnight_utc()
-    if hours:
-        return datetime.now(timezone.utc) - timedelta(hours=hours)
-    return None
+    since, _until = _window_bounds(hours=hours, today=today)
+    return since
 
 
 def _window_lookback_secs(hours: int | None, today: bool = False) -> int:
@@ -1005,12 +1053,14 @@ async def rpnl_rollup(
     strategy: str = Query("all", description="strategy tag, or all"),
     hours: int | None = Query(None, ge=1, le=8760, description="omit for all time"),
     today: bool = Query(False, description="Restrict to IST calendar day"),
+    yesterday: bool = Query(False, description="Restrict to previous IST calendar day"),
+    day: str | None = Query(None, description="IST calendar day YYYY-MM-DD"),
 ) -> dict:
     """Quote vs hedge rPnL totals, per symbol and per IST day."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
-    since = _window_since(hours, today)
-    rows = await _db.get_rpnl_rollup(strategy=strategy, since=since)
+    since, until = _window_bounds(hours=hours, today=today, yesterday=yesterday, day=day)
+    rows = await _db.get_rpnl_rollup(strategy=strategy, since=since, until=until)
 
     # Decide each contract's quote venue once, from its fills across the window.
     counts: dict[str, dict[str, int]] = {}
@@ -1946,7 +1996,6 @@ def _assemble_reports_overview(
         for con in acct["contracts"].values():
             by_contract.setdefault(con["contract"], []).append(aid)
 
-    shared_positions: list[dict] = []
     for pos in raw.get("positions") or []:
         aid = str(pos.get("account") or "")
         cleaned = {
@@ -1970,12 +2019,11 @@ def _assemble_reports_overview(
             ))
             if len(cands) == 1:
                 target = cands[0]
-        if target:
-            if upnl_f is not None:
-                accounts[target]["upnl"] += upnl_f * usdinr
-            accounts[target].setdefault("positions", []).append(cleaned)
-        else:
-            shared_positions.append(cleaned)
+        if not target:
+            continue
+        if upnl_f is not None:
+            accounts[target]["upnl"] += upnl_f * usdinr
+        accounts[target].setdefault("positions", []).append(cleaned)
 
     live_keys = live_keys or set()
     finished = [_finish_account(a) for a in accounts.values()]
@@ -2037,7 +2085,7 @@ def _assemble_reports_overview(
         "by_exchange": sorted(by_exchange.values(), key=lambda e: abs(e["rpnl"]), reverse=True),
         "accounts": finished,
         "shared_balances": shared_balances,
-        "shared_positions": shared_positions,
+        "shared_positions": [],
         "snapshot": shared_balances[0] if shared_balances else None,
     }
 
@@ -2047,24 +2095,32 @@ async def reports_overview(
     strategy: str = Query("all", description="strategy tag, or all"),
     hours: int | None = Query(None, ge=1, le=8760),
     today: bool = Query(False, description="Restrict to IST calendar day"),
+    yesterday: bool = Query(False, description="Restrict to previous IST calendar day"),
+    day: str | None = Query(None, description="IST calendar day YYYY-MM-DD"),
 ) -> dict:
     """Per-account, per-exchange realized PnL plus latest balances/positions."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
-    since = _window_since(hours, today)
-    if today:
-        window = "today"
-    elif hours:
-        window = f"{hours}h"
-    else:
-        window = "all"
-    raw = await _db.get_accounts_overview(strategy=strategy, since=since)
+    since, until = _window_bounds(hours=hours, today=today, yesterday=yesterday, day=day)
+    window = _window_label(hours, today, yesterday, day)
+    raw = await _db.get_accounts_overview(strategy=strategy, since=since, until=until)
+    closed = until is not None and until <= datetime.now(timezone.utc)
+    if closed:
+        raw["positions"] = []
+        raw["balances"] = []
     live_keys = await _db.get_live_ping_keys(strategy)
     out = _assemble_reports_overview(raw, usdinr=_db.usdinr_rate, live_keys=live_keys)
+    cal = _parse_ist_day(day)
+    if cal is None and yesterday:
+        cal = datetime.now(_IST).date() - timedelta(days=1)
+    elif cal is None and today:
+        cal = datetime.now(_IST).date()
     out.update({
         "strategy": strategy,
         "window": window,
         "hours": hours,
+        "day": cal.isoformat() if cal else None,
+        "closed": closed,
         "generated_at": int(datetime.now(timezone.utc).timestamp()),
     })
     return out
@@ -2407,7 +2463,6 @@ def _jsonable(v):
     return v
 
 
-_IST = timezone(timedelta(hours=5, minutes=30))
 _IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 _TEXT_TYPES = {
     "text", "character varying", "character", "citext", "name",

@@ -2180,8 +2180,28 @@ class EventsDB:
             self.logger.warning("events_db: get_contract_rpnl_summary failed — %s", e)
             return []
 
+    @staticmethod
+    def _fills_range_sql(
+        strategy: str,
+        since: "datetime | None",
+        until: "datetime | None",
+        params: list,
+    ) -> str:
+        clauses: list[str] = []
+        if not strategy_is_all(strategy):
+            params.append(strategy)
+            clauses.append(f"strategy::text = ${len(params)}")
+        if since is not None:
+            params.append(since)
+            clauses.append(f"created_at >= ${len(params)}")
+        if until is not None:
+            params.append(until)
+            clauses.append(f"created_at < ${len(params)}")
+        return (" WHERE " + " AND ".join(clauses)) if clauses else ""
+
     async def get_rpnl_rollup(
         self, strategy: str = "opa3", since: "datetime | None" = None,
+        until: "datetime | None" = None,
     ) -> list[dict]:
         """Realized PnL (₹) per IST day / contract / exchange.
 
@@ -2201,12 +2221,7 @@ class EventsDB:
                        COALESCE(SUM(fee), 0)::float AS fee
                 FROM fills
             """
-            if not strategy_is_all(strategy):
-                params.append(strategy)
-                sql += " WHERE strategy::text = $1"
-            if since is not None:
-                params.append(since)
-                sql += (" AND " if params[:-1] else " WHERE ") + f"created_at >= ${len(params)}"
+            sql += self._fills_range_sql(strategy, since, until, params)
             sql += " GROUP BY 1, 2, 3 ORDER BY 1 DESC"
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(sql, *params)
@@ -2577,10 +2592,13 @@ class EventsDB:
         select = [c for c in sorted(cols) if c != "id"]
         quoted = ", ".join(f'"{c}"' for c in select)
         args: list = []
-        where = ""
+        where_parts: list[str] = []
+        if "created_at" in cols:
+            where_parts.append("created_at >= NOW() - INTERVAL '24 hours'")
         if "strategy" in cols and not strategy_is_all(strategy):
             args.append(strategy)
-            where = f"WHERE strategy::text = ${len(args)}"
+            where_parts.append(f"strategy::text = ${len(args)}")
+        where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
         keys = "contract"
         order = "contract, id DESC" if "id" in cols else "contract, created_at DESC"
         if "account" in cols:
@@ -2611,6 +2629,7 @@ class EventsDB:
 
     async def get_accounts_overview(
         self, strategy: str = "opa3", since: "datetime | None" = None,
+        until: "datetime | None" = None,
     ) -> dict:
         """Fills rolled up by account × contract × exchange, plus latest
         balance/position snapshots if those tables have been extended."""
@@ -2632,12 +2651,7 @@ class EventsDB:
                        MAX(created_at) AS last_at
                 FROM fills
             """
-            if not strategy_is_all(strategy):
-                params.append(strategy)
-                sql += " WHERE strategy::text = $1"
-            if since is not None:
-                params.append(since)
-                sql += (" AND " if "WHERE" in sql else " WHERE ") + f"created_at >= ${len(params)}"
+            sql += self._fills_range_sql(strategy, since, until, params)
             sql += " GROUP BY 1, 3, 4, 5"
             async with self.pool.acquire() as conn:
                 fill_rows = await conn.fetch(sql, *params)
