@@ -1,5 +1,7 @@
 /* rPnL page — charts own leftover height. Chrome never squishes them to 0. */
 
+#rpnlStatus { display: none !important; height: 0 !important; overflow: hidden; }
+
 html:has(#rpnl.visible),
 body:has(#rpnl.visible) {
   overflow: hidden;

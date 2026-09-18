@@ -291,7 +291,7 @@ async function loadBalances() {
   const first = !balLastBoard;
   if (first) {
     empty.style.display = 'block';
-    empty.textContent = 'Loading live wallets…';
+    empty.textContent = 'Loading wallets…';
   }
   try {
     const scope = strategyIsAll(currentStrategy) ? 'all' : 'strategy';
@@ -306,17 +306,17 @@ async function loadBalances() {
     const withBal = tot.with_balance || 0;
     const errN = tot.errors || 0;
     document.getElementById('balCount').textContent =
-      (d.configured || accts.length) + ' key' + ((d.configured || accts.length) === 1 ? '' : 's') +
-      ' · ' + accts.length + ' account' + (accts.length === 1 ? '' : 's') +
-      (withBal ? ' · ' + withBal + ' live' : '') +
+      accts.length + ' account' + (accts.length === 1 ? '' : 's') +
+      (withBal ? ' · ' + withBal + ' with balance' : '') +
+      (tot.live ? ' · ' + tot.live + ' live' : '') +
       (errN ? ' · ' + errN + ' failed' : '') +
       (strategyIsAll(currentStrategy) ? ' · all strategies' : ' · ' + currentStrategy);
     if (!accts.length) {
       const filtered = !strategyIsAll(currentStrategy);
-      empty.innerHTML = escHtml(d.hint || (filtered ? 'No wallets tagged ' + currentStrategy + '.' : 'No wallet API keys configured.'));
+      empty.innerHTML = escHtml(d.hint || (filtered ? 'No wallets tagged ' + currentStrategy + '.' : 'No wallet snapshots yet.'));
       if (!filtered) {
         empty.innerHTML +=
-          '<div style="margin-top:10px">Add <code>BAL_1_EXCHANGE</code> / <code>BAL_1_KEY</code> / <code>BAL_1_SECRET</code> in the webapp env, or copy <code>config/accounts.example.json</code> to <code>config/accounts.json</code>.</div>';
+          '<div style="margin-top:10px">Start a bot on the account. Private WS publishes the wallet; reporter also writes it every 5 min. Dash does not hit the exchange.</div>';
       }
       shell.style.display = 'none';
       balLastBoard = null;
@@ -346,7 +346,11 @@ function renderBalBoard(d, hist) {
   const tot = d.totals || {};
   const errN = tot.errors || 0;
   const asOf = d.as_of ? (' · ' + fmtIST(d.as_of)) : '';
-  const snapNote = 'Live from exchange APIs' + asOf +
+  const liveN = accts.filter(function (a) { return a.live; }).length;
+  const src = (d.source === 'ws')
+    ? ('Bot WS' + (liveN ? ' · ' + liveN + ' live' : '') + ' · reporter every 5 min')
+    : 'Wallet snapshots';
+  const snapNote = src + asOf +
     (errN ? ' · ' + errN + ' key' + (errN === 1 ? '' : 's') + ' failed' : '');
   const totDelta = balDelta((hist && hist.total) || []);
   const deltaBit = totDelta == null ? '' :
@@ -455,9 +459,9 @@ async function loadBalHistory() {
   const nPts = (hist.total || []).length;
   if (hint) {
     if (nPts <= 2) {
-      hint.textContent = 'Snapshots start from this refresh. The line fills in as wallets move (about every 2 min).';
+      hint.textContent = 'Snapshots from bot WS + reporter (5 min). The line fills in as wallets move.';
     } else {
-      hint.textContent = 'Total + venue lines from live wallet snapshots. Toggle a chip to hide a series.';
+      hint.textContent = 'Total + venue lines from bot WS / reporter snapshots. Toggle a chip to hide a series.';
     }
   }
   renderBalBoard(board, hist);
@@ -577,5 +581,12 @@ async function loadBalActivity(acct, quiet) {
 
 function setupBalAuto() {
   clearInterval(balTimer);
-  if (document.getElementById('balAuto').checked) balTimer = setInterval(loadBalances, 30000);
+  if (document.getElementById('balAuto') && document.getElementById('balAuto').checked) {
+    balTimer = setInterval(loadBalances, 30000);
+  }
+}
+
+function stopBalAuto() {
+  clearInterval(balTimer);
+  balTimer = null;
 }

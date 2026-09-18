@@ -76,13 +76,18 @@ function showPage(name) {
   if (name === 'rpnl'      && !rpnlReady) { initRpnl();      rpnlReady = true; }
   if (name === 'balances') {
     if (!balancesReady) { initBalances(); balancesReady = true; }
-    else loadBalances();
+    else {
+      loadBalances();
+      if (typeof setupBalAuto === 'function') setupBalAuto();
+    }
     requestAnimationFrame(() => {
       if (typeof resizeBalCharts === 'function') {
         resizeBalCharts();
         requestAnimationFrame(resizeBalCharts);
       }
     });
+  } else if (typeof stopBalAuto === 'function') {
+    stopBalAuto();
   }
   if (name === 'reports') {
     if (!reportsReady) { initReports(); reportsReady = true; }
@@ -195,8 +200,10 @@ function fmtAgo(secs) {
 function setStatus(id, html, cls) {
   const el = document.getElementById(id);
   if (!el) return;
-  el.className = 'status-bar' + (cls ? ' ' + cls : '');
-  el.innerHTML = html;
+  try {
+    el.className = 'status-bar' + (cls ? ' ' + cls : '');
+    el.innerHTML = html;
+  } catch (e) {}
 }
 function setLoading(id, text) {
   setStatus(id, '<span class="spinner"></span><span>' + text + '</span>');

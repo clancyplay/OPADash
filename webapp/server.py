@@ -32,7 +32,6 @@ from config.symbol import SYMBOL_LAB, SYMBOL_MMT, SYMBOL_VELVET, SYMBOL_AIOT
 from config import symbol as _symbol_module
 from utils.events_db import EventsDB, canon_contract, contract_aliases, ping_is_live, strategy_is_all
 from utils.logger import start_db_log_forwarder
-from webapp.wallets import live_balances_board, filter_balances_scope
 
 logger = logging.getLogger("webapp")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -377,7 +376,7 @@ def _hedge_venue_label(raw: str | None) -> str:
     return codes.get(v, codes.get(v.lower(), v))
 
 
-_SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold"}
+_SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold", "wallet_exch"}
 _SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr"}
 _SETUP_KEYS = (
     "hem", "span", "step", "fit_auto", "vol_gate", "vol_stable",
@@ -385,7 +384,7 @@ _SETUP_KEYS = (
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
     "mode", "mode_why", "pause_left", "size_pct",
     "min_spread", "spread_pad",
-    "pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr", "hold",
+    "pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr", "wallet_exch", "hold",
     "grind", "grind_window", "grind_rpnl", "grind_secs",
     "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "probing",
     "rest_left",
@@ -473,7 +472,7 @@ def _setup_public(setup: dict | None) -> dict | None:
 
 
 _LIVE_SETUP_KEYS = (
-    "pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr", "hold", "mode", "mode_why", "pause_left", "size_pct",
+    "pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr", "wallet_exch", "hold", "mode", "mode_why", "pause_left", "size_pct",
     "rest_left", "probing", "quotes",
     "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "grind_rpnl", "grind_secs",
     "fate_peak", "fate_now", "fate_dd", "fate_burst_need", "fate_dd_need",
@@ -578,12 +577,31 @@ _DASHBOARD_PARTS = (
 )
 
 
+_ASSET_URL_RE = re.compile(r'(src|href)="(/static/[^"?]+)"')
+
+
+def _asset_ver(url: str) -> str:
+    rel = url[len("/static/"):]
+    path = STATIC_DIR / rel
+    try:
+        return str(int(path.stat().st_mtime))
+    except OSError:
+        return "1"
+
+
+def _with_asset_versions(html: str) -> str:
+    def repl(m: re.Match[str]) -> str:
+        url = m.group(2)
+        return f'{m.group(1)}="{url}?v={_asset_ver(url)}"'
+    return _ASSET_URL_RE.sub(repl, html)
+
+
 def _dashboard_html() -> str:
     chunks = []
     for rel in _DASHBOARD_PARTS:
         text = (STATIC_DIR / rel).read_text(encoding="utf-8")
         chunks.append(text if text.endswith("\n") else text + "\n")
-    return "".join(chunks)
+    return _with_asset_versions("".join(chunks))
 
 
 @app.get("/")
@@ -2059,29 +2077,100 @@ def _wallet_label(exchange: str) -> str:
     }.get((exchange or "").lower(), (exchange or "").title())
 
 
-async def _persist_live_balances(board: dict, strategy: str) -> None:
-    if _db is None or not _db.pool:
-        return
-    rows = []
-    for a in board.get("accounts") or []:
-        errs = a.get("venue_errors") or {}
-        for exch, bal in (a.get("venues") or {}).items():
-            if bal is None or exch in errs:
-                continue
-            tags = a.get("strategies") or []
-            rows.append({
-                "account": a.get("account") or "",
-                "account_name": a.get("account_name") or "",
-                "exchange": exch,
-                "strategy": (tags[0] if tags else strategy) or "",
-                "balance": bal,
-            })
-    try:
-        n = await _db.record_account_balances(rows)
-        if n:
-            logger.info("webapp: stored %s wallet snapshots", n)
-    except Exception as e:
-        logger.warning("webapp: wallet snapshot failed — %s", e)
+def _live_wallet_map(setups: dict, live_keys: set) -> dict[str, tuple[float, str]]:
+    """account -> (wallet_inr, exchange) from bots currently pinging."""
+    out: dict[str, tuple[float, str]] = {}
+    for key, setup in (setups or {}).items():
+        if not isinstance(setup, dict) or not isinstance(key, tuple):
+            continue
+        if len(key) == 3:
+            contract, account, strat = key
+        elif len(key) == 2:
+            contract, account = key
+            strat = ""
+        else:
+            continue
+        if not ping_is_live(contract, account or "", live_keys, strat):
+            continue
+        try:
+            inr = float(setup.get("wallet_inr"))
+        except (TypeError, ValueError):
+            continue
+        exch = str(setup.get("wallet_exch") or "").strip().lower()
+        aid = account or ""
+        if not aid:
+            continue
+        out[aid] = (round(inr, 2), exch)
+    return out
+
+
+def _finish_balance_board(board: dict) -> dict:
+    accounts = list(board.get("accounts") or [])
+    exchanges: dict[str, float] = {}
+    equity = 0.0
+    with_bal = 0
+    live_n = 0
+    for acct in accounts:
+        known = {k: v for k, v in (acct.get("venues") or {}).items() if v is not None}
+        acct["total"] = round(sum(known.values()), 4) if known else None
+        if acct["total"] is not None:
+            equity += acct["total"]
+            with_bal += 1
+        if acct.get("live"):
+            live_n += 1
+        for k, v in known.items():
+            exchanges[k] = exchanges.get(k, 0.0) + float(v)
+        for k in (acct.get("venues") or {}):
+            exchanges.setdefault(k, 0.0)
+    accounts.sort(key=lambda a: (-(a.get("total") if a.get("total") is not None else -1e18), a.get("account") or ""))
+    board["accounts"] = accounts
+    board["exchanges"] = [
+        {
+            "exchange": e,
+            "label": _wallet_label(e),
+            "balance": round(exchanges[e], 4) if any(
+                (a.get("venues") or {}).get(e) is not None for a in accounts
+            ) else None,
+        }
+        for e in sorted(exchanges, key=lambda x: (-abs(exchanges[x]), x))
+    ]
+    totals = dict(board.get("totals") or {})
+    totals["balance"] = round(equity, 4) if with_bal else None
+    totals["accounts"] = len(accounts)
+    totals["with_balance"] = with_bal
+    totals["errors"] = int(totals.get("errors") or 0)
+    totals["live"] = live_n
+    board["totals"] = totals
+    return board
+
+
+def _overlay_live_wallets(board: dict, setups: dict, live_keys: set) -> dict:
+    live = _live_wallet_map(setups, live_keys)
+    if not live:
+        return _finish_balance_board(board)
+    now = int(datetime.now(timezone.utc).timestamp())
+    by_acct = {str(a.get("account") or ""): a for a in (board.get("accounts") or [])}
+    for aid, (inr, exch) in live.items():
+        row = by_acct.get(aid)
+        if row is None:
+            row = {
+                "account": aid,
+                "account_name": aid,
+                "strategies": [],
+                "contracts": [],
+                "venues": {},
+                "time": now,
+                "total": None,
+            }
+            by_acct[aid] = row
+        if not exch:
+            known = [k for k, v in (row.get("venues") or {}).items() if v is not None]
+            exch = known[0] if len(known) == 1 else "delta"
+        row.setdefault("venues", {})[exch] = inr
+        row["time"] = now
+        row["live"] = True
+    board["accounts"] = list(by_acct.values())
+    return _finish_balance_board(board)
 
 
 @app.get("/api/balances")
@@ -2089,17 +2178,23 @@ async def balances_board(
     strategy: str = Query("opa3"),
     scope: str = Query("all", description="all | strategy"),
 ) -> dict:
-    """Live wallet equity from each subaccount API key. Not from fills."""
-    full = await live_balances_board(
-        usdinr_rate=settings.usdinr_rate, strategy=strategy, scope="all",
-    )
-    full["strategy"] = strategy
-    full["generated_at"] = int(datetime.now(timezone.utc).timestamp())
-    if full.get("accounts"):
-        await _persist_live_balances(full, strategy)
-    out = filter_balances_scope(full, strategy, scope)
+    """Wallet equity from bot private WS + reporter snapshots. No dash REST to the exchange."""
+    if _db is None or not _db.pool:
+        raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
+    board = await _db.get_balances_board(strategy=strategy, scope=scope)
+    setups = await _db.get_bot_setups(strategy)
+    live_keys = await _db.get_live_ping_keys(strategy)
+    out = _overlay_live_wallets(board, setups, live_keys)
+    out["source"] = "ws"
     out["strategy"] = strategy
-    out["generated_at"] = full["generated_at"]
+    out["scope"] = scope
+    out["generated_at"] = int(datetime.now(timezone.utc).timestamp())
+    out["configured"] = len(out.get("accounts") or [])
+    if not out.get("accounts"):
+        out["hint"] = (
+            "No wallet snapshots yet. Running bots publish from the private WS; "
+            "reporter also writes once per REPORT_SECS (default 5 min)."
+        )
     return out
 
 

@@ -12,7 +12,7 @@
     </div>
     <div class="ctrl-actions">
       <button class="btn" onclick="loadBalances()">Refresh</button>
-      <label class="ctrl-check"><input type="checkbox" id="balAuto" checked onchange="setupBalAuto()" /> Auto 30s</label>
+      <label class="ctrl-check"><input type="checkbox" id="balAuto" checked onchange="setupBalAuto()" /> Auto</label>
     </div>
     <span id="balCount" class="ctrl-meta"></span>
   </div>
@@ -26,7 +26,7 @@
         <h4>Total equity</h4>
         <div class="bal-legend" id="balEqLegend"></div>
         <div id="balEqChart"></div>
-        <div class="hint" id="balEqHint">Live wallet snapshots. History fills in as balances are refreshed.</div>
+        <div class="hint" id="balEqHint">Wallet snapshots from running bots (private WS) and reporter (every 5 min). History fills in as those rows land.</div>
       </div>
       <div class="rpt-daywrap">
         <h4>Wallets</h4>
@@ -34,9 +34,9 @@
         <div id="balAcctChart"></div>
       </div>
       <div class="rpt-matrix-wrap">
-        <h4>Live wallets × exchange <span style="font-weight:400;text-transform:none;letter-spacing:0">· click a row</span></h4>
+        <h4>Wallets × exchange <span style="font-weight:400;text-transform:none;letter-spacing:0">· click a row</span></h4>
         <div class="rpt-matrix-scroll" id="balMatrix"></div>
-        <div class="hint">Pulled live from each subaccount API key (INR). Same account id on two venues shares a row. Failed keys show in red. Δ is vs the start of the selected range.</div>
+        <div class="hint">From the bot private WS while a strategy is running, plus reporter REST once per 5 min. Dash does not call the exchange. Δ is vs the start of the selected range.</div>
       </div>
       <div class="bal-detail" id="balDetail" style="display:none;">
         <div class="bal-detail-h">
