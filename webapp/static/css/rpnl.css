@@ -370,7 +370,6 @@ body:has(#rpnl.visible) {
   background: var(--surface);
 }
 .rp-logs-h b { font-size: 12px; font-weight: 650; }
-.rp-kind-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .rp-kind-search {
   min-width: 0; width: 180px; flex: 1 1 160px;
   font-size: 12px; padding: 4px 8px;
