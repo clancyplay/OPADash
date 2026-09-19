@@ -725,9 +725,7 @@ function applyOhlcOrderLines(quotes) {
     if (!isFinite(px) || px <= 0) return;
     const buy = String(q.side || '').toLowerCase() === 'buy';
     const qty = q.qty != null ? fmtG(q.qty) : '';
-    const role = q.role ? String(q.role) : '';
-    const pxTxt = fmtPxFull(px);
-    const title = ((buy ? 'B ' : 'S ') + (role ? role + ' ' : '') + qty + (pxTxt ? ' @ ' + pxTxt : '')).trim();
+    const title = qty || (buy ? 'B' : 'S');
     try {
       ohlcOrderLines.push(ohlcSeries.createPriceLine({
         price: px,
