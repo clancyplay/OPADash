@@ -372,6 +372,19 @@ body:has(#rpnl.visible) {
   background: var(--surface);
 }
 .rp-logs-h b { font-size: 12px; font-weight: 650; }
+.rp-kind-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.rp-kind-search {
+  min-width: 0; width: 160px; flex: 1 1 140px;
+  font-size: 12px; padding: 4px 8px;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.rp-logs-box .dtable { font-size: 11px; }
+.rp-logs-box .dtable th { position: sticky; top: 0; background: #121722; z-index: 1; }
+.rp-logs-box tr.rp-kind-hit td { background: rgba(255, 183, 77, .12); }
+.rp-logs-box .log-line.rp-kind-hit { background: rgba(255, 183, 77, .12); }
+.rp-logs-box td.side-buy { color: var(--green); }
+.rp-logs-box td.side-sell { color: var(--red); }
 .rp-logs-box {
   flex: 1 1 auto;
   min-height: 0;

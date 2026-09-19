@@ -109,6 +109,12 @@ let rpnlLogsFirstId = 0;
 let rpnlLogsBusy = false;
 let rpnlLogsOlderBusy = false;
 let rpnlLogsNoOlder = false;
+let rpnlKind = 'logs';
+let rpnlKindBusy = false;
+let rpnlKindOffset = 0;
+let rpnlKindTotal = 0;
+let rpnlKindNoMore = false;
+let rpnlKindCols = [];
 let rpnlView         = 'cumul';
 let rpnlPtsCache     = [];
 let rpnlHedgeCache   = [];
@@ -780,7 +786,7 @@ async function refreshRpnlLive() {
     const rows = filterRpnlWindowRows(await sR.json());
     renderRpnlSummary(rows, hoursArg);
   } catch (e) {}
-  if (rpnlLogsOpen()) loadRpnlLogs(false);
+  if (rpnlLogsOpen() && rpnlKind === 'logs') loadRpnlLogs(false);
 }
 
 function renderRpnlInspect(row) {
@@ -2180,7 +2186,7 @@ async function loadRpnl(keepRange) {
     if (!rpnlRangePinned) rpnlSyncRangeFromView();
     rpnlPaintBrush();
     if (!keepRange && rpnlNeedsFit) scheduleRpnlFit();
-    if (rpnlLogsOpen() && !keepRange) loadRpnlLogs(true);
+    if (rpnlLogsOpen() && !keepRange) rpnlKindReload();
   } catch(e) {
     console.error('[rPnL] fetch threw:', e);
     showRpnlError('Network or parse error', e.message);
@@ -2380,15 +2386,32 @@ function rpnlExportFilters() {
   const venue = currentRpnlVenue();
   const exchange = venue === 'quote' ? (rpnlMeta.quote_venue || '')
     : venue === 'hedge' ? (rpnlMeta.hedge_venue || '') : '';
+  const strat = picked.strategy || (strategyIsAll(currentStrategy) ? '' : currentStrategy);
   return {
     since: String(Math.floor(r.from)),
     until: String(Math.floor(r.to) + 1),
-    strategy: picked.strategy || 'all',
+    strategy: strat && !strategyIsAll(strat) ? strat : '',
     contract: picked.contract,
     account: picked.account || '',
     exchange,
   };
 }
+
+const RPNL_KIND_META = {
+  logs: { label: 'Logs', table: null },
+  fills: { label: 'Fills', table: 'fills' },
+  orders: { label: 'Orders', table: 'orders' },
+  events: { label: 'Events', table: 'events' },
+  positions: { label: 'Positions', table: 'positions' },
+  account_balances: { label: 'Balances', table: 'account_balances' },
+};
+const RPNL_KIND_COLS = {
+  fills: ['created_at', 'exchange', 'side', 'quantity', 'price', 'rpnl', 'fee', 'account', 'strategy', 'order_id'],
+  orders: ['created_at', 'exchange', 'side', 'status', 'size', 'filled_size', 'price', 'avg_fill_price', 'account', 'strategy', 'order_id'],
+  events: ['created_at', 'event_type', 'status', 'side', 'price', 'quantity', 'order_id', 'details'],
+  positions: ['created_at', 'delta_size', 'binance_size', 'mark_price', 'net_upnl', 'strategy'],
+  account_balances: ['created_at', 'exchange', 'balance', 'account', 'account_name', 'strategy'],
+};
 
 function rpnlLogsOpen() {
   const page = document.getElementById('rpnl');
@@ -2400,18 +2423,41 @@ function rpnlQs(p) {
     .map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
 }
 
+function rpnlKindSearchVal() {
+  return ((document.getElementById('rpnlKindSearch') || {}).value || '').trim();
+}
+
 function rpnlLogQs(extra) {
   const f = rpnlExportFilters();
-  const strat = f.strategy && !strategyIsAll(f.strategy) ? f.strategy : '';
   return rpnlQs(Object.assign({
     service: 'bot',
-    strategy: strat,
+    strategy: f.strategy,
     contract: f.contract,
     account: f.account || '',
     since: f.since,
     until: f.until,
+    search: rpnlKindSearchVal(),
     limit: 400,
   }, extra || {}));
+}
+
+function rpnlTableQs(extra) {
+  const f = rpnlExportFilters();
+  const meta = RPNL_KIND_META[rpnlKind] || {};
+  const p = {
+    since: f.since,
+    until: f.until,
+    strategy: f.strategy,
+    q: rpnlKindSearchVal(),
+    sort: 'created_at',
+    dir: 'desc',
+    limit: 120,
+    offset: 0,
+  };
+  if (meta.table !== 'account_balances') p.contract = f.contract;
+  if (f.account) p.account = f.account;
+  if (f.exchange && (rpnlKind === 'fills' || rpnlKind === 'orders')) p.exchange = f.exchange;
+  return rpnlQs(Object.assign(p, extra || {}));
 }
 
 function rpnlFmtLogTime(unixSecs) {
@@ -2419,16 +2465,44 @@ function rpnlFmtLogTime(unixSecs) {
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 }
 
+function rpnlKindHit(text) {
+  return /fate|pause|flatten|grind|trip|size-cool/i.test(String(text || ''));
+}
+
 function rpnlLogLine(l) {
   const bits = [l.strategy, l.contract, l.account, l.exchange].filter(Boolean);
   const chips = bits.map(function (b) {
     return '<span class="lchip">' + escHtml(b) + '</span>';
   }).join('');
-  return '<div class="log-line"><span class="lt">' + rpnlFmtLogTime(l.time) + '</span> ' +
+  const hit = rpnlKindHit((l.message || '') + ' ' + (l.name || '') + ' ' + (l.level || ''));
+  return '<div class="log-line' + (hit ? ' rp-kind-hit' : '') + '"><span class="lt">' + rpnlFmtLogTime(l.time) + '</span> ' +
     '<span class="lsvc">[' + escHtml(l.service || '') + ']</span> ' +
     '<span class="lv-' + escHtml(l.level || '') + '">' + escHtml(l.level || '') + '</span> ' +
     chips +
     '<span style="color:#6b768e">' + escHtml(l.name || '') + '</span> ' + escHtml(l.message || '') + '</div>';
+}
+
+function syncRpnlKindButtons() {
+  const open = rpnlLogsOpen();
+  document.querySelectorAll('[data-rpnl-kind]').forEach(function (el) {
+    el.classList.toggle('on', open && el.getAttribute('data-rpnl-kind') === rpnlKind);
+  });
+  const logsBtn = document.getElementById('rpnlLogsBtn');
+  if (logsBtn) logsBtn.classList.toggle('on', open && rpnlKind === 'logs');
+  const older = document.getElementById('rpnlKindOlderBtn');
+  if (older) older.style.display = rpnlKind === 'logs' ? '' : 'none';
+  const live = document.getElementById('rpnlKindLiveWrap');
+  if (live) live.style.display = rpnlKind === 'logs' ? '' : 'none';
+}
+
+function rpnlKindTitle() {
+  const meta = RPNL_KIND_META[rpnlKind] || { label: rpnlKind };
+  const picked = currentRpnlSel();
+  const el = document.getElementById('rpnlLogsTitle');
+  if (el) {
+    el.textContent = meta.label + ' · ' + (picked.contract || '') +
+      (picked.account ? ' · ' + picked.account : '');
+  }
 }
 
 function bindRpnlLogsScroll() {
@@ -2436,32 +2510,59 @@ function bindRpnlLogsScroll() {
   if (!box || box.dataset.scrollBound) return;
   box.dataset.scrollBound = '1';
   box.addEventListener('scroll', function () {
-    if (box.scrollTop < 64) loadOlderRpnlLogs();
+    if (rpnlKind === 'logs') {
+      if (box.scrollTop < 64) loadOlderRpnlLogs();
+    } else if (box.scrollHeight - box.scrollTop - box.clientHeight < 80) {
+      loadRpnlKindTable(false);
+    }
   });
   box.addEventListener('wheel', function (ev) {
-    if (ev.deltaY < 0 && box.scrollTop <= 4) loadOlderRpnlLogs();
+    if (rpnlKind === 'logs' && ev.deltaY < 0 && box.scrollTop <= 4) loadOlderRpnlLogs();
+    if (rpnlKind !== 'logs' && ev.deltaY > 0 &&
+        box.scrollHeight - box.scrollTop - box.clientHeight <= 4) loadRpnlKindTable(false);
   }, { passive: true });
 }
 
-function toggleRpnlLogs() {
+function openRpnlKind(kind) {
+  if (!RPNL_KIND_META[kind]) kind = 'logs';
   const page = document.getElementById('rpnl');
   if (!page) return;
+  if (rpnlLogsOpen() && rpnlKind === kind) {
+    closeRpnlKind();
+    return;
+  }
   const snap = captureRpnlView();
   if (snap) rpnlHoldSnap = snap;
-  const open = !page.classList.contains('logs-open');
-  page.classList.toggle('logs-open', open);
-  const btn = document.getElementById('rpnlLogsBtn');
-  if (btn) btn.classList.toggle('on', open);
+  const wasOpen = rpnlLogsOpen();
+  rpnlKind = kind;
+  page.classList.add('logs-open');
   const panel = document.getElementById('rpnlLogs');
-  if (panel) panel.hidden = !open;
-  if (open) {
-    const foot = document.getElementById('rpnlTools');
-    if (foot) foot.classList.remove('export-open');
-    rpnlLogsLastId = 0;
-    rpnlLogsNoOlder = false;
-    bindRpnlLogsScroll();
-    loadRpnlLogs(true);
+  if (panel) panel.hidden = false;
+  const foot = document.getElementById('rpnlTools');
+  if (foot) foot.classList.remove('export-open');
+  syncRpnlKindButtons();
+  bindRpnlLogsScroll();
+  rpnlKindReload();
+  if (!wasOpen) {
+    requestAnimationFrame(function () {
+      applyRpnlChartSize();
+      if (snap) restoreRpnlView(snap);
+      rpnlHoldSnap = null;
+    });
+  } else {
+    rpnlHoldSnap = null;
   }
+}
+
+function closeRpnlKind() {
+  const page = document.getElementById('rpnl');
+  if (!page || !rpnlLogsOpen()) return;
+  const snap = captureRpnlView();
+  if (snap) rpnlHoldSnap = snap;
+  page.classList.remove('logs-open');
+  const panel = document.getElementById('rpnlLogs');
+  if (panel) panel.hidden = true;
+  syncRpnlKindButtons();
   requestAnimationFrame(function () {
     applyRpnlChartSize();
     if (snap) restoreRpnlView(snap);
@@ -2469,8 +2570,125 @@ function toggleRpnlLogs() {
   });
 }
 
+function toggleRpnlLogs() { openRpnlKind('logs'); }
+
+function rpnlKindReload() {
+  if (rpnlKind === 'logs') {
+    rpnlLogsLastId = 0;
+    rpnlLogsNoOlder = false;
+    loadRpnlLogs(true);
+  } else {
+    rpnlKindOffset = 0;
+    rpnlKindNoMore = false;
+    loadRpnlKindTable(true);
+  }
+}
+
+function rpnlKindLoadMore() {
+  if (rpnlKind === 'logs') loadOlderRpnlLogs();
+  else loadRpnlKindTable(false);
+}
+
+function exportRpnlOpenKind() {
+  exportRpnlKind(rpnlKind);
+}
+
+function rpnlKindCell(col, v) {
+  if (v == null || v === '') return '<span style="color:var(--muted)">—</span>';
+  if ((col === 'created_at' || col === 'updated_at') && typeof v === 'number') {
+    return escHtml(rpnlFmtLogTime(v));
+  }
+  if (col === 'side') {
+    const sl = String(v).toLowerCase();
+    const cls = sl === 'buy' ? 'side-buy' : (sl === 'sell' ? 'side-sell' : '');
+    return cls ? '<span class="' + cls + '">' + escHtml(String(v)) + '</span>' : escHtml(String(v));
+  }
+  if ((col === 'rpnl' || col === 'net_upnl' || col === 'fee') && isFinite(Number(v))) {
+    const n = Number(v);
+    const cls = n > 0 ? 'side-buy' : (n < 0 ? 'side-sell' : '');
+    return '<span class="' + cls + '">' + escHtml(String(n)) + '</span>';
+  }
+  let s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  if (s.length > 140) {
+    return '<span title="' + escHtml(s) + '">' + escHtml(s.slice(0, 140)) + '…</span>';
+  }
+  return escHtml(s);
+}
+
+function rpnlKindRowHit(cols, row) {
+  return cols.some(function (c, i) {
+    return c === 'details' || c === 'status' || c === 'event_type' || c === 'message'
+      ? rpnlKindHit(row[i]) : false;
+  });
+}
+
+async function loadRpnlKindTable(reset) {
+  if (!rpnlLogsOpen() || rpnlKind === 'logs' || rpnlKindBusy) return;
+  if (!reset && rpnlKindNoMore) return;
+  const box = document.getElementById('rpnlLogsBox');
+  const st = document.getElementById('rpnlLogsStatus');
+  const meta = RPNL_KIND_META[rpnlKind];
+  if (!box || !meta || !meta.table) return;
+  rpnlKindBusy = true;
+  if (st && !reset) st.textContent = 'loading more…';
+  try {
+    const offset = reset ? 0 : rpnlKindOffset;
+    const r = await fetch('/api/db/table/' + encodeURIComponent(meta.table) + '?' + rpnlTableQs({ offset: offset }));
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    const d = await r.json();
+    const allCols = d.columns || [];
+    const pref = RPNL_KIND_COLS[rpnlKind] || [];
+    const cols = pref.filter(function (c) { return allCols.indexOf(c) >= 0; })
+      .concat(allCols.filter(function (c) { return pref.indexOf(c) < 0 && c !== 'id'; }));
+    const idx = {};
+    allCols.forEach(function (c, i) { idx[c] = i; });
+    rpnlKindCols = cols;
+    rpnlKindTotal = d.total || 0;
+    const rows = d.rows || [];
+    if (reset) {
+      rpnlKindOffset = 0;
+      if (!rows.length) {
+        box.innerHTML = '<div style="padding:12px;color:var(--muted);">No ' + escHtml(meta.label.toLowerCase()) +
+          ' in this window.</div>';
+        rpnlKindNoMore = true;
+        rpnlKindTitle();
+        if (st) st.textContent = 'empty';
+        return;
+      }
+      box.innerHTML = '<table class="dtable"><thead><tr>' +
+        cols.map(function (c) { return '<th>' + escHtml(c) + '</th>'; }).join('') +
+        '</tr></thead><tbody></tbody></table>';
+    }
+    const tb = box.querySelector('tbody');
+    if (!tb) return;
+    if (!rows.length) {
+      rpnlKindNoMore = true;
+      if (st) st.textContent = rpnlKindOffset + ' of ' + rpnlKindTotal.toLocaleString() + ' · end';
+      return;
+    }
+    tb.insertAdjacentHTML('beforeend', rows.map(function (row) {
+      const hit = rpnlKindRowHit(cols, cols.map(function (c) { return row[idx[c]]; }));
+      return '<tr class="' + (hit ? 'rp-kind-hit' : '') + '">' +
+        cols.map(function (c) { return '<td>' + rpnlKindCell(c, row[idx[c]]) + '</td>'; }).join('') +
+        '</tr>';
+    }).join(''));
+    rpnlKindOffset += rows.length;
+    if (rpnlKindOffset >= rpnlKindTotal) rpnlKindNoMore = true;
+    rpnlKindTitle();
+    if (st) {
+      st.textContent = rpnlKindOffset + ' of ' + rpnlKindTotal.toLocaleString() +
+        (rpnlKindNoMore ? '' : ' · scroll for more');
+    }
+    if (reset) box.scrollTop = 0;
+  } catch (e) {
+    if (st) st.textContent = e.message || 'error';
+  } finally {
+    rpnlKindBusy = false;
+  }
+}
+
 async function loadRpnlLogs(reset) {
-  if (!rpnlLogsOpen() || rpnlLogsBusy) return;
+  if (!rpnlLogsOpen() || rpnlKind !== 'logs' || rpnlLogsBusy) return;
   const box = document.getElementById('rpnlLogsBox');
   const st = document.getElementById('rpnlLogsStatus');
   if (!box) return;
@@ -2497,6 +2715,7 @@ async function loadRpnlLogs(reset) {
     if (!lines.length) {
       box.innerHTML = '<div style="padding:12px;color:var(--muted);">No logs for this contract / window.</div>';
       rpnlLogsLastId = 0;
+      rpnlKindTitle();
       if (st) st.textContent = 'empty';
       return;
     }
@@ -2505,12 +2724,7 @@ async function loadRpnlLogs(reset) {
     while (box.children.length > 4000) box.removeChild(box.firstChild);
     const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
     if (reset || stick) box.scrollTop = box.scrollHeight;
-    const picked = currentRpnlSel();
-    const title = document.getElementById('rpnlLogsTitle');
-    if (title) {
-      title.textContent = 'Logs · ' + (picked.contract || '') +
-        (picked.account ? ' · ' + picked.account : '');
-    }
+    rpnlKindTitle();
     if (st) st.textContent = box.querySelectorAll('.log-line').length + ' lines';
   } catch (e) {
     if (st) st.textContent = e.message || 'error';
@@ -2520,7 +2734,7 @@ async function loadRpnlLogs(reset) {
 }
 
 async function loadOlderRpnlLogs() {
-  if (!rpnlLogsOpen() || !rpnlLogsFirstId || rpnlLogsOlderBusy || rpnlLogsNoOlder) return;
+  if (!rpnlLogsOpen() || rpnlKind !== 'logs' || !rpnlLogsFirstId || rpnlLogsOlderBusy || rpnlLogsNoOlder) return;
   const box = document.getElementById('rpnlLogsBox');
   const st = document.getElementById('rpnlLogsStatus');
   if (!box) return;
@@ -2551,26 +2765,29 @@ async function loadOlderRpnlLogs() {
 async function exportRpnlKind(kind) {
   try {
     const f = rpnlExportFilters();
-    const params = { since: f.since, until: f.until, strategy: f.strategy };
+    const params = { since: f.since, until: f.until };
+    if (f.strategy) params.strategy = f.strategy;
     if (f.account) params.account = f.account;
     if (f.exchange) params.exchange = f.exchange;
+    const q = rpnlKindSearchVal();
+    if (q && kind !== 'all') params.q = q;
     if (kind === 'all') {
       params.contract = f.contract;
       params.kinds = 'fills,logs,orders,events,positions,account_balances';
-      await downloadNamedCsv('/api/rpnl/export-pack?' + qsObj(params), 'rpnl_pack.zip');
+      await downloadNamedCsv('/api/rpnl/export-pack?' + (typeof qsObj === 'function' ? qsObj(params) : rpnlQs(params)), 'rpnl_pack.zip');
       toast('Exported ZIP for ' + unixToDatetimeLocalIST(f.since) + ' → ' + unixToDatetimeLocalIST(Number(f.until) - 1), 'ok');
       return;
     }
     if (kind === 'logs') {
-      if (!f.account) throw new Error('This pill has no account id — logs stay scoped to one account');
-      params.account = f.account;
       params.contract = f.contract;
       params.service = 'bot';
+      if (q) params.search = q;
       delete params.exchange;
+      delete params.q;
     } else if (['fills', 'orders', 'events', 'positions'].includes(kind)) {
       params.contract = f.contract;
     }
-    await downloadNamedCsv('/api/db/table/' + encodeURIComponent(kind) + '/export?' + qsObj(params), kind + '.csv');
+    await downloadNamedCsv('/api/db/table/' + encodeURIComponent(kind) + '/export?' + rpnlQs(params), kind + '.csv');
     toast('Exported ' + kind, 'ok');
   } catch (e) {
     toast('Export failed: ' + e.message, 'err');
