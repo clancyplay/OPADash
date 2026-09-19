@@ -2269,6 +2269,7 @@ function rpnlFollowView() {
   setRpnlSelectMode(false);
   rpnlSyncRangeFromView();
   rpnlPaintBrush();
+  if (rpnlLogsOpen()) rpnlKindReload();
 }
 function rpnlPinFromInputs() {
   const from = datetimeLocalISTToUnix(document.getElementById('rpnlFrom').value);
@@ -2282,6 +2283,7 @@ function rpnlPinFromInputs() {
   rpnlPinTo = to;
   rpnlSetRangeMode();
   rpnlPaintBrush();
+  if (rpnlLogsOpen()) rpnlKindReload();
 }
 function rpnlJumpChartToRange() {
   const r = rpnlActiveRange();
@@ -2374,6 +2376,7 @@ function bindRpnlSelectLayer() {
     rpnlSetRangeMode();
     rpnlPaintBrush();
     setRpnlSelectMode(false);
+    if (rpnlLogsOpen()) rpnlKindReload();
   };
   layer.addEventListener('mouseup', endDrag);
   layer.addEventListener('mouseleave', (ev) => { if (startX != null) endDrag(ev); });
@@ -2400,17 +2403,9 @@ function rpnlExportFilters() {
 const RPNL_KIND_META = {
   logs: { label: 'Logs', table: null },
   fills: { label: 'Fills', table: 'fills' },
-  orders: { label: 'Orders', table: 'orders' },
-  events: { label: 'Events', table: 'events' },
-  positions: { label: 'Positions', table: 'positions' },
-  account_balances: { label: 'Balances', table: 'account_balances' },
 };
 const RPNL_KIND_COLS = {
   fills: ['created_at', 'exchange', 'side', 'quantity', 'price', 'rpnl', 'fee', 'account', 'strategy', 'order_id'],
-  orders: ['created_at', 'exchange', 'side', 'status', 'size', 'filled_size', 'price', 'avg_fill_price', 'account', 'strategy', 'order_id'],
-  events: ['created_at', 'event_type', 'status', 'side', 'price', 'quantity', 'order_id', 'details'],
-  positions: ['created_at', 'delta_size', 'binance_size', 'mark_price', 'net_upnl', 'strategy'],
-  account_balances: ['created_at', 'exchange', 'balance', 'account', 'account_name', 'strategy'],
 };
 
 function rpnlLogsOpen() {
@@ -2427,36 +2422,45 @@ function rpnlKindSearchVal() {
   return ((document.getElementById('rpnlKindSearch') || {}).value || '').trim();
 }
 
+function rpnlKindScopeVal() {
+  const el = document.getElementById('rpnlKindScope');
+  return (el && el.value) === 'all' ? 'all' : 'contract';
+}
+
 function rpnlLogQs(extra) {
   const f = rpnlExportFilters();
-  return rpnlQs(Object.assign({
-    service: 'bot',
-    strategy: f.strategy,
-    contract: f.contract,
-    account: f.account || '',
+  const all = rpnlKindScopeVal() === 'all';
+  const p = {
     since: f.since,
     until: f.until,
     search: rpnlKindSearchVal(),
     limit: 400,
-  }, extra || {}));
+  };
+  if (!all) {
+    p.contract = f.contract;
+    if (f.account) p.account = f.account;
+    if (f.strategy) p.strategy = f.strategy;
+  }
+  return rpnlQs(Object.assign(p, extra || {}));
 }
 
 function rpnlTableQs(extra) {
   const f = rpnlExportFilters();
-  const meta = RPNL_KIND_META[rpnlKind] || {};
+  const all = rpnlKindScopeVal() === 'all';
   const p = {
     since: f.since,
     until: f.until,
-    strategy: f.strategy,
     q: rpnlKindSearchVal(),
     sort: 'created_at',
     dir: 'desc',
     limit: 120,
     offset: 0,
   };
-  if (meta.table !== 'account_balances') p.contract = f.contract;
-  if (f.account) p.account = f.account;
-  if (f.exchange && (rpnlKind === 'fills' || rpnlKind === 'orders')) p.exchange = f.exchange;
+  if (!all) {
+    p.contract = f.contract;
+    if (f.account) p.account = f.account;
+    if (f.strategy) p.strategy = f.strategy;
+  }
   return rpnlQs(Object.assign(p, extra || {}));
 }
 
@@ -2487,10 +2491,6 @@ function syncRpnlKindButtons() {
   document.querySelectorAll('[data-rpnl-kind]').forEach(function (el) {
     el.classList.toggle('on', open && el.getAttribute('data-rpnl-kind') === rpnlKind);
   });
-  const logsBtn = document.getElementById('rpnlLogsBtn');
-  if (logsBtn) logsBtn.classList.toggle('on', open && rpnlKind === 'logs');
-  const older = document.getElementById('rpnlKindOlderBtn');
-  if (older) older.style.display = rpnlKind === 'logs' ? '' : 'none';
   const live = document.getElementById('rpnlKindLiveWrap');
   if (live) live.style.display = rpnlKind === 'logs' ? '' : 'none';
 }
@@ -2498,8 +2498,11 @@ function syncRpnlKindButtons() {
 function rpnlKindTitle() {
   const meta = RPNL_KIND_META[rpnlKind] || { label: rpnlKind };
   const picked = currentRpnlSel();
+  const all = rpnlKindScopeVal() === 'all';
   const el = document.getElementById('rpnlLogsTitle');
-  if (el) {
+  if (!el) return;
+  if (all) el.textContent = 'All ' + meta.label.toLowerCase();
+  else {
     el.textContent = meta.label + ' · ' + (picked.contract || '') +
       (picked.account ? ' · ' + picked.account : '');
   }
@@ -2538,8 +2541,6 @@ function openRpnlKind(kind) {
   page.classList.add('logs-open');
   const panel = document.getElementById('rpnlLogs');
   if (panel) panel.hidden = false;
-  const foot = document.getElementById('rpnlTools');
-  if (foot) foot.classList.remove('export-open');
   syncRpnlKindButtons();
   bindRpnlLogsScroll();
   rpnlKindReload();
@@ -2764,31 +2765,24 @@ async function loadOlderRpnlLogs() {
 
 async function exportRpnlKind(kind) {
   try {
+    if (kind !== 'logs' && kind !== 'fills') kind = rpnlKind === 'fills' ? 'fills' : 'logs';
     const f = rpnlExportFilters();
-    const params = { since: f.since, until: f.until };
-    if (f.strategy) params.strategy = f.strategy;
-    if (f.account) params.account = f.account;
-    if (f.exchange) params.exchange = f.exchange;
+    const all = rpnlKindScopeVal() === 'all';
     const q = rpnlKindSearchVal();
-    if (q && kind !== 'all') params.q = q;
-    if (kind === 'all') {
+    const params = { since: f.since, until: f.until };
+    if (!all) {
       params.contract = f.contract;
-      params.kinds = 'fills,logs,orders,events,positions,account_balances';
-      await downloadNamedCsv('/api/rpnl/export-pack?' + (typeof qsObj === 'function' ? qsObj(params) : rpnlQs(params)), 'rpnl_pack.zip');
-      toast('Exported ZIP for ' + unixToDatetimeLocalIST(f.since) + ' → ' + unixToDatetimeLocalIST(Number(f.until) - 1), 'ok');
-      return;
+      if (f.account) params.account = f.account;
+      if (f.strategy) params.strategy = f.strategy;
     }
     if (kind === 'logs') {
-      params.contract = f.contract;
-      params.service = 'bot';
       if (q) params.search = q;
-      delete params.exchange;
-      delete params.q;
-    } else if (['fills', 'orders', 'events', 'positions'].includes(kind)) {
-      params.contract = f.contract;
+    } else if (q) {
+      params.q = q;
     }
+    const label = all ? 'all ' + kind : kind + ' ' + f.contract;
     await downloadNamedCsv('/api/db/table/' + encodeURIComponent(kind) + '/export?' + rpnlQs(params), kind + '.csv');
-    toast('Exported ' + kind, 'ok');
+    toast('Exported ' + label, 'ok');
   } catch (e) {
     toast('Export failed: ' + e.message, 'err');
   }

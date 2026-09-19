@@ -28,7 +28,7 @@ body:has(#rpnl.visible) {
   min-height: 0;
 }
 #rpnl.page.visible.logs-open {
-  grid-template-rows: auto minmax(0, 1fr) auto minmax(140px, 28vh);
+  grid-template-rows: auto minmax(0, 1fr) auto minmax(200px, 40vh);
 }
 
 .rp-top,
@@ -349,9 +349,7 @@ body:has(#rpnl.visible) {
 }
 .rp-foot .range-mode.sel { color: #ffb74d; border-color: rgba(255, 183, 77, .45); }
 .rp-foot { position: relative; }
-.rp-exports { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; align-items: center; }
-.rp-exports .hint { font-size: 10px; color: var(--muted); margin-right: 4px; }
-.rp-export-btn { display: none; }
+.rp-inspect { display: flex; gap: 4px; margin-left: auto; align-items: center; }
 .rp-logs {
   display: none;
   flex-direction: column;
@@ -374,11 +372,21 @@ body:has(#rpnl.visible) {
 .rp-logs-h b { font-size: 12px; font-weight: 650; }
 .rp-kind-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .rp-kind-search {
-  min-width: 0; width: 160px; flex: 1 1 140px;
+  min-width: 0; width: 180px; flex: 1 1 160px;
   font-size: 12px; padding: 4px 8px;
   background: var(--bg); color: var(--text);
   border: 1px solid var(--border); border-radius: 6px;
 }
+#rpnlKindScope {
+  font-size: 12px; padding: 4px 6px;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.rp-logs-box {
+  font-size: 12px;
+  line-height: 1.55;
+}
+.rp-logs-box .log-line { padding: 3px 14px; }
 .rp-logs-box .dtable { font-size: 11px; }
 .rp-logs-box .dtable th { position: sticky; top: 0; background: #121722; z-index: 1; }
 .rp-logs-box tr.rp-kind-hit td { background: rgba(255, 183, 77, .12); }
@@ -554,20 +562,9 @@ body:has(#rpnl.visible) {
     width: 14px; height: 14px; padding: 0; margin: 0 0 0 2px;
   }
   .rp-foot .btn { min-height: 28px !important; padding: 2px 8px !important; font-size: 11px !important; }
-  .rp-export-btn { display: none; }
-  .rp-exports {
-    display: flex;
-    position: static;
-    width: 100%;
-    margin: 0;
-    padding: 0;
-    background: none;
-    border: 0;
-    box-shadow: none;
-  }
-  .rp-exports .hint { display: none; }
+  .rp-inspect { margin-left: 0; width: 100%; }
   #rpnl.logs-open .rp-logs {
-    height: 40vh;
-    min-height: 180px;
+    height: 46vh;
+    min-height: 220px;
   }
 }

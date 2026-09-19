@@ -79,39 +79,30 @@
       <label>To <input type="datetime-local" id="rpnlTo" step="60" title="To (IST)" onchange="rpnlPinFromInputs()" /></label>
     </div>
     <span class="range-mode" id="rpnlRangeMode">chart view</span>
-    <button class="btn" type="button" onclick="rpnlFollowView()" title="Keep the export window locked to whatever is on screen">Follow</button>
+    <button class="btn" type="button" onclick="rpnlFollowView()" title="Keep the window locked to whatever is on screen">Follow</button>
     <button class="btn" type="button" id="rpnlSelectBtn" onclick="toggleRpnlSelect()" title="Drag on the rPnL chart to pick a window">Select</button>
     <button class="btn" type="button" onclick="rpnlJumpChartToRange()" title="Zoom the charts to the From/To times">Jump</button>
-    <button class="btn" type="button" id="rpnlLogsBtn" onclick="openRpnlKind('logs')" title="Show live bot logs for this contract">Logs</button>
-    <button class="btn rp-export-btn" type="button" id="rpnlExportBtn" onclick="toggleRpnlExports()">Export</button>
-    <div class="rp-exports">
-      <span class="hint">Inspect IST</span>
-      <button class="btn" type="button" data-rpnl-kind="fills" onclick="openRpnlKind('fills')">Fills</button>
+    <span class="rp-inspect">
       <button class="btn" type="button" data-rpnl-kind="logs" onclick="openRpnlKind('logs')">Logs</button>
-      <button class="btn" type="button" data-rpnl-kind="orders" onclick="openRpnlKind('orders')">Orders</button>
-      <button class="btn" type="button" data-rpnl-kind="events" onclick="openRpnlKind('events')">Events</button>
-      <button class="btn" type="button" data-rpnl-kind="positions" onclick="openRpnlKind('positions')">Positions</button>
-      <button class="btn" type="button" data-rpnl-kind="account_balances" onclick="openRpnlKind('account_balances')">Balances</button>
-      <button class="btn" type="button" onclick="exportRpnlKind('all')" title="ZIP of every table above">ZIP</button>
-    </div>
+      <button class="btn" type="button" data-rpnl-kind="fills" onclick="openRpnlKind('fills')">Fills</button>
+    </span>
   </div>
   <div class="rp-logs" id="rpnlLogs" hidden>
     <div class="rp-logs-h">
-      <div class="rp-kind-tabs">
+      <span class="rp-kind-tabs">
         <button class="btn" type="button" data-rpnl-kind="logs" onclick="openRpnlKind('logs')">Logs</button>
         <button class="btn" type="button" data-rpnl-kind="fills" onclick="openRpnlKind('fills')">Fills</button>
-        <button class="btn" type="button" data-rpnl-kind="orders" onclick="openRpnlKind('orders')">Orders</button>
-        <button class="btn" type="button" data-rpnl-kind="events" onclick="openRpnlKind('events')">Events</button>
-        <button class="btn" type="button" data-rpnl-kind="positions" onclick="openRpnlKind('positions')">Positions</button>
-        <button class="btn" type="button" data-rpnl-kind="account_balances" onclick="openRpnlKind('account_balances')">Balances</button>
-      </div>
+      </span>
+      <select id="rpnlKindScope" title="Which rows" onchange="rpnlKindReload()">
+        <option value="contract" selected>This contract</option>
+        <option value="all">All</option>
+      </select>
       <b id="rpnlLogsTitle">Logs</b>
       <span id="rpnlLogsStatus" class="ctrl-meta"></span>
       <input type="search" id="rpnlKindSearch" class="rp-kind-search" placeholder="search fate, pause…" onkeydown="if(event.key==='Enter') rpnlKindReload()" />
       <button class="btn" type="button" onclick="rpnlKindReload()">Refresh</button>
-      <button class="btn" type="button" id="rpnlKindOlderBtn" onclick="rpnlKindLoadMore()">Older</button>
       <label class="rp-check" id="rpnlKindLiveWrap"><input type="checkbox" id="rpnlLogsLive" checked /> Live</label>
-      <button class="btn" type="button" onclick="exportRpnlOpenKind()">CSV</button>
+      <button class="btn" type="button" onclick="exportRpnlOpenKind()" title="CSV of the current From/To + filters">Export CSV</button>
       <button class="btn" type="button" onclick="closeRpnlKind()">Close</button>
     </div>
     <div class="logs-box rp-logs-box" id="rpnlLogsBox"></div>
