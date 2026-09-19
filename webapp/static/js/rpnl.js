@@ -103,7 +103,8 @@ let rpnlLoadBusy = false;
 let rpnlNeedsFit = false;
 let rpnlFitTimer = 0;
 let rpnlLastSize = { ow: 0, oh: 0, rw: 0, rh: 0 };
-let rpnlViewFrozen = 0;
+let rpnlSoftPrev = { ohlc: [], vol: [], quote: [], hedge: [], net: [], hist: [] };
+let rpnlFillMarkSig = '';
 let rpnlView         = 'cumul';
 let rpnlPtsCache     = [];
 let rpnlHedgeCache   = [];
@@ -655,18 +656,27 @@ function syncRpnlSymbolSelect(rows) {
   rpnlForceKeepSel = false;
   if (!rows.length) {
     if (keepMissing && keep && keep.indexOf('::') >= 0) {
-      sel.innerHTML = '<option value="' + escHtml(keep) + '">' + escHtml(keep.replace('::', ' · ')) + '</option>';
+      if (sel.options.length !== 1 || sel.options[0].value !== keep) {
+        sel.innerHTML = '<option value="' + escHtml(keep) + '">' + escHtml(keep.replace('::', ' · ')) + '</option>';
+      }
       sel.value = keep;
       return keep;
     }
-    sel.innerHTML = '<option value="">No live bots or fills</option>';
+    if (sel.options.length !== 1 || sel.options[0].value !== '') {
+      sel.innerHTML = '<option value="">No live bots or fills</option>';
+    }
     return '';
   }
   const sorted = rows.slice().sort((a, b) => Number(!!b.live) - Number(!!a.live));
-  sel.innerHTML = sorted.map(c =>
-    '<option value="' + escHtml(rpnlOptionValue(c)) + '">' +
-      escHtml((c.live ? '● ' : '') + (c.label || pillOptionLabel(c))) + '</option>'
-  ).join('');
+  const nextKeys = sorted.map(c => rpnlOptionValue(c) + '\t' + (c.live ? '1' : '0') + '\t' + (c.label || pillOptionLabel(c)));
+  const prevKeys = [...sel.options].map(o => o.value + '\t' + (o.textContent.startsWith('● ') ? '1' : '0') + '\t' + o.textContent.replace(/^● /, ''));
+  const same = nextKeys.length === prevKeys.length && nextKeys.every((k, i) => k === prevKeys[i]);
+  if (!same) {
+    sel.innerHTML = sorted.map(c =>
+      '<option value="' + escHtml(rpnlOptionValue(c)) + '">' +
+        escHtml((c.live ? '● ' : '') + (c.label || pillOptionLabel(c))) + '</option>'
+    ).join('');
+  }
   if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
   else if (keep) {
     const hit = [...sel.options].find(o => rpnlSelMatch(o.value, keep));
@@ -678,7 +688,7 @@ function syncRpnlSymbolSelect(rows) {
       sel.appendChild(opt);
       sel.value = keep;
     } else sel.selectedIndex = 0;
-  } else sel.selectedIndex = 0;
+  } else if (!same) sel.selectedIndex = 0;
   return sel.value;
 }
 
@@ -1195,10 +1205,19 @@ function fillMarkersFromFills(fills, bars, hedgeOnly) {
   }).sort((a, b) => a.time - b.time);
 }
 
-function applyRpnlFillMarkers() {
+function applyRpnlFillMarkers(force) {
   const fills = rpnlFillsCache || [];
   const snap = rpnlPtsCache.length ? rpnlPtsCache : ohlcBarsCache;
   const venue = currentRpnlVenue();
+  const sig = [
+    venue, rpnlView, fills.length,
+    fills.length ? fills[0].time : 0,
+    fills.length ? fills[fills.length - 1].time : 0,
+    fills.length ? fills[fills.length - 1].rpnl : 0,
+    snap.length,
+  ].join(':');
+  if (!force && sig === rpnlFillMarkSig) return;
+  rpnlFillMarkSig = sig;
   const deltaMarks = venue === 'hedge' ? [] : fillMarkersFromFills(fills, snap, false);
   const hedgeMarks = (venue === 'quote' || !rpnlMeta.has_hedge)
     ? [] : fillMarkersFromFills(fills, snap, true);
@@ -1252,25 +1271,21 @@ function rpnlLogicalLooksUnfitted() {
 function captureRpnlView() {
   if (!ohlcChart) return null;
   try {
-    const ts = ohlcChart.timeScale();
-    const logical = ts.getVisibleLogicalRange();
+    const logical = ohlcChart.timeScale().getVisibleLogicalRange();
+    if (!logical || !(logical.to > logical.from)) return null;
     let timeRange = null;
-    try { timeRange = ts.getVisibleRange(); } catch (e) {}
-    let scrollPos = null;
-    try { scrollPos = ts.scrollPosition(); } catch (e) {}
+    try { timeRange = ohlcChart.timeScale().getVisibleRange(); } catch (e) {}
     let barSpacing, rightOffset;
     try {
-      const opts = ts.options();
+      const opts = ohlcChart.timeScale().options();
       barSpacing = opts.barSpacing;
       rightOffset = opts.rightOffset;
     } catch (e) {}
-    if ((!logical || !(logical.to > logical.from)) && !timeRange) return null;
     return {
-      logical: logical ? { from: logical.from, to: logical.to } : null,
-      timeRange: timeRange ? { from: timeRange.from, to: timeRange.to } : null,
-      scrollPos,
-      barSpacing,
-      rightOffset,
+      logical: { from: logical.from, to: logical.to },
+      timeRange: timeRange && timeRange.from != null && timeRange.to != null
+        ? { from: timeRange.from, to: timeRange.to } : null,
+      barSpacing, rightOffset,
     };
   } catch (e) { return null; }
 }
@@ -1285,27 +1300,11 @@ function restoreRpnlView(snap) {
       ohlcChart.timeScale().applyOptions(opts);
       rpnlChart.timeScale().applyOptions(opts);
     }
-    let ok = false;
-    if (snap.timeRange && snap.timeRange.from != null && snap.timeRange.to != null) {
-      try {
-        ohlcChart.timeScale().setVisibleRange(snap.timeRange);
-        rpnlChart.timeScale().setVisibleRange(snap.timeRange);
-        ok = true;
-      } catch (e) {}
-    }
-    if (!ok && snap.logical) {
-      try {
-        ohlcChart.timeScale().setVisibleLogicalRange(snap.logical);
-        ok = true;
-      } catch (e) {}
-    }
-    if (snap.scrollPos != null && isFinite(snap.scrollPos)) {
-      try {
-        ohlcChart.timeScale().scrollToPosition(snap.scrollPos, false);
-        rpnlChart.timeScale().scrollToPosition(snap.scrollPos, false);
-      } catch (e) {}
-    }
-    if (!ok) {
+    if (snap.timeRange) {
+      ohlcChart.timeScale().setVisibleRange(snap.timeRange);
+    } else if (snap.logical) {
+      ohlcChart.timeScale().setVisibleLogicalRange(snap.logical);
+    } else {
       rpnlSyncing = false;
       return false;
     }
@@ -1318,101 +1317,53 @@ function restoreRpnlView(snap) {
   return true;
 }
 
-/** setData without letting the chart flash a fit-all view. */
-function setDataKeepView(series, data, snap) {
-  if (!series) return;
-  if (!snap) {
-    series.setData(data);
-    return;
-  }
-  rpnlViewFrozen++;
-  rpnlSyncing = true;
-  try {
-    series.setData(data);
-    restoreRpnlView(snap);
-  } catch (e) {
-    try { series.setData(data); } catch (e2) {}
-  } finally {
-    rpnlSyncing = false;
-    rpnlViewFrozen--;
-  }
-}
-
-function ohlcBarEq(a, b) {
-  return a && b && a.time === b.time && a.open === b.open && a.high === b.high &&
-    a.low === b.low && a.close === b.close &&
-    (a.volume == null ? 0 : a.volume) === (b.volume == null ? 0 : b.volume);
-}
-
-function linePtEq(a, b) {
-  return a && b && a.time === b.time && Number(a.value) === Number(b.value);
-}
-
-/** Merge API bars into existing cache: keep history, refresh tip, append newer only. */
-function mergeSeriesTip(prev, incoming) {
-  prev = prev || [];
-  incoming = incoming || [];
-  if (!prev.length) return incoming.slice();
-  if (!incoming.length) return prev.slice();
-  const byT = new Map(incoming.map(p => [p.time, p]));
-  const lastT = prev[prev.length - 1].time;
-  const out = prev.slice();
-  if (byT.has(lastT)) out[out.length - 1] = byT.get(lastT);
-  for (const p of incoming) {
-    if (p.time > lastT) out.push(p);
-  }
-  return out;
-}
-
-/**
- * Auto-refresh path: NEVER setData (that reflows/stretches the zoom).
- * Only update() the current tip and append newer points.
- * Returns 'skip' | 'update' | 'replace'.
- */
-function applyOhlcBarsSmooth(bars, keepRange, snap, prev) {
-  if (!ohlcSeries) return 'skip';
-  prev = prev || [];
-  if (!keepRange || !prev.length) {
-    setDataKeepView(ohlcSeries, bars, keepRange ? snap : null);
-    return 'replace';
-  }
-  if (!bars.length) return 'skip';
-
-  const lastT = prev[prev.length - 1].time;
-  const byT = new Map(bars.map(b => [b.time, b]));
-  let changed = false;
-
-  const tip = byT.get(lastT);
-  if (tip && !ohlcBarEq(prev[prev.length - 1], tip)) {
-    try { ohlcSeries.update(tip); changed = true; } catch (e) { /* keep old */ }
-  }
-  for (const b of bars) {
-    if (b.time <= lastT) continue;
-    try { ohlcSeries.update(b); changed = true; } catch (e) { break; }
-  }
-  return changed ? 'update' : 'skip';
-}
-
-/** Same tip-only rule for line / step series. */
-function applyLineSmooth(series, next, prev, keepRange, snap) {
-  if (!series) return;
-  prev = prev || [];
+/** Soft-apply series data: prefer update() so the viewport does not jump. Returns true if full setData ran. */
+function softSetSeriesData(series, next, prev, kind) {
+  if (!series) return false;
   next = next || [];
-  if (!keepRange || !prev.length) {
-    setDataKeepView(series, next, keepRange ? snap : null);
-    return;
+  prev = prev || [];
+  if (!next.length) {
+    if (prev.length) { try { series.setData([]); } catch (e) {} }
+    return !!prev.length;
   }
-  if (!next.length) return;
-
-  const lastT = prev[prev.length - 1].time;
-  const byT = new Map(next.map(p => [p.time, p]));
-  const tip = byT.get(lastT);
-  if (tip && !linePtEq(prev[prev.length - 1], tip)) {
-    try { series.update(tip); } catch (e) {}
-  }
-  for (const p of next) {
-    if (p.time <= lastT) continue;
-    try { series.update(p); } catch (e) { break; }
+  try {
+    if (prev.length && prev[0].time === next[0].time) {
+      if (next.length === prev.length + 1 &&
+          prev[prev.length - 1].time === next[next.length - 2].time) {
+        series.update(next[next.length - 1]);
+        return false;
+      }
+      if (next.length === prev.length) {
+        const mid = next.length >> 1;
+        const sameSpine = prev[mid].time === next[mid].time &&
+          (kind === 'candle'
+            ? prev[mid].close === next[mid].close
+            : prev[mid].value === next[mid].value);
+        if (sameSpine) {
+          const p = prev[prev.length - 1], n = next[next.length - 1];
+          if (kind === 'candle') {
+            if (p.time === n.time &&
+                (p.open !== n.open || p.high !== n.high || p.low !== n.low ||
+                 p.close !== n.close || (p.volume || 0) !== (n.volume || 0))) {
+              series.update(n);
+              return false;
+            }
+            if (p.time === n.time) return false;
+          } else {
+            if (p.time === n.time && p.value !== n.value) {
+              series.update(n);
+              return false;
+            }
+            if (p.time === n.time) return false;
+          }
+        }
+      }
+    }
+    series.setData(next);
+    return true;
+  } catch (e) {
+    try { series.setData(next); } catch (e2) {}
+    return true;
   }
 }
 
@@ -1861,16 +1812,11 @@ function applyRpnlChartSize() {
 }
 function resizeRpnlCharts() {
   if (!rpnlPageVisible()) return;
-  if (rpnlViewFrozen) {
-    applyRpnlChartSize();
-    return;
-  }
   if (!applyRpnlChartSize()) {
     if (rpnlNeedsFit || rpnlLogicalLooksUnfitted()) scheduleRpnlFit();
     return;
   }
   requestAnimationFrame(() => {
-    if (rpnlViewFrozen) return;
     if (ohlcBarsCache.length || rpnlPtsCache.length) {
       if (rpnlNeedsFit || rpnlLogicalLooksUnfitted()) {
         if (!tryRpnlFit()) scheduleRpnlFit();
@@ -1884,6 +1830,7 @@ function resizeRpnlCharts() {
       }
     }
     rpnlPaintBrush();
+    ohlcOrderSig = '';
     applyOhlcOrderLines(quotesForCurrentRpnl());
   });
 }
@@ -1995,29 +1942,41 @@ function netFromCaches(deltaPts, hedgePts) {
   });
 }
 
-function applyRpnlData(pts, keepRange, snap, prevPts, prevHedge) {
+function applyRpnlData(pts, keepRange) {
   const venue = currentRpnlVenue();
   const showDelta = venue !== 'hedge';
   const hedgePts = rpnlHedgeCache;
   const showHedge = venue !== 'quote' && rpnlMeta.has_hedge && hedgePts.length > 0;
   const netPts = (showDelta && showHedge) ? netFromCaches(pts, hedgePts) : [];
-  const oldPts = prevPts || [];
-  const oldHedge = prevHedge || [];
+  let hard = !keepRange;
   if (rpnlView === 'cumul') {
     rpnlSeries.applyOptions({ visible: showDelta });
     rpnlHistSeries.applyOptions({ visible: false });
-    applyLineSmooth(rpnlSeries, showDelta ? pts : [], showDelta ? oldPts : [], keepRange, snap);
+    if (showDelta) {
+      if (softSetSeriesData(rpnlSeries, pts, keepRange ? rpnlSoftPrev.quote : [], 'line')) hard = true;
+      rpnlSoftPrev.quote = pts;
+    } else {
+      if (rpnlSoftPrev.quote.length) { try { rpnlSeries.setData([]); } catch (e) {} }
+      rpnlSoftPrev.quote = [];
+    }
     if (rpnlHedgeSeries) {
       rpnlHedgeSeries.applyOptions({ visible: showHedge });
-      applyLineSmooth(rpnlHedgeSeries, showHedge ? hedgePts : [], showHedge ? oldHedge : [], keepRange, snap);
+      if (showHedge) {
+        if (softSetSeriesData(rpnlHedgeSeries, hedgePts, keepRange ? rpnlSoftPrev.hedge : [], 'line')) hard = true;
+        rpnlSoftPrev.hedge = hedgePts;
+      } else {
+        if (rpnlSoftPrev.hedge.length) { try { rpnlHedgeSeries.setData([]); } catch (e) {} }
+        rpnlSoftPrev.hedge = [];
+      }
     }
     if (rpnlNetSeries) {
       rpnlNetSeries.applyOptions({ visible: netPts.length > 0 });
-      if (keepRange && oldPts.length) {
-        const prevNet = netFromCaches(oldPts, oldHedge);
-        applyLineSmooth(rpnlNetSeries, netPts, prevNet, true, snap);
+      if (netPts.length) {
+        if (softSetSeriesData(rpnlNetSeries, netPts, keepRange ? rpnlSoftPrev.net : [], 'line')) hard = true;
+        rpnlSoftPrev.net = netPts;
       } else {
-        setDataKeepView(rpnlNetSeries, netPts, null);
+        if (rpnlSoftPrev.net.length) { try { rpnlNetSeries.setData([]); } catch (e) {} }
+        rpnlSoftPrev.net = [];
       }
     }
   } else {
@@ -2031,21 +1990,15 @@ function applyRpnlData(pts, keepRange, snap, prevPts, prevHedge) {
       const val = i === 0 ? p.value : parseFloat((p.value - src[i-1].value).toFixed(4));
       return { time: p.time, value: val, color: val >= 0 ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)' };
     });
-    if (keepRange && oldPts.length) {
-      const prevSrc = venue === 'both' && oldHedge.length
-        ? netFromCaches(oldPts, oldHedge)
-        : (venue === 'hedge' ? oldHedge : oldPts);
-      const prevBars = prevSrc.map((p, i) => {
-        const val = i === 0 ? p.value : parseFloat((p.value - prevSrc[i-1].value).toFixed(4));
-        return { time: p.time, value: val, color: val >= 0 ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)' };
-      });
-      applyLineSmooth(rpnlHistSeries, bars, prevBars, true, snap);
-    } else {
-      setDataKeepView(rpnlHistSeries, bars, null);
-    }
+    if (softSetSeriesData(rpnlHistSeries, bars, keepRange ? rpnlSoftPrev.hist : [], 'line')) hard = true;
+    rpnlSoftPrev.hist = bars;
+    rpnlSoftPrev.quote = [];
+    rpnlSoftPrev.hedge = [];
+    rpnlSoftPrev.net = [];
   }
   applyRpnlFillMarkers();
   if (!keepRange) fitRpnlView();
+  return hard;
 }
 
 async function extendRpnl() {
@@ -2071,6 +2024,8 @@ async function extendRpnl() {
 
 function clearRpnlCharts() {
   rpnlPtsCache = []; rpnlHedgeCache = []; rpnlFillsCache = []; ohlcBarsCache = [];
+  rpnlSoftPrev = { ohlc: [], vol: [], quote: [], hedge: [], net: [], hist: [] };
+  rpnlFillMarkSig = '';
   clearOhlcOrderLines();
   try {
     if (rpnlSeries) rpnlSeries.setData([]);
@@ -2194,44 +2149,41 @@ async function loadRpnl(keepRange) {
       try { if (cR) body = await cR.json(); } catch (e) {}
       candleNote = ' · candles failed: ' + (body.detail || (cR && cR.statusText) || 'network');
     }
-    const prevBars = ohlcBarsCache;
-    const mergedBars = keepRange && prevBars.length ? mergeSeriesTip(prevBars, bars) : bars;
-    ohlcBarsCache = mergedBars;
-    setOhlcEmpty(!mergedBars.length, mergedBars.length ? '' : ((candleNote || '').replace(/^ · /, '') || 'No price candles for this window'));
-    let ohlcHow = 'replace';
+    ohlcBarsCache = bars;
+    setOhlcEmpty(!bars.length, bars.length ? '' : ((candleNote || '').replace(/^ · /, '') || 'No price candles for this window'));
+    let hardReplace = !keepRange;
+    const prevOhlc = keepRange ? rpnlSoftPrev.ohlc : [];
     try {
-      ohlcHow = applyOhlcBarsSmooth(bars, keepRange, savedView, prevBars);
+      if (ohlcSeries) {
+        if (softSetSeriesData(ohlcSeries, bars, prevOhlc, 'candle')) hardReplace = true;
+        rpnlSoftPrev.ohlc = bars.slice();
+      }
     } catch (e) {
       ohlcBarsCache = [];
+      rpnlSoftPrev.ohlc = [];
       setOhlcEmpty(true, 'Price chart could not render these candles');
-      ohlcHow = 'replace';
+      hardReplace = true;
     }
     const vols = volumeBarsFromOhlc(ohlcBarsCache);
     if (ohlcVolSeries) {
-      if (ohlcHow === 'replace' || !keepRange) {
-        setDataKeepView(ohlcVolSeries, vols, null);
-      } else if (ohlcHow === 'update' && vols.length) {
-        try { ohlcVolSeries.update(vols[vols.length - 1]); } catch (e) {}
-      }
+      if (softSetSeriesData(ohlcVolSeries, vols, keepRange ? rpnlSoftPrev.vol : [], 'line')) hardReplace = true;
+      rpnlSoftPrev.vol = vols;
     }
     if (ohlcHedgeMarkerSeries) {
-      const marks = ohlcBarsCache.map(b => ({ time: b.time, value: b.close }));
-      if (ohlcHow === 'replace' || !keepRange) {
-        setDataKeepView(ohlcHedgeMarkerSeries, marks, null);
-      } else if (ohlcHow === 'update' && marks.length) {
-        try { ohlcHedgeMarkerSeries.update(marks[marks.length - 1]); } catch (e) {}
-      }
+      const closes = ohlcBarsCache.map(b => ({ time: b.time, value: b.close }));
+      softSetSeriesData(
+        ohlcHedgeMarkerSeries,
+        closes,
+        prevOhlc.map(b => ({ time: b.time, value: b.close })),
+        'line',
+      );
     }
 
-    const prevPts = rpnlPtsCache;
-    const prevHedge = rpnlHedgeCache;
-    const alignedPts = ohlcBarsCache.length ? alignRpnlToBars(filled, ohlcBarsCache) : filled;
-    const alignedHedge = hedgeFilled.length && ohlcBarsCache.length
+    rpnlPtsCache = ohlcBarsCache.length ? alignRpnlToBars(filled, ohlcBarsCache) : filled;
+    rpnlHedgeCache = hedgeFilled.length && ohlcBarsCache.length
       ? alignRpnlToBars(hedgeFilled, ohlcBarsCache)
       : hedgeFilled;
-    rpnlPtsCache = keepRange && prevPts.length ? mergeSeriesTip(prevPts, alignedPts) : alignedPts;
-    rpnlHedgeCache = keepRange && prevHedge.length ? mergeSeriesTip(prevHedge, alignedHedge) : alignedHedge;
-    applyRpnlData(rpnlPtsCache, keepRange, savedView, prevPts, prevHedge);
+    if (applyRpnlData(rpnlPtsCache, keepRange)) hardReplace = true;
 
     if (ohlcSeries && fR && fR.ok) {
       const fd = await fR.json();
@@ -2252,17 +2204,17 @@ async function loadRpnl(keepRange) {
         if (ohlcHedgeMarkerSeries) {
           ohlcHedgeMarkerSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, ohlcBarsCache, true));
         }
-        applyRpnlFillMarkers();
+        applyRpnlFillMarkers(true);
       }
-    } else if (!keepRange) {
+    } else if (!keepRange || rpnlFillsCache.length) {
       rpnlFillsCache = [];
-      applyRpnlFillMarkers();
+      applyRpnlFillMarkers(true);
     }
 
     applyOhlcOrderLines(quotesForCurrentRpnl());
 
-    // Tip-only refresh must not touch the time scale at all.
-    if (keepRange) {
+    if (keepRange && savedView) {
+      if (hardReplace) restoreRpnlView(savedView);
       rpnlNeedsFit = false;
     } else {
       rpnlNeedsFit = true;
