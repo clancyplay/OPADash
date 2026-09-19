@@ -1344,62 +1344,76 @@ function ohlcBarEq(a, b) {
     (a.volume == null ? 0 : a.volume) === (b.volume == null ? 0 : b.volume);
 }
 
-/** Prefer tip update() so auto-refresh does not reset the time scale.
- *  Returns 'skip' | 'update' | 'replace'. */
+function linePtEq(a, b) {
+  return a && b && a.time === b.time && Number(a.value) === Number(b.value);
+}
+
+/** Merge API bars into existing cache: keep history, refresh tip, append newer only. */
+function mergeSeriesTip(prev, incoming) {
+  prev = prev || [];
+  incoming = incoming || [];
+  if (!prev.length) return incoming.slice();
+  if (!incoming.length) return prev.slice();
+  const byT = new Map(incoming.map(p => [p.time, p]));
+  const lastT = prev[prev.length - 1].time;
+  const out = prev.slice();
+  if (byT.has(lastT)) out[out.length - 1] = byT.get(lastT);
+  for (const p of incoming) {
+    if (p.time > lastT) out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Auto-refresh path: NEVER setData (that reflows/stretches the zoom).
+ * Only update() the current tip and append newer points.
+ * Returns 'skip' | 'update' | 'replace'.
+ */
 function applyOhlcBarsSmooth(bars, keepRange, snap, prev) {
   if (!ohlcSeries) return 'skip';
   prev = prev || [];
-  if (keepRange && prev.length && bars.length) {
-    if (prev.length === bars.length && prev[0].time === bars[0].time) {
-      let i = 0;
-      while (i < prev.length && ohlcBarEq(prev[i], bars[i])) i++;
-      if (i === prev.length) return 'skip';
-      if (i === prev.length - 1) {
-        try { ohlcSeries.update(bars[i]); return 'update'; } catch (e) {}
-      }
-    }
-    if (bars.length === prev.length + 1 && prev[0].time === bars[0].time &&
-        prev[prev.length - 1].time === bars[bars.length - 2].time) {
-      let same = true;
-      for (let i = 0; i < prev.length - 1 && same; i++) same = ohlcBarEq(prev[i], bars[i]);
-      if (same) {
-        try {
-          ohlcSeries.update(bars[prev.length - 1]);
-          ohlcSeries.update(bars[bars.length - 1]);
-          return 'update';
-        } catch (e) {}
-      }
-    }
+  if (!keepRange || !prev.length) {
+    setDataKeepView(ohlcSeries, bars, keepRange ? snap : null);
+    return 'replace';
   }
-  setDataKeepView(ohlcSeries, bars, keepRange ? snap : null);
-  return 'replace';
+  if (!bars.length) return 'skip';
+
+  const lastT = prev[prev.length - 1].time;
+  const byT = new Map(bars.map(b => [b.time, b]));
+  let changed = false;
+
+  const tip = byT.get(lastT);
+  if (tip && !ohlcBarEq(prev[prev.length - 1], tip)) {
+    try { ohlcSeries.update(tip); changed = true; } catch (e) { /* keep old */ }
+  }
+  for (const b of bars) {
+    if (b.time <= lastT) continue;
+    try { ohlcSeries.update(b); changed = true; } catch (e) { break; }
+  }
+  return changed ? 'update' : 'skip';
 }
 
-function linePtEq(a, b) {
-  return a && b && a.time === b.time && a.value === b.value;
-}
-
+/** Same tip-only rule for line / step series. */
 function applyLineSmooth(series, next, prev, keepRange, snap) {
   if (!series) return;
-  if (keepRange && prev && prev.length && next.length) {
-    if (prev.length === next.length && prev[0].time === next[0].time) {
-      let i = 0;
-      while (i < prev.length && linePtEq(prev[i], next[i])) i++;
-      if (i === prev.length) return;
-      if (i === prev.length - 1) {
-        try { series.update(next[i]); return; } catch (e) {}
-      }
-    }
-    if (next.length === prev.length + 1 && prev[0].time === next[0].time &&
-        prev[prev.length - 1].time === next[next.length - 2].time) {
-      try {
-        series.update(next[prev.length - 1]);
-        series.update(next[next.length - 1]);
-        return;
-      } catch (e) {}
-    }
+  prev = prev || [];
+  next = next || [];
+  if (!keepRange || !prev.length) {
+    setDataKeepView(series, next, keepRange ? snap : null);
+    return;
   }
-  setDataKeepView(series, next, keepRange ? snap : null);
+  if (!next.length) return;
+
+  const lastT = prev[prev.length - 1].time;
+  const byT = new Map(next.map(p => [p.time, p]));
+  const tip = byT.get(lastT);
+  if (tip && !linePtEq(prev[prev.length - 1], tip)) {
+    try { series.update(tip); } catch (e) {}
+  }
+  for (const p of next) {
+    if (p.time <= lastT) continue;
+    try { series.update(p); } catch (e) { break; }
+  }
 }
 
 function tryRpnlFit() {
@@ -1999,7 +2013,12 @@ function applyRpnlData(pts, keepRange, snap, prevPts, prevHedge) {
     }
     if (rpnlNetSeries) {
       rpnlNetSeries.applyOptions({ visible: netPts.length > 0 });
-      setDataKeepView(rpnlNetSeries, netPts, keepRange ? snap : null);
+      if (keepRange && oldPts.length) {
+        const prevNet = netFromCaches(oldPts, oldHedge);
+        applyLineSmooth(rpnlNetSeries, netPts, prevNet, true, snap);
+      } else {
+        setDataKeepView(rpnlNetSeries, netPts, null);
+      }
     }
   } else {
     rpnlSeries.applyOptions({ visible: false });
@@ -2012,7 +2031,18 @@ function applyRpnlData(pts, keepRange, snap, prevPts, prevHedge) {
       const val = i === 0 ? p.value : parseFloat((p.value - src[i-1].value).toFixed(4));
       return { time: p.time, value: val, color: val >= 0 ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)' };
     });
-    setDataKeepView(rpnlHistSeries, bars, keepRange ? snap : null);
+    if (keepRange && oldPts.length) {
+      const prevSrc = venue === 'both' && oldHedge.length
+        ? netFromCaches(oldPts, oldHedge)
+        : (venue === 'hedge' ? oldHedge : oldPts);
+      const prevBars = prevSrc.map((p, i) => {
+        const val = i === 0 ? p.value : parseFloat((p.value - prevSrc[i-1].value).toFixed(4));
+        return { time: p.time, value: val, color: val >= 0 ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)' };
+      });
+      applyLineSmooth(rpnlHistSeries, bars, prevBars, true, snap);
+    } else {
+      setDataKeepView(rpnlHistSeries, bars, null);
+    }
   }
   applyRpnlFillMarkers();
   if (!keepRange) fitRpnlView();
@@ -2165,8 +2195,9 @@ async function loadRpnl(keepRange) {
       candleNote = ' · candles failed: ' + (body.detail || (cR && cR.statusText) || 'network');
     }
     const prevBars = ohlcBarsCache;
-    ohlcBarsCache = bars;
-    setOhlcEmpty(!bars.length, bars.length ? '' : ((candleNote || '').replace(/^ · /, '') || 'No price candles for this window'));
+    const mergedBars = keepRange && prevBars.length ? mergeSeriesTip(prevBars, bars) : bars;
+    ohlcBarsCache = mergedBars;
+    setOhlcEmpty(!mergedBars.length, mergedBars.length ? '' : ((candleNote || '').replace(/^ · /, '') || 'No price candles for this window'));
     let ohlcHow = 'replace';
     try {
       ohlcHow = applyOhlcBarsSmooth(bars, keepRange, savedView, prevBars);
@@ -2178,30 +2209,28 @@ async function loadRpnl(keepRange) {
     const vols = volumeBarsFromOhlc(ohlcBarsCache);
     if (ohlcVolSeries) {
       if (ohlcHow === 'replace' || !keepRange) {
-        setDataKeepView(ohlcVolSeries, vols, keepRange ? savedView : null);
+        setDataKeepView(ohlcVolSeries, vols, null);
       } else if (ohlcHow === 'update' && vols.length) {
-        try { ohlcVolSeries.update(vols[vols.length - 1]); } catch (e) {
-          setDataKeepView(ohlcVolSeries, vols, savedView);
-        }
+        try { ohlcVolSeries.update(vols[vols.length - 1]); } catch (e) {}
       }
     }
     if (ohlcHedgeMarkerSeries) {
       const marks = ohlcBarsCache.map(b => ({ time: b.time, value: b.close }));
       if (ohlcHow === 'replace' || !keepRange) {
-        setDataKeepView(ohlcHedgeMarkerSeries, marks, keepRange ? savedView : null);
+        setDataKeepView(ohlcHedgeMarkerSeries, marks, null);
       } else if (ohlcHow === 'update' && marks.length) {
-        try { ohlcHedgeMarkerSeries.update(marks[marks.length - 1]); } catch (e) {
-          setDataKeepView(ohlcHedgeMarkerSeries, marks, savedView);
-        }
+        try { ohlcHedgeMarkerSeries.update(marks[marks.length - 1]); } catch (e) {}
       }
     }
 
     const prevPts = rpnlPtsCache;
     const prevHedge = rpnlHedgeCache;
-    rpnlPtsCache = ohlcBarsCache.length ? alignRpnlToBars(filled, ohlcBarsCache) : filled;
-    rpnlHedgeCache = hedgeFilled.length && ohlcBarsCache.length
+    const alignedPts = ohlcBarsCache.length ? alignRpnlToBars(filled, ohlcBarsCache) : filled;
+    const alignedHedge = hedgeFilled.length && ohlcBarsCache.length
       ? alignRpnlToBars(hedgeFilled, ohlcBarsCache)
       : hedgeFilled;
+    rpnlPtsCache = keepRange && prevPts.length ? mergeSeriesTip(prevPts, alignedPts) : alignedPts;
+    rpnlHedgeCache = keepRange && prevHedge.length ? mergeSeriesTip(prevHedge, alignedHedge) : alignedHedge;
     applyRpnlData(rpnlPtsCache, keepRange, savedView, prevPts, prevHedge);
 
     if (ohlcSeries && fR && fR.ok) {
@@ -2213,21 +2242,27 @@ async function loadRpnl(keepRange) {
         if (seq !== rpnlLoadSeq) return;
         fills = fills.concat(hf.fills || []);
       }
+      const fillSig = fills.length + ':' + (fills[0] && fills[0].time) + ':' +
+        (fills.length && fills[fills.length - 1].time) + ':' + fills.length;
+      const prevFillSig = (rpnlFillsCache.length) + ':' + (rpnlFillsCache[0] && rpnlFillsCache[0].time) + ':' +
+        (rpnlFillsCache.length && rpnlFillsCache[rpnlFillsCache.length - 1].time) + ':' + rpnlFillsCache.length;
       rpnlFillsCache = fills;
-      ohlcSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, ohlcBarsCache, false));
-      if (ohlcHedgeMarkerSeries) {
-        ohlcHedgeMarkerSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, ohlcBarsCache, true));
+      if (!keepRange || fillSig !== prevFillSig) {
+        ohlcSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, ohlcBarsCache, false));
+        if (ohlcHedgeMarkerSeries) {
+          ohlcHedgeMarkerSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, ohlcBarsCache, true));
+        }
+        applyRpnlFillMarkers();
       }
-      applyRpnlFillMarkers();
-    } else {
+    } else if (!keepRange) {
       rpnlFillsCache = [];
       applyRpnlFillMarkers();
     }
 
     applyOhlcOrderLines(quotesForCurrentRpnl());
 
-    if (keepRange && savedView) {
-      restoreRpnlView(savedView);
+    // Tip-only refresh must not touch the time scale at all.
+    if (keepRange) {
       rpnlNeedsFit = false;
     } else {
       rpnlNeedsFit = true;
