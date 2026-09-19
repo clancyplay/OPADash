@@ -102,6 +102,7 @@ let rpnlQuoteTimer = null;
 let rpnlLoadBusy = false;
 let rpnlNeedsFit = false;
 let rpnlFitTimer = 0;
+let rpnlLastSize = { ow: 0, oh: 0, rw: 0, rh: 0 };
 let rpnlView         = 'cumul';
 let rpnlPtsCache     = [];
 let rpnlHedgeCache   = [];
@@ -152,6 +153,23 @@ function fmtG(v) {
   if (!isFinite(n)) return String(v);
   if (Number.isInteger(n)) return String(n);
   return String(parseFloat(n.toPrecision(6)));
+}
+
+/** Full order/candle price for axis + line labels — do not chop tick decimals. */
+function fmtPxFull(v) {
+  const n = Number(v);
+  if (!isFinite(n)) return String(v ?? '');
+  const a = Math.abs(n);
+  const s = n < 0 ? '−' : '';
+  let d;
+  if (a >= 1000) d = 2;
+  else if (a >= 100) d = 3;
+  else if (a >= 1) d = 4;
+  else if (a >= 0.01) d = 6;
+  else d = 8;
+  let out = a.toFixed(d);
+  if (out.indexOf('.') >= 0) out = out.replace(/0+$/, '').replace(/\.$/, '');
+  return s + out;
 }
 
 function rpnlModeText(s, brief) {
@@ -708,7 +726,8 @@ function applyOhlcOrderLines(quotes) {
     const buy = String(q.side || '').toLowerCase() === 'buy';
     const qty = q.qty != null ? fmtG(q.qty) : '';
     const role = q.role ? String(q.role) : '';
-    const title = ((buy ? 'B ' : 'S ') + (role ? role + ' ' : '') + qty).trim();
+    const pxTxt = fmtPxFull(px);
+    const title = ((buy ? 'B ' : 'S ') + (role ? role + ' ' : '') + qty + (pxTxt ? ' @ ' + pxTxt : '')).trim();
     try {
       ohlcOrderLines.push(ohlcSeries.createPriceLine({
         price: px,
@@ -1223,12 +1242,47 @@ function rpnlLogicalLooksUnfitted() {
   try {
     const vr = ohlcChart.timeScale().getVisibleLogicalRange();
     if (!vr) return true;
-    if (vr.from < -1) return true;
     const span = vr.to - vr.from;
-    if (span < 1) return true;
-    if (span > n + 16) return true;
+    if (!(span > 0.5)) return true;
+    // Broken first-paint only — not normal zoom/pan (from can be < 0 with padding).
+    if (span > n * 3 + 40) return true;
     return false;
   } catch (e) { return true; }
+}
+
+function captureRpnlView() {
+  if (!ohlcChart) return null;
+  try {
+    const logical = ohlcChart.timeScale().getVisibleLogicalRange();
+    if (!logical || !(logical.to > logical.from)) return null;
+    let barSpacing, rightOffset;
+    try {
+      const opts = ohlcChart.timeScale().options();
+      barSpacing = opts.barSpacing;
+      rightOffset = opts.rightOffset;
+    } catch (e) {}
+    return { logical: { from: logical.from, to: logical.to }, barSpacing, rightOffset };
+  } catch (e) { return null; }
+}
+
+function restoreRpnlView(snap) {
+  if (!snap || !snap.logical || !ohlcChart || !rpnlChart) return false;
+  rpnlSyncing = true;
+  try {
+    if (snap.barSpacing != null) {
+      const opts = { barSpacing: snap.barSpacing };
+      if (snap.rightOffset != null) opts.rightOffset = snap.rightOffset;
+      ohlcChart.timeScale().applyOptions(opts);
+      rpnlChart.timeScale().applyOptions(opts);
+    }
+    ohlcChart.timeScale().setVisibleLogicalRange(snap.logical);
+  } catch (e) {
+    rpnlSyncing = false;
+    return false;
+  }
+  rpnlSyncing = false;
+  syncRpnlTimeScale('ohlc');
+  return true;
 }
 
 function tryRpnlFit() {
@@ -1505,14 +1559,8 @@ function initRpnl() {
     borderUpColor: '#26a69a', borderDownColor: '#ef5350',
     wickUpColor: '#26a69a', wickDownColor: '#ef5350',
     lastValueVisible: true, priceLineVisible: true,
-    priceFormat: { type: 'custom', minMove: 0.0001, formatter: function (p) {
-      const v = Number(p) || 0;
-      const a = Math.abs(v);
-      const s = v < 0 ? '−' : '';
-      if (a >= 1000) return s + Math.round(a).toString();
-      if (a >= 1) return s + a.toFixed(2);
-      if (a >= 0.01) return s + a.toFixed(4);
-      return s + a.toFixed(6);
+    priceFormat: { type: 'custom', minMove: 0.00000001, formatter: function (p) {
+      return fmtPxFull(p);
     } },
   });
 
@@ -1671,9 +1719,12 @@ function applyRpnlChartSize() {
   const oh = o.clientHeight || (paneO && paneO.clientHeight) || 0;
   const rh = r.clientHeight || (paneR && paneR.clientHeight) || 0;
   if (ow < 8 || oh < 8 || rw < 8 || rh < 8) return false;
+  if (ow === rpnlLastSize.ow && oh === rpnlLastSize.oh &&
+      rw === rpnlLastSize.rw && rh === rpnlLastSize.rh) return true;
   try {
     ohlcChart.applyOptions({ width: ow, height: oh });
     rpnlChart.applyOptions({ width: rw, height: rh });
+    rpnlLastSize = { ow, oh, rw, rh };
   } catch (e) { return false; }
   return true;
 }
@@ -1915,9 +1966,7 @@ async function loadRpnl(keepRange) {
   const venue  = rpnlVenueParam();
   const sym    = picked.contract;
   if (!sym) return;
-  const savedLogical = keepRange && ohlcChart
-    ? ohlcChart.timeScale().getVisibleLogicalRange()
-    : null;
+  const savedView = keepRange ? captureRpnlView() : null;
   const acctBit = '&account=' + encodeURIComponent(picked.account);
   try {
     const stratQ = '&strategy=' + encodeURIComponent(
@@ -2032,21 +2081,19 @@ async function loadRpnl(keepRange) {
     ohlcOrderSig = '';
     applyOhlcOrderLines(quotesForCurrentRpnl());
 
-    applyRpnlChartSize();
-    const rangeOk = savedLogical && savedLogical.to > savedLogical.from && savedLogical.from >= -1;
-    if (keepRange && rangeOk) {
-      rpnlSyncing = true;
-      try { ohlcChart.timeScale().setVisibleLogicalRange(savedLogical); } catch (e) {}
-      rpnlSyncing = false;
-      syncRpnlTimeScale('ohlc');
+    if (keepRange && savedView) {
+      restoreRpnlView(savedView);
       rpnlNeedsFit = false;
+      requestAnimationFrame(function () {
+        if (rpnlLoadSeq === seq) restoreRpnlView(savedView);
+      });
     } else {
       rpnlNeedsFit = true;
     }
 
     if (filled.length === 0 && !hedgeRaw.length && !ohlcBarsCache.length) {
       toast('No fills for ' + (d.contract || sym) + ' in this window.');
-      if (rpnlNeedsFit) scheduleRpnlFit();
+      if (!keepRange && rpnlNeedsFit) scheduleRpnlFit();
       return;
     }
 
@@ -2055,7 +2102,7 @@ async function loadRpnl(keepRange) {
     setRpnlKey(quoteV, hedgeV, d.quote_symbol || d.contract, picked.account);
     if (!rpnlRangePinned) rpnlSyncRangeFromView();
     rpnlPaintBrush();
-    if (rpnlNeedsFit) scheduleRpnlFit();
+    if (!keepRange && rpnlNeedsFit) scheduleRpnlFit();
   } catch(e) {
     console.error('[rPnL] fetch threw:', e);
     showRpnlError('Network or parse error', e.message);
