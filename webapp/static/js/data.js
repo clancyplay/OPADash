@@ -807,11 +807,13 @@ function lgMeta(l) {
 }
 
 function lgRenderLine(l) {
+  const lv = String(l.level || '').trim();
+  const lvCls = logLevelCls(lv);
   return '<div class="log-line"><span class="lt">' + fmtISTs(l.time) + '</span> ' +
     '<span class="lsvc">[' + esc(l.service) + ']</span> ' +
-    '<span class="lv-' + esc(l.level) + '">' + esc(l.level) + '</span> ' +
+    '<span class="' + lvCls + '">' + esc(lv) + '</span> ' +
     lgMeta(l) +
-    '<span style="color:#6b768e">' + esc(l.name || '') + '</span> ' + esc(l.message) + '</div>';
+    '<span style="color:#6b768e">' + esc(fmtLogName(l.name)) + '</span> ' + esc(l.message) + '</div>';
 }
 
 function lgFilterParams(extra) {

@@ -24,6 +24,17 @@ function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 }
 
+function logLevelCls(level) {
+  const u = String(level || '').trim().toUpperCase();
+  if (u === 'DEBUG' || u === 'INFO' || u === 'WARNING' || u === 'ERROR' || u === 'CRITICAL') return 'lv-' + u;
+  if (u === 'WARN') return 'lv-WARNING';
+  return '';
+}
+
+function fmtLogName(name) {
+  return String(name || '').replace(/^(uvicorn|gunicorn)\.(error|access)$/i, '$1');
+}
+
 const PAGE_IDS = ['home', 'balances', 'reports', 'rpnl', 'data'];
 const NAV_IDS  = { home: 'navHome', balances: 'navBalances', reports: 'navReports', rpnl: 'navRpnl', data: 'navData' };
 let rpnlReady = false, reportsReady = false, balancesReady = false, dataReady = false;

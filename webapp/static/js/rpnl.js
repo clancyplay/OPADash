@@ -2469,21 +2469,19 @@ function rpnlFmtLogTime(unixSecs) {
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 }
 
-function rpnlKindHit(text) {
-  return /fate|pause|flatten|grind|trip|size-cool/i.test(String(text || ''));
-}
-
 function rpnlLogLine(l) {
   const bits = [l.strategy, l.contract, l.account, l.exchange].filter(Boolean);
   const chips = bits.map(function (b) {
     return '<span class="lchip">' + escHtml(b) + '</span>';
   }).join('');
-  const hit = rpnlKindHit((l.message || '') + ' ' + (l.name || '') + ' ' + (l.level || ''));
-  return '<div class="log-line' + (hit ? ' rp-kind-hit' : '') + '"><span class="lt">' + rpnlFmtLogTime(l.time) + '</span> ' +
+  const lv = String(l.level || '').trim();
+  const lvCls = logLevelCls(lv);
+  return '<div class="log-line"><span class="lt">' + rpnlFmtLogTime(l.time) + '</span> ' +
     '<span class="lsvc">[' + escHtml(l.service || '') + ']</span> ' +
-    '<span class="lv-' + escHtml(l.level || '') + '">' + escHtml(l.level || '') + '</span> ' +
+    '<span class="' + lvCls + '">' + escHtml(lv) + '</span> ' +
     chips +
-    '<span style="color:#6b768e">' + escHtml(l.name || '') + '</span> ' + escHtml(l.message || '') + '</div>';
+    '<span style="color:#6b768e">' + escHtml(fmtLogName(l.name)) + '</span> ' +
+    escHtml(l.message || '') + '</div>';
 }
 
 function syncRpnlKindButtons() {
@@ -2616,13 +2614,6 @@ function rpnlKindCell(col, v) {
   return escHtml(s);
 }
 
-function rpnlKindRowHit(cols, row) {
-  return cols.some(function (c, i) {
-    return c === 'details' || c === 'status' || c === 'event_type' || c === 'message'
-      ? rpnlKindHit(row[i]) : false;
-  });
-}
-
 async function loadRpnlKindTable(reset) {
   if (!rpnlLogsOpen() || rpnlKind === 'logs' || rpnlKindBusy) return;
   if (!reset && rpnlKindNoMore) return;
@@ -2668,8 +2659,7 @@ async function loadRpnlKindTable(reset) {
       return;
     }
     tb.insertAdjacentHTML('beforeend', rows.map(function (row) {
-      const hit = rpnlKindRowHit(cols, cols.map(function (c) { return row[idx[c]]; }));
-      return '<tr class="' + (hit ? 'rp-kind-hit' : '') + '">' +
+      return '<tr>' +
         cols.map(function (c) { return '<td>' + rpnlKindCell(c, row[idx[c]]) + '</td>'; }).join('') +
         '</tr>';
     }).join(''));

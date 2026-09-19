@@ -515,7 +515,7 @@
     border-radius: 4px; padding: 0 5px; margin: 0 3px 0 0; white-space: nowrap;
   }
   .lv-INFO { color: #7ea6ff; }
-  .lv-WARNING { color: #ffb74d; }
+  .lv-WARNING, .lv-WARN { color: #ffb74d; }
   .lv-ERROR, .lv-CRITICAL { color: #ef5350; font-weight: 700; }
   .lv-DEBUG { color: #9e9e9e; }
 
