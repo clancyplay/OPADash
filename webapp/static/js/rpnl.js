@@ -102,7 +102,11 @@ let rpnlQuoteTimer = null;
 let rpnlLoadBusy = false;
 let rpnlNeedsFit = false;
 let rpnlFitTimer = 0;
+let rpnlHoldSnap = null;
 let rpnlLastSize = { ow: 0, oh: 0, rw: 0, rh: 0 };
+let rpnlLogsLastId = 0;
+let rpnlLogsFirstId = 0;
+let rpnlLogsBusy = false;
 let rpnlView         = 'cumul';
 let rpnlPtsCache     = [];
 let rpnlHedgeCache   = [];
@@ -774,6 +778,7 @@ async function refreshRpnlLive() {
     const rows = filterRpnlWindowRows(await sR.json());
     renderRpnlSummary(rows, hoursArg);
   } catch (e) {}
+  if (rpnlLogsOpen()) loadRpnlLogs(false);
 }
 
 function renderRpnlInspect(row) {
@@ -1263,16 +1268,26 @@ function captureRpnlView() {
   } catch (e) { return null; }
 }
 
-function restoreRpnlView(snap) {
-  if (!snap || !snap.logical || !ohlcChart || !rpnlChart) return false;
+function freezeRpnlView(snap) {
+  if (!snap || !ohlcChart) return;
   rpnlSyncing = true;
   try {
-    if (snap.barSpacing != null) {
-      const opts = { barSpacing: snap.barSpacing };
-      if (snap.rightOffset != null) opts.rightOffset = snap.rightOffset;
+    const opts = {};
+    if (snap.barSpacing != null) opts.barSpacing = snap.barSpacing;
+    if (snap.rightOffset != null) opts.rightOffset = snap.rightOffset;
+    if (Object.keys(opts).length) {
       ohlcChart.timeScale().applyOptions(opts);
-      rpnlChart.timeScale().applyOptions(opts);
+      if (rpnlChart) rpnlChart.timeScale().applyOptions(opts);
     }
+  } catch (e) {}
+  rpnlSyncing = false;
+}
+
+function restoreRpnlView(snap) {
+  if (!snap || !snap.logical || !ohlcChart || !rpnlChart) return false;
+  freezeRpnlView(snap);
+  rpnlSyncing = true;
+  try {
     ohlcChart.timeScale().setVisibleLogicalRange(snap.logical);
   } catch (e) {
     rpnlSyncing = false;
@@ -1283,7 +1298,35 @@ function restoreRpnlView(snap) {
   return true;
 }
 
+function rpnlDatumEq(a, b) {
+  if (!a || !b || a.time !== b.time) return false;
+  if ('value' in a || 'value' in b) return a.value === b.value && a.color === b.color;
+  return a.open === b.open && a.high === b.high && a.low === b.low && a.close === b.close
+    && (a.volume || 0) === (b.volume || 0);
+}
+
+function rpnlSetSeriesData(series, next, prev) {
+  if (!series) return;
+  next = next || [];
+  prev = prev || [];
+  const snap = rpnlHoldSnap;
+  if (snap && prev.length && next.length && prev[0].time === next[0].time
+      && next.length >= prev.length && next.length - prev.length <= 2) {
+    let i = 0;
+    const lim = Math.min(prev.length, next.length);
+    while (i < lim && rpnlDatumEq(prev[i], next[i])) i++;
+    if (i === next.length) return;
+    try {
+      for (; i < next.length; i++) series.update(next[i]);
+      return;
+    } catch (e) { /* full replace */ }
+  }
+  series.setData(next);
+  if (snap) restoreRpnlView(snap);
+}
+
 function tryRpnlFit() {
+  if (rpnlHoldSnap) return false;
   if (!rpnlPageVisible() || !ohlcChart || !rpnlChart) return false;
   if (!applyRpnlChartSize()) return false;
   if (!ohlcBarsCache.length && !rpnlPtsCache.length) return false;
@@ -1296,7 +1339,7 @@ function tryRpnlFit() {
 }
 
 function scheduleRpnlFit() {
-  if (!rpnlPageVisible()) return;
+  if (rpnlHoldSnap || !rpnlPageVisible()) return;
   rpnlNeedsFit = true;
   const kick = () => { if (rpnlNeedsFit) tryRpnlFit(); };
   requestAnimationFrame(() => {
@@ -1331,8 +1374,16 @@ function setRpnlView(v) {
   const lab = document.getElementById('rpnlPaneLabel');
   if (lab) updateRpnlPaneLabels();
   const saved = ohlcChart ? ohlcChart.timeScale().getVisibleLogicalRange() : null;
-  if (rpnlPtsCache.length) applyRpnlData(rpnlPtsCache, true);
-  if (saved) {
+  const snap = captureRpnlView();
+  if (snap) {
+    rpnlHoldSnap = snap;
+    freezeRpnlView(snap);
+  }
+  if (rpnlPtsCache.length) applyRpnlData(rpnlPtsCache, true, rpnlPtsCache, rpnlHedgeCache);
+  if (snap) {
+    restoreRpnlView(snap);
+    rpnlHoldSnap = null;
+  } else if (saved) {
     rpnlSyncing = true;
     try { ohlcChart.timeScale().setVisibleLogicalRange(saved); } catch (e) {}
     rpnlSyncing = false;
@@ -1728,14 +1779,22 @@ function applyRpnlChartSize() {
 }
 function resizeRpnlCharts() {
   if (!rpnlPageVisible()) return;
+  const snap = rpnlHoldSnap || captureRpnlView();
   if (!applyRpnlChartSize()) {
-    if (rpnlNeedsFit || rpnlLogicalLooksUnfitted()) scheduleRpnlFit();
+    if (!rpnlHoldSnap && (rpnlNeedsFit || rpnlLogicalLooksUnfitted())) scheduleRpnlFit();
     return;
   }
   requestAnimationFrame(() => {
+    if (rpnlHoldSnap) {
+      restoreRpnlView(rpnlHoldSnap);
+      rpnlPaintBrush();
+      return;
+    }
     if (ohlcBarsCache.length || rpnlPtsCache.length) {
-      if (rpnlNeedsFit || rpnlLogicalLooksUnfitted()) {
+      if (rpnlNeedsFit) {
         if (!tryRpnlFit()) scheduleRpnlFit();
+      } else if (snap) {
+        restoreRpnlView(snap);
       } else {
         try {
           const vr = ohlcChart.timeScale().getVisibleLogicalRange();
@@ -1746,7 +1805,6 @@ function resizeRpnlCharts() {
       }
     }
     rpnlPaintBrush();
-    ohlcOrderSig = '';
     applyOhlcOrderLines(quotesForCurrentRpnl());
   });
 }
@@ -1858,23 +1916,26 @@ function netFromCaches(deltaPts, hedgePts) {
   });
 }
 
-function applyRpnlData(pts, keepRange) {
+function applyRpnlData(pts, keepRange, prevPts, prevHedge) {
   const venue = currentRpnlVenue();
   const showDelta = venue !== 'hedge';
   const hedgePts = rpnlHedgeCache;
   const showHedge = venue !== 'quote' && rpnlMeta.has_hedge && hedgePts.length > 0;
   const netPts = (showDelta && showHedge) ? netFromCaches(pts, hedgePts) : [];
+  const prevDelta = prevPts || [];
+  const prevH = prevHedge || [];
+  const prevNet = (showDelta && showHedge && prevDelta.length) ? netFromCaches(prevDelta, prevH) : [];
   if (rpnlView === 'cumul') {
     rpnlSeries.applyOptions({ visible: showDelta });
     rpnlHistSeries.applyOptions({ visible: false });
-    rpnlSeries.setData(showDelta ? pts : []);
+    rpnlSetSeriesData(rpnlSeries, showDelta ? pts : [], showDelta ? prevDelta : []);
     if (rpnlHedgeSeries) {
       rpnlHedgeSeries.applyOptions({ visible: showHedge });
-      rpnlHedgeSeries.setData(showHedge ? hedgePts : []);
+      rpnlSetSeriesData(rpnlHedgeSeries, showHedge ? hedgePts : [], showHedge ? prevH : []);
     }
     if (rpnlNetSeries) {
       rpnlNetSeries.applyOptions({ visible: netPts.length > 0 });
-      rpnlNetSeries.setData(netPts);
+      rpnlSetSeriesData(rpnlNetSeries, netPts, prevNet);
     }
   } else {
     rpnlSeries.applyOptions({ visible: false });
@@ -1883,14 +1944,20 @@ function applyRpnlData(pts, keepRange) {
     rpnlHistSeries.applyOptions({ visible: true });
     const src = venue === 'both' && netPts.length ? netPts
       : (venue === 'hedge' ? hedgePts : pts);
+    const prevSrc = venue === 'both' && prevNet.length ? prevNet
+      : (venue === 'hedge' ? prevH : prevDelta);
     const bars = src.map((p, i) => {
       const val = i === 0 ? p.value : parseFloat((p.value - src[i-1].value).toFixed(4));
       return { time: p.time, value: val, color: val >= 0 ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)' };
     });
-    rpnlHistSeries.setData(bars);
+    const prevBars = prevSrc.map((p, i) => {
+      const val = i === 0 ? p.value : parseFloat((p.value - prevSrc[i-1].value).toFixed(4));
+      return { time: p.time, value: val, color: val >= 0 ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)' };
+    });
+    rpnlSetSeriesData(rpnlHistSeries, bars, prevBars);
   }
   applyRpnlFillMarkers();
-  if (!keepRange) fitRpnlView();
+  if (!keepRange && !rpnlHoldSnap) fitRpnlView();
 }
 
 async function extendRpnl() {
@@ -1964,7 +2031,9 @@ async function loadRpnl(keepRange) {
   const venue  = rpnlVenueParam();
   const sym    = picked.contract;
   if (!sym) return;
-  const savedView = keepRange ? captureRpnlView() : null;
+  const prevBars = ohlcBarsCache.slice();
+  const prevPts = rpnlPtsCache.slice();
+  const prevHedge = rpnlHedgeCache.slice();
   const acctBit = '&account=' + encodeURIComponent(picked.account);
   try {
     const stratQ = '&strategy=' + encodeURIComponent(
@@ -2039,22 +2108,33 @@ async function loadRpnl(keepRange) {
       try { if (cR) body = await cR.json(); } catch (e) {}
       candleNote = ' · candles failed: ' + (body.detail || (cR && cR.statusText) || 'network');
     }
+    const savedView = keepRange ? captureRpnlView() : null;
+    if (savedView) {
+      rpnlHoldSnap = savedView;
+      freezeRpnlView(savedView);
+    }
     ohlcBarsCache = bars;
     setOhlcEmpty(!bars.length, bars.length ? '' : ((candleNote || '').replace(/^ · /, '') || 'No price candles for this window'));
-    try { if (ohlcSeries) ohlcSeries.setData(bars); } catch (e) {
+    try {
+      if (ohlcSeries) rpnlSetSeriesData(ohlcSeries, bars, prevBars);
+    } catch (e) {
       ohlcBarsCache = [];
       setOhlcEmpty(true, 'Price chart could not render these candles');
     }
-    if (ohlcVolSeries) ohlcVolSeries.setData(volumeBarsFromOhlc(ohlcBarsCache));
+    if (ohlcVolSeries) rpnlSetSeriesData(ohlcVolSeries, volumeBarsFromOhlc(ohlcBarsCache), volumeBarsFromOhlc(prevBars));
     if (ohlcHedgeMarkerSeries) {
-      ohlcHedgeMarkerSeries.setData(ohlcBarsCache.map(b => ({ time: b.time, value: b.close })));
+      rpnlSetSeriesData(
+        ohlcHedgeMarkerSeries,
+        ohlcBarsCache.map(b => ({ time: b.time, value: b.close })),
+        prevBars.map(b => ({ time: b.time, value: b.close }))
+      );
     }
 
     rpnlPtsCache = ohlcBarsCache.length ? alignRpnlToBars(filled, ohlcBarsCache) : filled;
     rpnlHedgeCache = hedgeFilled.length && ohlcBarsCache.length
       ? alignRpnlToBars(hedgeFilled, ohlcBarsCache)
       : hedgeFilled;
-    applyRpnlData(rpnlPtsCache, true);
+    applyRpnlData(rpnlPtsCache, true, prevPts, prevHedge);
 
     if (ohlcSeries && fR && fR.ok) {
       const fd = await fR.json();
@@ -2076,18 +2156,15 @@ async function loadRpnl(keepRange) {
       applyRpnlFillMarkers();
     }
 
-    ohlcOrderSig = '';
     applyOhlcOrderLines(quotesForCurrentRpnl());
 
     if (keepRange && savedView) {
       restoreRpnlView(savedView);
       rpnlNeedsFit = false;
-      requestAnimationFrame(function () {
-        if (rpnlLoadSeq === seq) restoreRpnlView(savedView);
-      });
     } else {
       rpnlNeedsFit = true;
     }
+    rpnlHoldSnap = null;
 
     if (filled.length === 0 && !hedgeRaw.length && !ohlcBarsCache.length) {
       toast('No fills for ' + (d.contract || sym) + ' in this window.');
@@ -2101,11 +2178,13 @@ async function loadRpnl(keepRange) {
     if (!rpnlRangePinned) rpnlSyncRangeFromView();
     rpnlPaintBrush();
     if (!keepRange && rpnlNeedsFit) scheduleRpnlFit();
+    if (rpnlLogsOpen() && !keepRange) loadRpnlLogs(true);
   } catch(e) {
     console.error('[rPnL] fetch threw:', e);
     showRpnlError('Network or parse error', e.message);
   }
   } finally {
+    rpnlHoldSnap = null;
     if (seq === rpnlLoadSeq) rpnlLoadBusy = false;
   }
 }
@@ -2308,6 +2387,138 @@ function rpnlExportFilters() {
     exchange,
   };
 }
+
+function rpnlLogsOpen() {
+  const page = document.getElementById('rpnl');
+  return !!(page && page.classList.contains('logs-open'));
+}
+
+function rpnlQs(p) {
+  return Object.entries(p).filter(([, v]) => v !== '' && v != null && v !== false)
+    .map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
+}
+
+function rpnlLogQs(extra) {
+  const f = rpnlExportFilters();
+  const strat = f.strategy && !strategyIsAll(f.strategy) ? f.strategy : '';
+  return rpnlQs(Object.assign({
+    service: 'bot',
+    strategy: strat,
+    contract: f.contract,
+    account: f.account || '',
+    since: f.since,
+    until: f.until,
+    limit: 400,
+  }, extra || {}));
+}
+
+function rpnlFmtLogTime(unixSecs) {
+  return new Date(unixSecs * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
+    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}
+
+function rpnlLogLine(l) {
+  const bits = [l.strategy, l.contract, l.account, l.exchange].filter(Boolean);
+  const chips = bits.map(function (b) {
+    return '<span class="lchip">' + escHtml(b) + '</span>';
+  }).join('');
+  return '<div class="log-line"><span class="lt">' + rpnlFmtLogTime(l.time) + '</span> ' +
+    '<span class="lsvc">[' + escHtml(l.service || '') + ']</span> ' +
+    '<span class="lv-' + escHtml(l.level || '') + '">' + escHtml(l.level || '') + '</span> ' +
+    chips +
+    '<span style="color:#6b768e">' + escHtml(l.name || '') + '</span> ' + escHtml(l.message || '') + '</div>';
+}
+
+function toggleRpnlLogs() {
+  const page = document.getElementById('rpnl');
+  if (!page) return;
+  const snap = captureRpnlView();
+  if (snap) rpnlHoldSnap = snap;
+  const open = !page.classList.contains('logs-open');
+  page.classList.toggle('logs-open', open);
+  const btn = document.getElementById('rpnlLogsBtn');
+  if (btn) btn.classList.toggle('on', open);
+  const panel = document.getElementById('rpnlLogs');
+  if (panel) panel.hidden = !open;
+  if (open) {
+    const foot = document.getElementById('rpnlTools');
+    if (foot) foot.classList.remove('export-open');
+    rpnlLogsLastId = 0;
+    loadRpnlLogs(true);
+  }
+  requestAnimationFrame(function () {
+    applyRpnlChartSize();
+    if (snap) restoreRpnlView(snap);
+    rpnlHoldSnap = null;
+  });
+}
+
+async function loadRpnlLogs(reset) {
+  if (!rpnlLogsOpen() || rpnlLogsBusy) return;
+  const box = document.getElementById('rpnlLogsBox');
+  const st = document.getElementById('rpnlLogsStatus');
+  if (!box) return;
+  const liveEl = document.getElementById('rpnlLogsLive');
+  const live = !liveEl || liveEl.checked;
+  if (!reset && !live && rpnlLogsLastId) return;
+  rpnlLogsBusy = true;
+  try {
+    let lines;
+    if (reset || !rpnlLogsLastId) {
+      const r = await fetch('/api/logs?' + rpnlLogQs({ limit: 400 }));
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+      lines = (await r.json()).reverse();
+      box.innerHTML = '';
+      rpnlLogsFirstId = lines.length ? lines[0].id : 0;
+      rpnlLogsLastId = 0;
+    } else {
+      const r = await fetch('/api/logs?' + rpnlLogQs({ limit: 200, after_id: rpnlLogsLastId }));
+      if (!r.ok) return;
+      lines = await r.json();
+      if (!lines.length) return;
+    }
+    if (!lines.length) {
+      box.innerHTML = '<div style="padding:12px;color:var(--muted);">No logs for this contract / window.</div>';
+      rpnlLogsLastId = 0;
+      if (st) st.textContent = 'empty';
+      return;
+    }
+    box.insertAdjacentHTML('beforeend', lines.map(rpnlLogLine).join(''));
+    rpnlLogsLastId = Math.max(rpnlLogsLastId, ...lines.map(function (l) { return l.id; }));
+    while (box.children.length > 4000) box.removeChild(box.firstChild);
+    const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    if (reset || stick) box.scrollTop = box.scrollHeight;
+    const picked = currentRpnlSel();
+    const title = document.getElementById('rpnlLogsTitle');
+    if (title) {
+      title.textContent = 'Logs · ' + (picked.contract || '') +
+        (picked.account ? ' · ' + picked.account : '');
+    }
+    if (st) st.textContent = box.querySelectorAll('.log-line').length + ' lines';
+  } catch (e) {
+    if (st) st.textContent = e.message || 'error';
+  } finally {
+    rpnlLogsBusy = false;
+  }
+}
+
+async function loadOlderRpnlLogs() {
+  if (!rpnlLogsFirstId) return;
+  const box = document.getElementById('rpnlLogsBox');
+  const st = document.getElementById('rpnlLogsStatus');
+  try {
+    const r = await fetch('/api/logs?' + rpnlLogQs({ limit: 400, before_id: rpnlLogsFirstId }));
+    if (!r.ok) return;
+    const lines = (await r.json()).reverse();
+    if (!lines.length) { if (st) st.textContent = 'no older logs'; return; }
+    const prevH = box.scrollHeight;
+    box.insertAdjacentHTML('afterbegin', lines.map(rpnlLogLine).join(''));
+    rpnlLogsFirstId = lines[0].id;
+    box.scrollTop = box.scrollHeight - prevH;
+    if (st) st.textContent = box.querySelectorAll('.log-line').length + ' lines';
+  } catch (e) {}
+}
+
 async function exportRpnlKind(kind) {
   try {
     const f = rpnlExportFilters();

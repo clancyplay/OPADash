@@ -82,16 +82,29 @@
     <button class="btn" type="button" onclick="rpnlFollowView()" title="Keep the export window locked to whatever is on screen">Follow</button>
     <button class="btn" type="button" id="rpnlSelectBtn" onclick="toggleRpnlSelect()" title="Drag on the rPnL chart to pick a window">Select</button>
     <button class="btn" type="button" onclick="rpnlJumpChartToRange()" title="Zoom the charts to the From/To times">Jump</button>
+    <button class="btn" type="button" id="rpnlLogsBtn" onclick="toggleRpnlLogs()" title="Show live bot logs for this contract">Logs</button>
     <button class="btn rp-export-btn" type="button" id="rpnlExportBtn" onclick="toggleRpnlExports()">Export</button>
     <div class="rp-exports">
       <span class="hint">Export IST</span>
       <button class="btn" type="button" onclick="exportRpnlKind('fills')">Fills</button>
-      <button class="btn" type="button" onclick="exportRpnlKind('logs')">Logs</button>
+      <button class="btn" type="button" onclick="toggleRpnlLogs()">Logs</button>
       <button class="btn" type="button" onclick="exportRpnlKind('orders')">Orders</button>
       <button class="btn" type="button" onclick="exportRpnlKind('events')">Events</button>
       <button class="btn" type="button" onclick="exportRpnlKind('positions')">Positions</button>
       <button class="btn" type="button" onclick="exportRpnlKind('account_balances')">Balances</button>
       <button class="btn" type="button" onclick="exportRpnlKind('all')" title="ZIP of every table above">ZIP</button>
     </div>
+  </div>
+  <div class="rp-logs" id="rpnlLogs" hidden>
+    <div class="rp-logs-h">
+      <b id="rpnlLogsTitle">Logs</b>
+      <span id="rpnlLogsStatus" class="ctrl-meta"></span>
+      <button class="btn" type="button" onclick="loadRpnlLogs(true)">Refresh</button>
+      <button class="btn" type="button" onclick="loadOlderRpnlLogs()">Older</button>
+      <label class="rp-check"><input type="checkbox" id="rpnlLogsLive" checked /> Live</label>
+      <button class="btn" type="button" onclick="exportRpnlKind('logs')">CSV</button>
+      <button class="btn" type="button" onclick="toggleRpnlLogs()">Close</button>
+    </div>
+    <div class="logs-box rp-logs-box" id="rpnlLogsBox"></div>
   </div>
 </div>
