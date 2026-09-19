@@ -107,6 +107,8 @@ let rpnlLastSize = { ow: 0, oh: 0, rw: 0, rh: 0 };
 let rpnlLogsLastId = 0;
 let rpnlLogsFirstId = 0;
 let rpnlLogsBusy = false;
+let rpnlLogsOlderBusy = false;
+let rpnlLogsNoOlder = false;
 let rpnlView         = 'cumul';
 let rpnlPtsCache     = [];
 let rpnlHedgeCache   = [];
@@ -2429,6 +2431,18 @@ function rpnlLogLine(l) {
     '<span style="color:#6b768e">' + escHtml(l.name || '') + '</span> ' + escHtml(l.message || '') + '</div>';
 }
 
+function bindRpnlLogsScroll() {
+  const box = document.getElementById('rpnlLogsBox');
+  if (!box || box.dataset.scrollBound) return;
+  box.dataset.scrollBound = '1';
+  box.addEventListener('scroll', function () {
+    if (box.scrollTop < 64) loadOlderRpnlLogs();
+  });
+  box.addEventListener('wheel', function (ev) {
+    if (ev.deltaY < 0 && box.scrollTop <= 4) loadOlderRpnlLogs();
+  }, { passive: true });
+}
+
 function toggleRpnlLogs() {
   const page = document.getElementById('rpnl');
   if (!page) return;
@@ -2444,6 +2458,8 @@ function toggleRpnlLogs() {
     const foot = document.getElementById('rpnlTools');
     if (foot) foot.classList.remove('export-open');
     rpnlLogsLastId = 0;
+    rpnlLogsNoOlder = false;
+    bindRpnlLogsScroll();
     loadRpnlLogs(true);
   }
   requestAnimationFrame(function () {
@@ -2471,6 +2487,7 @@ async function loadRpnlLogs(reset) {
       box.innerHTML = '';
       rpnlLogsFirstId = lines.length ? lines[0].id : 0;
       rpnlLogsLastId = 0;
+      rpnlLogsNoOlder = false;
     } else {
       const r = await fetch('/api/logs?' + rpnlLogQs({ limit: 200, after_id: rpnlLogsLastId }));
       if (!r.ok) return;
@@ -2503,20 +2520,32 @@ async function loadRpnlLogs(reset) {
 }
 
 async function loadOlderRpnlLogs() {
-  if (!rpnlLogsFirstId) return;
+  if (!rpnlLogsOpen() || !rpnlLogsFirstId || rpnlLogsOlderBusy || rpnlLogsNoOlder) return;
   const box = document.getElementById('rpnlLogsBox');
   const st = document.getElementById('rpnlLogsStatus');
+  if (!box) return;
+  rpnlLogsOlderBusy = true;
+  if (st) st.textContent = 'loading older…';
   try {
     const r = await fetch('/api/logs?' + rpnlLogQs({ limit: 400, before_id: rpnlLogsFirstId }));
     if (!r.ok) return;
     const lines = (await r.json()).reverse();
-    if (!lines.length) { if (st) st.textContent = 'no older logs'; return; }
+    if (!lines.length) {
+      rpnlLogsNoOlder = true;
+      if (st) st.textContent = box.querySelectorAll('.log-line').length + ' lines · start';
+      return;
+    }
     const prevH = box.scrollHeight;
+    const prevTop = box.scrollTop;
     box.insertAdjacentHTML('afterbegin', lines.map(rpnlLogLine).join(''));
     rpnlLogsFirstId = lines[0].id;
-    box.scrollTop = box.scrollHeight - prevH;
+    box.scrollTop = prevTop + (box.scrollHeight - prevH);
     if (st) st.textContent = box.querySelectorAll('.log-line').length + ' lines';
-  } catch (e) {}
+  } catch (e) {
+    if (st) st.textContent = e.message || 'error';
+  } finally {
+    rpnlLogsOlderBusy = false;
+  }
 }
 
 async function exportRpnlKind(kind) {
