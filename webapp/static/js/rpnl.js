@@ -581,6 +581,7 @@ function rpnlSetupBits(s) {
   if (s.min_spread != null && Number(s.min_spread) > 0) bits.push('min spread ' + fmtG(s.min_spread) + '%');
   if (s.spread_pad != null && Number(s.spread_pad) > 0) bits.push('pad ' + fmtG(s.spread_pad) + '%');
   if (s.fit_auto != null) bits.push('fit auto ' + (on(s.fit_auto) ? 'on' : 'off'));
+  if (s.span_spread != null) bits.push('span spread ' + (on(s.span_spread) ? 'on' : 'off'));
   if (s.vol_gate != null) bits.push('vol gate ' + (on(s.vol_gate) ? 'on' : 'off'));
   if (s.flow_gate != null) bits.push('flow gate ' + (on(s.flow_gate) ? 'on' : 'off'));
   if (s.flatten != null) bits.push('flatten ' + fmtG(s.flatten) + '%');
@@ -1946,20 +1947,27 @@ function scheduleRpnlFit() {
   rpnlFitTimer = setTimeout(tick, 40);
 }
 
+function syncRpnlViewButtons() {
+  const cumul = document.getElementById('viewCumul');
+  const bucket = document.getElementById('viewBucket');
+  const autoY = document.getElementById('toggleAutoY');
+  if (cumul) cumul.classList.toggle('on', rpnlView === 'cumul');
+  if (bucket) bucket.classList.toggle('on', rpnlView === 'bucket');
+  if (autoY) {
+    autoY.classList.toggle('on', rpnlAutoY);
+    autoY.textContent = rpnlAutoY ? 'Auto Y' : 'Lock Y';
+  }
+}
+
 function toggleAutoY() {
   rpnlAutoY = !rpnlAutoY;
-  rpnlChart.priceScale('right').applyOptions({ autoScale: rpnlAutoY });
-  const btn = document.getElementById('toggleAutoY');
-  btn.textContent  = rpnlAutoY ? 'Auto Y' : 'Lock Y';
-  btn.style.borderColor = rpnlAutoY ? 'var(--accent)' : 'var(--border2)';
-  btn.style.color       = rpnlAutoY ? '#fff'          : 'var(--muted)';
+  if (rpnlChart) rpnlChart.priceScale('right').applyOptions({ autoScale: rpnlAutoY });
+  syncRpnlViewButtons();
 }
 
 function setRpnlView(v) {
   rpnlView = v;
-  const ac = 'var(--accent)', mu = 'var(--muted)', b2 = 'var(--border2)';
-  document.getElementById('viewCumul') .style.cssText = v==='cumul'  ? 'border-color:'+ac+';color:#fff'        : 'border-color:'+b2+';color:'+mu;
-  document.getElementById('viewBucket').style.cssText = v==='bucket' ? 'border-color:'+ac+';color:#fff'        : 'border-color:'+b2+';color:'+mu;
+  syncRpnlViewButtons();
   const lab = document.getElementById('rpnlPaneLabel');
   if (lab) updateRpnlPaneLabels();
   const saved = ohlcChart ? ohlcChart.timeScale().getVisibleLogicalRange() : null;

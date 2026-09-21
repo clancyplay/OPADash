@@ -40,11 +40,6 @@
         <button class="btn" type="button" onclick="loadRpnlFresh()">Refresh</button>
         <button class="btn" type="button" onclick="fitRpnlView()" title="Fit both charts to the full window">Fit</button>
         <label class="rp-check"><input type="checkbox" id="rpnlAuto" onchange="setupRpnlAuto()" checked /> Auto</label>
-        <div class="rp-views">
-          <button class="btn" type="button" id="viewCumul" onclick="setRpnlView('cumul')">Cumul</button>
-          <button class="btn" type="button" id="viewBucket" onclick="setRpnlView('bucket')">Bucket</button>
-          <button class="btn" type="button" id="toggleAutoY" onclick="toggleAutoY()" title="Toggle Y-axis auto-scale">Auto Y</button>
-        </div>
       </div>
     </div>
     <div id="rpnlStatus" class="status-bar" hidden></div>
@@ -75,6 +70,10 @@
         <button type="button" class="rp-tool on" data-ohlc-tog="vol" title="Volume">Vol</button>
         <button type="button" class="rp-tool on" data-ohlc-tog="fills" title="Fill markers">Fills</button>
         <button type="button" class="rp-tool" data-ohlc-tog="log" title="Log price scale">Log</button>
+        <span class="rp-tool-gap"></span>
+        <button type="button" class="rp-tool on" id="viewCumul" onclick="setRpnlView('cumul')" title="Cumulative rPnL">Cumul</button>
+        <button type="button" class="rp-tool" id="viewBucket" onclick="setRpnlView('bucket')" title="Per-bucket rPnL">Bucket</button>
+        <button type="button" class="rp-tool on" id="toggleAutoY" onclick="toggleAutoY()" title="Toggle rPnL Y-axis auto-scale">Auto Y</button>
       </div>
       <button type="button" class="rp-go-live" id="ohlcGoLive" hidden onclick="rpnlGoLive()" title="Scroll to the latest candle">Live</button>
       <div class="rp-pane-lab" id="ohlcPaneLabel" hidden>Price · vol · fills</div>

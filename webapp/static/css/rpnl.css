@@ -90,9 +90,6 @@ body:has(#rpnl.visible) {
   color: var(--muted);
   white-space: nowrap;
 }
-.rp-views { display: flex; gap: 4px; margin-left: auto; }
-.rp-views .btn { min-width: 0; }
-
 /* Pills */
 .rpnl-pills {
   display: flex;
@@ -303,7 +300,7 @@ body:has(#rpnl.visible) {
 .rp-ohlc-tools {
   position: absolute; top: 6px; right: 78px; z-index: 12;
   display: flex; flex-wrap: wrap; gap: 2px; justify-content: flex-end;
-  max-width: min(390px, 50%);
+  max-width: min(520px, 62%);
 }
 .rp-ohlc-tools .rp-tool-gap { width: 4px; }
 .rp-ohlc-tools .rp-tool {
@@ -543,7 +540,6 @@ body:has(#rpnl.visible) {
     border: 0;
     box-shadow: none;
   }
-  .rp-views { width: 100%; margin-left: 0; display: grid; grid-template-columns: 1fr 1fr 1fr; }
   .rp-check { font-size: 12px; }
 
   .rpnl-pills { padding: 6px max(8px, var(--safe-r)); gap: 6px; }
