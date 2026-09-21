@@ -1949,6 +1949,61 @@ def _finish_account(acct: dict) -> dict:
     return acct
 
 
+def _live_report_positions(setups, live_keys, usdinr: float) -> list[dict]:
+    """Open size/mark/uPnL from live bot_setup. net_upnl is USD (assemble × INR)."""
+    out: list[dict] = []
+    rate = float(usdinr or 87) or 87.0
+    for key, setup in (setups or {}).items():
+        if not isinstance(setup, dict) or not isinstance(key, tuple) or len(key) != 3:
+            continue
+        contract, account, strat = key
+        if not ping_is_live(contract, account or "", live_keys, strat):
+            continue
+        try:
+            size = float(setup.get("pos") or 0)
+        except (TypeError, ValueError):
+            continue
+        if abs(size) <= 1e-12:
+            continue
+        try:
+            entry = float(setup.get("entry") or 0)
+        except (TypeError, ValueError):
+            entry = 0.0
+        try:
+            mark = float(setup.get("mark") or 0)
+        except (TypeError, ValueError):
+            mark = 0.0
+        usd = None
+        try:
+            if setup.get("upnl_usd") is not None:
+                usd = float(setup["upnl_usd"])
+        except (TypeError, ValueError):
+            usd = None
+        if usd is None:
+            try:
+                if setup.get("upnl") is not None:
+                    usd = float(setup["upnl"]) / rate
+            except (TypeError, ValueError):
+                usd = None
+        if usd is None and entry > 0 and mark > 0:
+            try:
+                cv = float(setup.get("cv") or 1) or 1.0
+            except (TypeError, ValueError):
+                cv = 1.0
+            usd = size * cv * (mark - entry)
+        item = {
+            "account": account or "",
+            "contract": contract,
+            "delta_size": size,
+            "delta_entry": entry,
+            "net_upnl": usd,
+        }
+        if mark > 0:
+            item["mark_price"] = mark
+        out.append(item)
+    return out
+
+
 def _assemble_reports_overview(
     raw: dict, usdinr: float = 87.0, live_keys: set | None = None,
 ) -> dict:
@@ -2108,10 +2163,15 @@ async def reports_overview(
     window = _window_label(hours, today, yesterday, day)
     raw = await _db.get_accounts_overview(strategy=strategy, since=since, until=until)
     closed = until is not None and until <= datetime.now(timezone.utc)
+    live_keys = await _db.get_live_ping_keys(strategy)
     if closed:
         raw["positions"] = []
         raw["balances"] = []
-    live_keys = await _db.get_live_ping_keys(strategy)
+    else:
+        setups = await _db.get_bot_setups(strategy)
+        live_pos = _live_report_positions(setups, live_keys, _db.usdinr_rate)
+        if live_pos:
+            raw["positions"] = live_pos
     out = _assemble_reports_overview(raw, usdinr=_db.usdinr_rate, live_keys=live_keys)
     cal = _parse_ist_day(day)
     if cal is None and yesterday:

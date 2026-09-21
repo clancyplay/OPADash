@@ -450,8 +450,23 @@ function liveUsdInr(s) {
   return isFinite(rate) && rate > 0 ? rate : 87;
 }
 
+function liveVenueCv(s, venue) {
+  const cv = Number(s && s.cv);
+  if (isFinite(cv) && cv > 0) return cv;
+  const v = String(venue || '').toLowerCase();
+  if (v === 'aster' || v === 'binance' || v === 'kucoin' || v === 'bybit' ||
+      v === 'coinbase' || v === 'coindcx') return 1;
+  return 1;
+}
+
 function liveUpnlInr(s, venue) {
   if (!s) return null;
+  const size = Number(s.pos);
+  const entry = Number(s.entry);
+  const mark = Number(s.mark);
+  if (isFinite(size) && size && entry > 0 && mark > 0) {
+    return size * (mark - entry) * liveUsdInr(s) * liveVenueCv(s, venue);
+  }
   if (s.upnl != null && s.upnl !== '') {
     const reported = Number(s.upnl);
     if (isFinite(reported)) return reported;
@@ -459,13 +474,8 @@ function liveUpnlInr(s, venue) {
   return null;
 }
 
-function liveUpnlUsd(s) {
-  if (!s) return null;
-  if (s.upnl_usd != null && s.upnl_usd !== '') {
-    const usd = Number(s.upnl_usd);
-    if (isFinite(usd)) return usd;
-  }
-  const u = liveUpnlInr(s);
+function liveUpnlUsd(s, venue) {
+  const u = liveUpnlInr(s, venue);
   if (u == null) return null;
   return u / liveUsdInr(s);
 }
@@ -488,10 +498,10 @@ function rpnlPosHtml(s, cls, venue) {
   let t = side + ' ' + fmtG(Math.abs(n));
   if (s.entry != null && Number(s.entry) > 0) t += ' @ ' + fmtG(s.entry);
   let extra = '';
-  const u = liveUpnlInr(s, venue);
-  if (u != null && isFinite(u)) {
+    const u = liveUpnlInr(s, venue);
+    if (u != null && isFinite(u)) {
     const d = Math.abs(u) < 100 ? 2 : 0;
-    const usd = liveUpnlUsd(s);
+    const usd = liveUpnlUsd(s, venue);
     const usdBit = (usd != null && isFinite(usd)) ? ' (' + usdFmtDec(usd, 2) + ')' : '';
     extra = ' · <span class="' + (u >= 0 ? 'up' : 'dn') + '">uPnL ' +
       escHtml(inrFmtDec(u, d) + usdBit) + '</span>';
