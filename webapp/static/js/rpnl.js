@@ -145,6 +145,10 @@ let rpnlCurrentHours = null;
 let rpnlLoadingMore  = false;
 let rpnlSyncing      = false;
 let rpnlSyncGen      = 0;
+let rpnlSyncOrigin   = null;
+let rpnlSyncPrefer   = 'ohlc';
+let rpnlAlignTimer   = 0;
+let rpnlLastPush     = { from: NaN, to: NaN, origin: '' };
 let rpnlXhSyncing    = false;
 let rpnlMeta = {
   quote_venue: 'delta', quote_label: 'Delta', quote_symbol: '',
@@ -1178,18 +1182,60 @@ function alignRpnlToBars(rpnlPts, bars, prevAligned) {
   return out;
 }
 
-function rpnlBeginSync() {
+function rpnlBeginSync(origin) {
   rpnlSyncing = true;
+  rpnlSyncOrigin = origin || '*';
   const gen = ++rpnlSyncGen;
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      if (gen === rpnlSyncGen) rpnlSyncing = false;
+      if (gen !== rpnlSyncGen) return;
+      rpnlSyncing = false;
+      rpnlSyncOrigin = null;
     });
   });
 }
 
+function rpnlRangeIsEcho(chartId, range) {
+  if (!range) return true;
+  if (rpnlSyncOrigin === '*') return true;
+  if (!rpnlSyncing) return false;
+  if (chartId === rpnlSyncOrigin) return false;
+  return !!(rpnlLastPush.origin &&
+    Math.abs(range.from - rpnlLastPush.from) < 0.25 &&
+    Math.abs(range.to - rpnlLastPush.to) < 0.25);
+}
+
+function scheduleRpnlAlign(origin) {
+  if (origin === 'ohlc' || origin === 'rpnl') rpnlSyncPrefer = origin;
+  clearTimeout(rpnlAlignTimer);
+  rpnlAlignTimer = setTimeout(() => alignRpnlTimeScales(rpnlSyncPrefer), 40);
+}
+
+function alignRpnlTimeScales(preferred) {
+  if (alignRpnlTimeScales._lock || !ohlcChart || !rpnlChart) return;
+  const srcId = preferred === 'rpnl' ? 'rpnl' : 'ohlc';
+  const src = srcId === 'rpnl' ? rpnlChart : ohlcChart;
+  const dst = srcId === 'rpnl' ? ohlcChart : rpnlChart;
+  let a, b;
+  try {
+    a = src.timeScale().getVisibleLogicalRange();
+    b = dst.timeScale().getVisibleLogicalRange();
+  } catch (e) { return; }
+  if (!a || !(a.to > a.from)) return;
+  if (b && Math.abs(b.from - a.from) < 0.04 && Math.abs(b.to - a.to) < 0.04) return;
+  alignRpnlTimeScales._lock = true;
+  rpnlLastPush = { from: a.from, to: a.to, origin: srcId };
+  rpnlBeginSync(srcId);
+  try {
+    dst.timeScale().setVisibleLogicalRange({ from: a.from, to: a.to });
+  } catch (e) {}
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => { alignRpnlTimeScales._lock = false; });
+  });
+}
+
 function syncRpnlTimeScale(origin, range) {
-  if (rpnlSyncing || !ohlcChart || !rpnlChart) return;
+  if (!ohlcChart || !rpnlChart) return;
   const src = origin === 'ohlc' ? ohlcChart : rpnlChart;
   const dst = origin === 'ohlc' ? rpnlChart : ohlcChart;
   const logical = range || src.timeScale().getVisibleLogicalRange();
@@ -1197,18 +1243,25 @@ function syncRpnlTimeScale(origin, range) {
   try {
     const dstLogical = dst.timeScale().getVisibleLogicalRange();
     if (dstLogical &&
-        Math.abs(dstLogical.from - logical.from) < 0.08 &&
-        Math.abs(dstLogical.to - logical.to) < 0.08) return;
+        Math.abs(dstLogical.from - logical.from) < 0.04 &&
+        Math.abs(dstLogical.to - logical.to) < 0.04) {
+      scheduleRpnlAlign(origin);
+      return;
+    }
   } catch (e) {}
-  rpnlBeginSync();
+  rpnlSyncPrefer = origin;
+  rpnlLastPush = { from: logical.from, to: logical.to, origin };
+  rpnlBeginSync(origin);
   try {
     dst.timeScale().setVisibleLogicalRange({ from: logical.from, to: logical.to });
   } catch (e) { /* not ready */ }
+  scheduleRpnlAlign(origin);
 }
 
 function onRpnlLogicalRange(chartId) {
   return function (range) {
-    if (rpnlSyncing || !range) return;
+    if (!range) return;
+    if (rpnlRangeIsEcho(chartId, range)) return;
     if (rpnlUserInput) rpnlMarkUserView();
     else rpnlMaybeDetachFromLive();
     syncRpnlTimeScale(chartId, range);
@@ -1452,7 +1505,11 @@ function rpnlApplyLiveEdgePad() {
 function bindRpnlUserCamera() {
   if (bindRpnlUserCamera._bound) return;
   bindRpnlUserCamera._bound = true;
-  const mark = () => { rpnlUserInput = true; };
+  const mark = (ev) => {
+    rpnlUserInput = true;
+    const t = ev && ev.target && ev.target.closest && ev.target.closest('#rpnlChart, #ohlcChart');
+    if (t) rpnlSyncPrefer = t.id === 'rpnlChart' ? 'rpnl' : 'ohlc';
+  };
   const clear = () => {
     clearTimeout(bindRpnlUserCamera._clr);
     bindRpnlUserCamera._clr = setTimeout(() => { rpnlUserInput = false; }, 320);
