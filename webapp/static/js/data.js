@@ -414,7 +414,7 @@ let dbtPageRows = [];
 let dbtPeekIdx = -1;
 const dbtFacetsCache = {};
 const DBT_COL_HINTS = {
-  fills: ['created_at','contract','account','exchange','side','strategy','order_id'],
+  fills: ['created_at','contract','account','exchange','side','strategy','order_id','fill_id','rpnl','fee','upnl','bid','ask','position'],
   orders: ['created_at','contract','account','exchange','side','strategy','status','order_id'],
   logs: ['created_at','strategy','account','contract','exchange','service','level'],
   events: ['created_at','contract','strategy'],

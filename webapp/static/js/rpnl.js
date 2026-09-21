@@ -2921,8 +2921,14 @@ const RPNL_KIND_META = {
   fills: { label: 'Fills', table: 'fills' },
 };
 const RPNL_KIND_COLS = {
-  fills: ['created_at', 'exchange', 'side', 'quantity', 'price', 'rpnl', 'fee', 'account', 'strategy', 'order_id'],
+  fills: [
+    'created_at', 'exchange', 'side', 'quantity', 'price', 'rpnl', 'fee', 'upnl',
+    'fill_id', 'bid', 'ask', 'spread', 'mark', 'position', 'slippage',
+    'funding_rate', 'predicted_funding', 'open_interest', 'volume', 'implied_vol',
+    'account', 'strategy', 'order_id', 'contract',
+  ],
 };
+const RPNL_KIND_HIDE = { fills: ['id', 'details'] };
 
 function rpnlLogsOpen() {
   const page = document.getElementById('rpnl');
@@ -3118,7 +3124,7 @@ function rpnlKindCell(col, v) {
     const cls = sl === 'buy' ? 'side-buy' : (sl === 'sell' ? 'side-sell' : '');
     return cls ? '<span class="' + cls + '">' + escHtml(String(v)) + '</span>' : escHtml(String(v));
   }
-  if ((col === 'rpnl' || col === 'net_upnl' || col === 'fee') && isFinite(Number(v))) {
+  if ((col === 'rpnl' || col === 'upnl' || col === 'net_upnl' || col === 'fee') && isFinite(Number(v))) {
     const n = Number(v);
     const cls = n > 0 ? 'side-buy' : (n < 0 ? 'side-sell' : '');
     return '<span class="' + cls + '">' + escHtml(String(n)) + '</span>';
@@ -3146,8 +3152,11 @@ async function loadRpnlKindTable(reset) {
     const d = await r.json();
     const allCols = d.columns || [];
     const pref = RPNL_KIND_COLS[rpnlKind] || [];
+    const hide = RPNL_KIND_HIDE[rpnlKind] || ['id'];
     const cols = pref.filter(function (c) { return allCols.indexOf(c) >= 0; })
-      .concat(allCols.filter(function (c) { return pref.indexOf(c) < 0 && c !== 'id'; }));
+      .concat(allCols.filter(function (c) {
+        return pref.indexOf(c) < 0 && hide.indexOf(c) < 0;
+      }));
     const idx = {};
     allCols.forEach(function (c, i) { idx[c] = i; });
     rpnlKindCols = cols;
