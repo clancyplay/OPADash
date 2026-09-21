@@ -398,6 +398,7 @@ _SETUP_KEYS = (
     "probe_recent_ok", "probe_recent_rpnl", "probe_recent_secs",
     "probe_chop_ok", "probe_need_chop", "probe_trend_ok",
     "probe_win_rpnl", "probe_rpnl", "probe_rpnl_ready",
+    "probe_upnl", "probe_upnl_ok",
 )
 _SYMBOL_STRATS = {"opa3", "opa4"}
 
@@ -483,6 +484,7 @@ _LIVE_SETUP_KEYS = (
     "probe_recent_ok", "probe_recent_rpnl", "probe_recent_secs",
     "probe_chop_ok", "probe_need_chop", "probe_trend_ok",
     "probe_win_rpnl", "probe_rpnl", "probe_rpnl_ready",
+    "probe_upnl", "probe_upnl_ok",
 )
 
 

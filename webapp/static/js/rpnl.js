@@ -383,6 +383,8 @@ function rpnlProbeHtml(s) {
   rows.push(
     '<div class="ri-gate sub">' + escHtml(p) + ' ' + rpnlMark(!!s.probe_win_ok) +
     (last ? ' · ' + escHtml(last) + ' ' + rpnlMark(!!s.probe_last_ok) : '') +
+    ' · uPnL ' + escHtml(isFinite(Number(s.probe_upnl)) ? fmtUsdSigned(Number(s.probe_upnl)) : '—') +
+    ' ' + rpnlMark(!!s.probe_upnl_ok) +
     '</div>'
   );
   const recSecs = fmtWinSecs(s.probe_recent_secs) || fmtWinSecs(s.probe_recent) || '';
