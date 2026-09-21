@@ -1206,6 +1206,7 @@ function syncRpnlTimeScale(origin) {
 function onRpnlLogicalRange(chartId) {
   return function (range) {
     if (rpnlSyncing || !range) return;
+    if (rpnlUserInput) rpnlMarkUserView();
     syncRpnlTimeScale(chartId);
     const src = chartId === 'ohlc' ? ohlcChart : rpnlChart;
     const timeRange = src.timeScale().getVisibleRange();
@@ -1287,6 +1288,7 @@ function loadRpnlFresh() {
   saveRpnlPrefs();
   rpnlCurrentHours = null;
   rpnlFollowView();
+  rpnlResumeLiveFollow();
   loadRpnl(false);
 }
 
@@ -1297,6 +1299,7 @@ function rpnlPageVisible() {
 
 function fitRpnlView() {
   if (!ohlcChart || !rpnlChart) return;
+  rpnlResumeLiveFollow();
   applyRpnlChartSize();
   rpnlSyncing = true;
   try { ohlcChart.timeScale().fitContent(); } catch (e) {}
@@ -1401,11 +1404,48 @@ function rpnlAtLiveEdge() {
   try {
     const vr = ohlcChart.timeScale().getVisibleLogicalRange();
     if (!vr) return true;
-    return vr.to >= ohlcBarsCache.length - 1.35;
+    const last = ohlcBarsCache.length - 1;
+    let rightOffset = 4;
+    try {
+      const ro = ohlcChart.timeScale().options().rightOffset;
+      if (ro != null) rightOffset = ro;
+    } catch (e) {}
+    return vr.to >= last - 0.2 && vr.to <= last + rightOffset + 1.5;
   } catch (e) { return true; }
 }
 
+let rpnlFollowLive = true;
+let rpnlUserInput = false;
 let rpnlLiveShiftOn = true;
+
+function rpnlMarkUserView() {
+  if (!rpnlFollowLive) return;
+  rpnlFollowLive = false;
+  rpnlSetLiveShift(false);
+  syncOhlcGoLive();
+}
+
+function rpnlResumeLiveFollow() {
+  rpnlFollowLive = true;
+  rpnlSetLiveShift(true);
+  syncOhlcGoLive();
+}
+
+function bindRpnlUserCamera() {
+  const mark = () => { rpnlUserInput = true; };
+  const clear = () => { rpnlUserInput = false; };
+  ['ohlcChart', 'rpnlChart'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.camBound) return;
+    el.dataset.camBound = '1';
+    el.addEventListener('pointerdown', mark);
+    el.addEventListener('wheel', mark, { passive: true });
+    el.addEventListener('touchstart', mark, { passive: true });
+  });
+  window.addEventListener('pointerup', clear);
+  window.addEventListener('pointercancel', clear);
+}
+
 function rpnlSetLiveShift(on) {
   if (!ohlcChart) return;
   on = !!on;
@@ -1435,7 +1475,7 @@ function rpnlSetSeriesData(series, next, prev, live) {
     if (i === next.length) return false;
     if (i >= prev.length - 1) {
       try {
-        rpnlSetLiveShift(rpnlAtLiveEdge());
+        rpnlSetLiveShift(rpnlFollowLive);
         for (; i < next.length; i++) series.update(next[i]);
         return false;
       } catch (e) { /* full replace */ }
@@ -1704,12 +1744,12 @@ function updateOhlcHiLo() {
 function syncOhlcGoLive() {
   const btn = document.getElementById('ohlcGoLive');
   if (!btn) return;
-  btn.hidden = rpnlAtLiveEdge();
+  btn.hidden = rpnlFollowLive && rpnlAtLiveEdge();
 }
 
 function rpnlGoLive() {
   if (!ohlcChart) return;
-  rpnlSetLiveShift(true);
+  rpnlResumeLiveFollow();
   try { ohlcChart.timeScale().scrollToRealTime(); } catch (e) {}
   syncRpnlTimeScale('ohlc');
   syncOhlcGoLive();
@@ -2212,6 +2252,7 @@ function initRpnl() {
   ohlcChart.subscribeCrosshairMove((param) => syncCrosshair('ohlc', param));
   rpnlChart.subscribeCrosshairMove((param) => syncCrosshair('rpnl', param));
   bindRpnlSelectLayer();
+  bindRpnlUserCamera();
 
   window.addEventListener('resize', resizeRpnlCharts);
   requestAnimationFrame(resizeRpnlCharts);
