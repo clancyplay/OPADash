@@ -143,6 +143,7 @@ let rpnlFillsCache   = [];
 let rpnlCurrentHours = null;
 let rpnlLoadingMore  = false;
 let rpnlSyncing      = false;
+let rpnlSyncGen      = 0;
 let rpnlXhSyncing    = false;
 let rpnlMeta = {
   quote_venue: 'delta', quote_label: 'Delta', quote_symbol: '',
@@ -1175,11 +1176,21 @@ function alignRpnlToBars(rpnlPts, bars, prevAligned) {
   return out;
 }
 
-function syncRpnlTimeScale(origin) {
+function rpnlBeginSync() {
+  rpnlSyncing = true;
+  const gen = ++rpnlSyncGen;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (gen === rpnlSyncGen) rpnlSyncing = false;
+    });
+  });
+}
+
+function syncRpnlTimeScale(origin, range) {
   if (rpnlSyncing || !ohlcChart || !rpnlChart) return;
   const src = origin === 'ohlc' ? ohlcChart : rpnlChart;
   const dst = origin === 'ohlc' ? rpnlChart : ohlcChart;
-  const logical = src.timeScale().getVisibleLogicalRange();
+  const logical = range || src.timeScale().getVisibleLogicalRange();
   if (!logical) return;
   try {
     const dstLogical = dst.timeScale().getVisibleLogicalRange();
@@ -1187,27 +1198,18 @@ function syncRpnlTimeScale(origin) {
         Math.abs(dstLogical.from - logical.from) < 0.08 &&
         Math.abs(dstLogical.to - logical.to) < 0.08) return;
   } catch (e) {}
-  rpnlSyncing = true;
+  rpnlBeginSync();
   try {
-    let barSpacing, rightOffset;
-    try {
-      const opts = src.timeScale().options();
-      barSpacing = opts.barSpacing;
-      rightOffset = opts.rightOffset;
-    } catch (e) {}
-    if (barSpacing != null) {
-      dst.timeScale().applyOptions({ barSpacing, rightOffset });
-    }
     dst.timeScale().setVisibleLogicalRange({ from: logical.from, to: logical.to });
   } catch (e) { /* not ready */ }
-  rpnlSyncing = false;
 }
 
 function onRpnlLogicalRange(chartId) {
   return function (range) {
     if (rpnlSyncing || !range) return;
     if (rpnlUserInput) rpnlMarkUserView();
-    syncRpnlTimeScale(chartId);
+    else rpnlMaybeDetachFromLive();
+    syncRpnlTimeScale(chartId, range);
     const src = chartId === 'ohlc' ? ohlcChart : rpnlChart;
     const timeRange = src.timeScale().getVisibleRange();
     if (timeRange) maybeExtendRpnl(timeRange);
@@ -1301,11 +1303,13 @@ function fitRpnlView() {
   if (!ohlcChart || !rpnlChart) return;
   rpnlResumeLiveFollow();
   applyRpnlChartSize();
-  rpnlSyncing = true;
-  try { ohlcChart.timeScale().fitContent(); } catch (e) {}
-  try { rpnlChart.timeScale().fitContent(); } catch (e) {}
-  rpnlSyncing = false;
-  syncRpnlTimeScale('ohlc');
+  rpnlBeginSync();
+  try {
+    rpnlApplyLiveEdgePad();
+    ohlcChart.timeScale().fitContent();
+    rpnlChart.timeScale().fitContent();
+  } catch (e) {}
+  syncOhlcGoLive();
 }
 
 function rpnlLogicalLooksUnfitted() {
@@ -1327,43 +1331,25 @@ function captureRpnlView() {
   try {
     const logical = ohlcChart.timeScale().getVisibleLogicalRange();
     if (!logical || !(logical.to > logical.from)) return null;
-    let barSpacing, rightOffset;
-    try {
-      const opts = ohlcChart.timeScale().options();
-      barSpacing = opts.barSpacing;
-      rightOffset = opts.rightOffset;
-    } catch (e) {}
-    return { logical: { from: logical.from, to: logical.to }, barSpacing, rightOffset };
+    return { logical: { from: logical.from, to: logical.to } };
   } catch (e) { return null; }
 }
 
 function freezeRpnlView(snap) {
-  if (!snap || !ohlcChart) return;
-  rpnlSyncing = true;
-  try {
-    const opts = {};
-    if (snap.barSpacing != null) opts.barSpacing = snap.barSpacing;
-    if (snap.rightOffset != null) opts.rightOffset = snap.rightOffset;
-    if (Object.keys(opts).length) {
-      ohlcChart.timeScale().applyOptions(opts);
-      if (rpnlChart) rpnlChart.timeScale().applyOptions(opts);
-    }
-  } catch (e) {}
-  rpnlSyncing = false;
+  // Camera is the logical range. Never re-apply rightOffset — LWC treats that
+  // option as "pin the last bar this many slots from the right edge".
 }
 
 function restoreRpnlView(snap) {
   if (!snap || !snap.logical || !ohlcChart || !rpnlChart) return false;
-  freezeRpnlView(snap);
-  rpnlSyncing = true;
+  rpnlBeginSync();
   try {
-    ohlcChart.timeScale().setVisibleLogicalRange(snap.logical);
+    const logical = { from: snap.logical.from, to: snap.logical.to };
+    ohlcChart.timeScale().setVisibleLogicalRange(logical);
+    rpnlChart.timeScale().setVisibleLogicalRange(logical);
   } catch (e) {
-    rpnlSyncing = false;
     return false;
   }
-  rpnlSyncing = false;
-  syncRpnlTimeScale('ohlc');
   return true;
 }
 
@@ -1394,9 +1380,17 @@ function rpnlShiftLogical(snap, prev, next) {
   if (!dropped) return snap;
   return {
     logical: { from: snap.logical.from - dropped, to: snap.logical.to - dropped },
-    barSpacing: snap.barSpacing,
-    rightOffset: snap.rightOffset,
   };
+}
+
+function rpnlDefaultRightOffset() {
+  return window.matchMedia('(max-width: 720px)').matches ? 2 : 4;
+}
+
+function rpnlApplyTimeScaleOpts(opts) {
+  if (!ohlcChart) return;
+  try { ohlcChart.timeScale().applyOptions(opts); } catch (e) {}
+  try { if (rpnlChart) rpnlChart.timeScale().applyOptions(opts); } catch (e) {}
 }
 
 function rpnlAtLiveEdge() {
@@ -1405,42 +1399,69 @@ function rpnlAtLiveEdge() {
     const vr = ohlcChart.timeScale().getVisibleLogicalRange();
     if (!vr) return true;
     const last = ohlcBarsCache.length - 1;
-    let rightOffset = 4;
-    try {
-      const ro = ohlcChart.timeScale().options().rightOffset;
-      if (ro != null) rightOffset = ro;
-    } catch (e) {}
-    return vr.to >= last - 0.2 && vr.to <= last + rightOffset + 1.5;
+    return vr.to >= last - 0.35;
   } catch (e) { return true; }
 }
 
 let rpnlFollowLive = true;
 let rpnlUserInput = false;
-let rpnlLiveShiftOn = true;
+let rpnlLiveShiftOn = false;
+let rpnlFollowGuard = 0;
 
 function rpnlMarkUserView() {
-  if (!rpnlFollowLive) return;
+  if (rpnlSyncing && !rpnlUserInput) return;
+  if (!rpnlUserInput && Date.now() < rpnlFollowGuard) return;
+  rpnlNeedsFit = false;
+  clearTimeout(rpnlFitTimer);
+  if (!rpnlFollowLive) {
+    rpnlSetLiveShift(false);
+    syncOhlcGoLive();
+    return;
+  }
   rpnlFollowLive = false;
   rpnlSetLiveShift(false);
   syncOhlcGoLive();
 }
 
+function rpnlMaybeDetachFromLive() {
+  if (!rpnlFollowLive || rpnlSyncing || rpnlLoadBusy || rpnlHoldSnap) return;
+  if (Date.now() < rpnlFollowGuard) return;
+  if (!ohlcBarsCache.length) return;
+  if (!rpnlAtLiveEdge()) rpnlMarkUserView();
+}
+
 function rpnlResumeLiveFollow() {
   rpnlFollowLive = true;
+  rpnlFollowGuard = Date.now() + 700;
   rpnlSetLiveShift(true);
   syncOhlcGoLive();
 }
 
+function rpnlApplyLiveEdgePad() {
+  rpnlLiveShiftOn = true;
+  rpnlApplyTimeScaleOpts({
+    shiftVisibleRangeOnNewBar: true,
+    rightOffset: rpnlDefaultRightOffset(),
+  });
+}
+
 function bindRpnlUserCamera() {
+  if (bindRpnlUserCamera._bound) return;
+  bindRpnlUserCamera._bound = true;
   const mark = () => { rpnlUserInput = true; };
-  const clear = () => { rpnlUserInput = false; };
-  ['ohlcChart', 'rpnlChart'].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el || el.dataset.camBound) return;
-    el.dataset.camBound = '1';
-    el.addEventListener('pointerdown', mark);
-    el.addEventListener('wheel', mark, { passive: true });
-    el.addEventListener('touchstart', mark, { passive: true });
+  const clear = () => {
+    clearTimeout(bindRpnlUserCamera._clr);
+    bindRpnlUserCamera._clr = setTimeout(() => { rpnlUserInput = false; }, 320);
+  };
+  const stack = document.querySelector('#rpnl .rp-charts');
+  const targets = [stack, document.getElementById('ohlcChart'), document.getElementById('rpnlChart')]
+    .filter(Boolean);
+  const opts = { capture: true, passive: true };
+  targets.forEach(el => {
+    el.addEventListener('pointerdown', mark, opts);
+    el.addEventListener('wheel', mark, opts);
+    el.addEventListener('touchstart', mark, opts);
+    el.addEventListener('gesturestart', mark, opts);
   });
   window.addEventListener('pointerup', clear);
   window.addEventListener('pointercancel', clear);
@@ -1451,10 +1472,7 @@ function rpnlSetLiveShift(on) {
   on = !!on;
   if (on === rpnlLiveShiftOn) return;
   rpnlLiveShiftOn = on;
-  try {
-    ohlcChart.timeScale().applyOptions({ shiftVisibleRangeOnNewBar: on });
-    if (rpnlChart) rpnlChart.timeScale().applyOptions({ shiftVisibleRangeOnNewBar: on });
-  } catch (e) {}
+  rpnlApplyTimeScaleOpts({ shiftVisibleRangeOnNewBar: on });
 }
 
 function rpnlSetSeriesData(series, next, prev, live) {
@@ -1481,7 +1499,7 @@ function rpnlSetSeriesData(series, next, prev, live) {
       } catch (e) { /* full replace */ }
     }
   }
-  const snap = rpnlHoldSnap;
+  const snap = live ? (captureRpnlView() || rpnlHoldSnap) : rpnlHoldSnap;
   try { series.setData(next); } catch (e) { return true; }
   if (snap) restoreRpnlView(snap);
   return true;
@@ -1744,14 +1762,40 @@ function updateOhlcHiLo() {
 function syncOhlcGoLive() {
   const btn = document.getElementById('ohlcGoLive');
   if (!btn) return;
-  btn.hidden = rpnlFollowLive && rpnlAtLiveEdge();
+  const live = rpnlFollowLive && rpnlAtLiveEdge();
+  btn.hidden = live;
+  btn.classList.toggle('on', !live);
+}
+
+function rpnlVisibleSpan() {
+  try {
+    const vr = ohlcChart && ohlcChart.timeScale().getVisibleLogicalRange();
+    if (vr && vr.to > vr.from) return vr.to - vr.from;
+  } catch (e) {}
+  const n = Math.max(ohlcBarsCache.length, rpnlPtsCache.length);
+  return Math.min(120, Math.max(24, n || 24));
+}
+
+function rpnlScrollToLive() {
+  const n = Math.max(ohlcBarsCache.length, rpnlPtsCache.length);
+  if (!n || !ohlcChart) return;
+  const span = rpnlVisibleSpan();
+  const logical = {
+    from: (n - 1) + rpnlDefaultRightOffset() - span,
+    to: (n - 1) + rpnlDefaultRightOffset(),
+  };
+  rpnlBeginSync();
+  try {
+    ohlcChart.timeScale().setVisibleLogicalRange(logical);
+    if (rpnlChart) rpnlChart.timeScale().setVisibleLogicalRange(logical);
+  } catch (e) {}
 }
 
 function rpnlGoLive() {
   if (!ohlcChart) return;
   rpnlResumeLiveFollow();
-  try { ohlcChart.timeScale().scrollToRealTime(); } catch (e) {}
-  syncRpnlTimeScale('ohlc');
+  try { rpnlApplyLiveEdgePad(); } catch (e) {}
+  rpnlScrollToLive();
   syncOhlcGoLive();
 }
 
@@ -1820,6 +1864,7 @@ function paintOhlcHud(time) {
 
 function tickOhlcLiveMark() {
   if (!ohlcBarsCache.length || rpnlLoadBusy) return;
+  rpnlSetLiveShift(rpnlFollowLive);
   const row = currentRpnlRow();
   const mark = Number(row && row.settings && row.settings.mark);
   if (!isFinite(mark) || mark <= 0) return;
@@ -1866,6 +1911,10 @@ function tickOhlcMasLast(bar) {
 }
 
 function tryRpnlFit() {
+  if (!rpnlFollowLive) {
+    rpnlNeedsFit = false;
+    return true;
+  }
   if (rpnlHoldSnap) return false;
   if (!rpnlPageVisible() || !ohlcChart || !rpnlChart) return false;
   if (!applyRpnlChartSize()) return false;
@@ -1879,7 +1928,7 @@ function tryRpnlFit() {
 }
 
 function scheduleRpnlFit() {
-  if (rpnlHoldSnap || !rpnlPageVisible()) return;
+  if (!rpnlFollowLive || rpnlHoldSnap || !rpnlPageVisible()) return;
   rpnlNeedsFit = true;
   const kick = () => { if (rpnlNeedsFit) tryRpnlFit(); };
   requestAnimationFrame(() => {
@@ -1924,10 +1973,7 @@ function setRpnlView(v) {
     restoreRpnlView(snap);
     rpnlHoldSnap = null;
   } else if (saved) {
-    rpnlSyncing = true;
-    try { ohlcChart.timeScale().setVisibleLogicalRange(saved); } catch (e) {}
-    rpnlSyncing = false;
-    syncRpnlTimeScale('ohlc');
+    restoreRpnlView({ logical: { from: saved.from, to: saved.to } });
   }
 }
 
@@ -2015,8 +2061,10 @@ function rpnlChartBase(timeScaleVisible) {
       rightOffset: mobile ? 2 : 4,
       barSpacing: 7,
       minBarSpacing: 1.5,
+      fixLeftEdge: false,
+      fixRightEdge: false,
       lockVisibleTimeRangeOnResize: true,
-      shiftVisibleRangeOnNewBar: true,
+      shiftVisibleRangeOnNewBar: false,
       tickMarkFormatter: (time) => {
         const d = new Date(time * 1000);
         return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
@@ -2268,10 +2316,8 @@ function initRpnl() {
       ro.observe(stack);
       const o = document.getElementById('ohlcChart');
       const r = document.getElementById('rpnlChart');
-      const inspect = document.getElementById('rpnlInspect');
       if (o) ro.observe(o);
       if (r) ro.observe(r);
-      if (inspect) ro.observe(inspect);
     }
   }
   loadRpnl(false);
@@ -2279,7 +2325,8 @@ function initRpnl() {
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(() => {
       const page = document.getElementById('rpnl');
-      if (page && page.classList.contains('visible') && (ohlcBarsCache.length || rpnlPtsCache.length)) {
+      if (page && page.classList.contains('visible') && rpnlFollowLive &&
+          (ohlcBarsCache.length || rpnlPtsCache.length)) {
         scheduleRpnlFit();
       }
     });
@@ -2338,53 +2385,68 @@ function rpnlFitWidth(el) {
   const raw = (el && el.clientWidth) || (pane && pane.clientWidth) || cap;
   return cap ? Math.min(raw, cap) : raw;
 }
-function applyRpnlChartSize() {
-  if (!rpnlChart || !ohlcChart) return false;
+function rpnlMeasureChartSize() {
+  if (!rpnlChart || !ohlcChart) return null;
   const o = document.getElementById('ohlcChart');
   const r = document.getElementById('rpnlChart');
-  if (!o || !r) return false;
+  if (!o || !r) return null;
   const paneO = o.parentElement;
   const paneR = r.parentElement;
   const ow = rpnlFitWidth(o);
   const rw = rpnlFitWidth(r);
   const oh = o.clientHeight || (paneO && paneO.clientHeight) || 0;
   const rh = r.clientHeight || (paneR && paneR.clientHeight) || 0;
-  if (ow < 8 || oh < 8 || rw < 8 || rh < 8) return false;
-  if (ow === rpnlLastSize.ow && oh === rpnlLastSize.oh &&
-      rw === rpnlLastSize.rw && rh === rpnlLastSize.rh) return true;
+  if (ow < 8 || oh < 8 || rw < 8 || rh < 8) return null;
+  return { ow, oh, rw, rh };
+}
+function applyRpnlChartSize() {
+  const s = rpnlMeasureChartSize();
+  if (!s) return false;
+  if (s.ow === rpnlLastSize.ow && s.oh === rpnlLastSize.oh &&
+      s.rw === rpnlLastSize.rw && s.rh === rpnlLastSize.rh) return true;
   try {
-    ohlcChart.applyOptions({ width: ow, height: oh });
-    rpnlChart.applyOptions({ width: rw, height: rh });
-    rpnlLastSize = { ow, oh, rw, rh };
+    ohlcChart.applyOptions({ width: s.ow, height: s.oh });
+    rpnlChart.applyOptions({ width: s.rw, height: s.rh });
+    rpnlLastSize = s;
   } catch (e) { return false; }
   return true;
 }
 function resizeRpnlCharts() {
   if (!rpnlPageVisible()) return;
-  const snap = rpnlHoldSnap || captureRpnlView();
-  if (!applyRpnlChartSize()) {
-    if (!rpnlHoldSnap && (rpnlNeedsFit || rpnlLogicalLooksUnfitted())) scheduleRpnlFit();
+  const next = rpnlMeasureChartSize();
+  if (!next) {
+    if (rpnlFollowLive && !rpnlHoldSnap && (rpnlNeedsFit || rpnlLogicalLooksUnfitted())) scheduleRpnlFit();
     return;
   }
+  const same = next.ow === rpnlLastSize.ow && next.oh === rpnlLastSize.oh &&
+               next.rw === rpnlLastSize.rw && next.rh === rpnlLastSize.rh;
+  if (same && !rpnlHoldSnap) {
+    rpnlPaintBrush();
+    return;
+  }
+  const snap = rpnlHoldSnap || captureRpnlView();
+  applyRpnlChartSize();
   requestAnimationFrame(() => {
     if (rpnlHoldSnap) {
       restoreRpnlView(rpnlHoldSnap);
       rpnlPaintBrush();
       return;
     }
-    if (ohlcBarsCache.length || rpnlPtsCache.length) {
-      if (rpnlNeedsFit) {
-        if (!tryRpnlFit()) scheduleRpnlFit();
-      } else if (snap) {
-        restoreRpnlView(snap);
-      } else {
-        try {
-          const vr = ohlcChart.timeScale().getVisibleLogicalRange();
-          if (!vr || vr.to - vr.from < 1) {
-            if (!tryRpnlFit()) scheduleRpnlFit();
-          } else syncRpnlTimeScale('ohlc');
-        } catch (e) { scheduleRpnlFit(); }
-      }
+    if (!(ohlcBarsCache.length || rpnlPtsCache.length)) {
+      rpnlPaintBrush();
+      return;
+    }
+    if (rpnlFollowLive && rpnlNeedsFit) {
+      if (!tryRpnlFit()) scheduleRpnlFit();
+    } else if (snap) {
+      restoreRpnlView(snap);
+    } else if (rpnlFollowLive) {
+      try {
+        const vr = ohlcChart.timeScale().getVisibleLogicalRange();
+        if (!vr || vr.to - vr.from < 1) {
+          if (!tryRpnlFit()) scheduleRpnlFit();
+        } else syncRpnlTimeScale('ohlc');
+      } catch (e) { scheduleRpnlFit(); }
     }
     rpnlPaintBrush();
     applyOhlcOrderLines(quotesForCurrentRpnl());
@@ -2520,7 +2582,6 @@ function applyRpnlData(pts, keepRange, prevPts, prevHedge) {
     rpnlSetSeriesData(rpnlHistSeries, bars, prevBars, live);
   }
   applyRpnlFillMarkers();
-  if (!keepRange && !rpnlHoldSnap) fitRpnlView();
 }
 
 async function extendRpnl() {
@@ -2536,10 +2597,7 @@ async function extendRpnl() {
   rpnlCurrentHours = Math.min(currentH * 2, 720);
   await loadRpnl(true);
   if (visLogical) {
-    rpnlSyncing = true;
-    try { ohlcChart.timeScale().setVisibleLogicalRange(visLogical); } catch (e) {}
-    rpnlSyncing = false;
-    syncRpnlTimeScale('ohlc');
+    restoreRpnlView({ logical: { from: visLogical.from, to: visLogical.to } });
   }
   rpnlLoadingMore = false;
 }
@@ -2847,12 +2905,14 @@ function rpnlPinFromInputs() {
 function rpnlJumpChartToRange() {
   const r = rpnlActiveRange();
   if (!r || !rpnlChart || !ohlcChart) return;
-  rpnlSyncing = true;
+  rpnlBeginSync();
   try {
     rpnlChart.timeScale().setVisibleRange({ from: r.from, to: r.to });
     ohlcChart.timeScale().setVisibleRange({ from: r.from, to: r.to });
   } catch (e) {}
-  rpnlSyncing = false;
+  rpnlFollowLive = false;
+  rpnlSetLiveShift(false);
+  syncOhlcGoLive();
 }
 function setRpnlSelectMode(on) {
   rpnlSelectMode = !!on;
