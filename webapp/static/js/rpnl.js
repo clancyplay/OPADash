@@ -74,12 +74,14 @@ function updateRpnlPaneLabels() {
   const qlab = rpnlMeta.quote_label || 'Delta';
   const hlab = rpnlMeta.hedge_label || 'Hedge';
   const qsym = rpnlMeta.quote_symbol || sel.contract || '';
-  const venueLab = venue === 'hedge' ? hlab : (venue === 'quote' ? qlab : qlab + ' + ' + hlab);
+  const venueLab = rpnlMeta.has_hedge
+    ? (venue === 'hedge' ? hlab : (venue === 'quote' ? qlab : qlab + ' + ' + hlab))
+    : '';
   const ivl = (document.getElementById('rpnlCandle') || {}).value || '5m';
   const title = document.getElementById('ohlcHudTitle');
   if (title) title.textContent = (qsym || 'Price') + (qlab ? ' · ' + qlab : '') + ' · ' + ivl;
   const lab = document.getElementById('rpnlPaneLabel');
-  if (lab) lab.textContent = (rpnlView === 'cumul' ? 'Cumulative rPnL ₹' : 'Per-bucket rPnL ₹') + ' · ' + venueLab;
+  if (lab) lab.textContent = (rpnlView === 'cumul' ? 'Cumulative rPnL ₹' : 'Per-bucket rPnL ₹') + (venueLab ? ' · ' + venueLab : '');
 }
 
 
@@ -605,7 +607,7 @@ function rpnlSymbolBits(s) {
   const bits = [];
   if (s.quantity != null) bits.push(s.quantity + 'L');
   if (s.max_position != null) bits.push('max ' + s.max_position + 'L');
-  bits.push(Number(s.hedge_ratio) > 0 ? ('hedge ' + Math.round(Number(s.hedge_ratio) * 100) + '%') : 'unhedged');
+  if (Number(s.hedge_ratio) > 0) bits.push('hedge ' + Math.round(Number(s.hedge_ratio) * 100) + '%');
   if (s.wide_offset_enabled) bits.push('wide ' + fmtPct(s.wide_offset_pct));
   else bits.push('offset ' + (s.quote_offset_ticks ?? 0) + 't');
   if (s.ladder_enabled) bits.push('ladder ' + (s.ladder_levels || 1) + '×' + (s.ladder_size_mult || 1));
@@ -2543,13 +2545,17 @@ function syncRpnlVenueControl() {
   if (!sel) return;
   const hedged = !!rpnlMeta.has_hedge;
   const hlab = rpnlMeta.hedge_label || 'Hedge';
+  sel.hidden = !hedged;
+  sel.style.display = hedged ? '' : 'none';
   [...sel.options].forEach(o => {
     if (o.value === 'both')  { o.textContent = 'Quote + ' + hlab; o.disabled = !hedged; }
     if (o.value === 'quote') { o.textContent = (rpnlMeta.quote_label || 'Quote') + ' only'; }
     if (o.value === 'hedge') { o.textContent = hlab + ' only'; o.disabled = !hedged; }
   });
   sel.value = hedged ? rpnlVenuePref : 'quote';
-  sel.title = hedged ? '' : 'This contract has no hedge fills';
+  sel.title = hedged ? '' : '';
+  const page = document.getElementById('rpnl');
+  if (page) page.classList.toggle('hedge-on', hedged);
 }
 
 function fillGaps(pts, bucketSecs) {

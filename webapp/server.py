@@ -310,12 +310,15 @@ def _venue_symbol(cfg: _SymbolConfig | None, venue: str, contract: str) -> str:
     return (contract or "").upper()
 
 
+_HEDGE_VENUES = frozenset({"coindcx"})
+
+
 def venue_meta(contract: str, counts: dict[str, int] | None = None) -> dict:
     """Which exchange quotes this contract and which (if any) hedges it.
 
     `counts` is fills-per-exchange from the DB. Driving every caller off the
-    same counts keeps the pills, the dropdown and the chart in agreement, and
-    means a contract that was never hedged reports no hedge at all.
+    same counts keeps the pills, the dropdown and the chart in agreement.
+    Hedge is CoinDCX only — a second quote venue is not a hedge.
     """
     counts = {v: n for v, n in (counts or {}).items() if n}
     cfg = _cfg_for_contract(contract)
@@ -327,7 +330,7 @@ def venue_meta(contract: str, counts: dict[str, int] | None = None) -> dict:
             quote = cfg_quote
     if not quote:
         quote = max(counts, key=lambda v: counts[v]) if counts else "delta"
-    hedges = {v: n for v, n in counts.items() if v != quote}
+    hedges = {v: n for v, n in counts.items() if v in _HEDGE_VENUES and v != quote}
     hedge = max(hedges, key=lambda v: hedges[v]) if hedges else ""
     quote_symbol = _venue_symbol(cfg, quote, contract)
     return {
@@ -361,7 +364,7 @@ def _venue_side(exchange: str | None) -> str:
     e = (exchange or "both").strip().lower()
     if e in ("quote", "delta"):
         return "quote"
-    if e in ("hedge", "coindcx", "binance", "kucoin", "aster", "bybit", "coinbase", "not_quote"):
+    if e in ("hedge", "coindcx", "not_quote"):
         return "hedge"
     return "both"
 
@@ -511,13 +514,12 @@ def _annotate_rpnl_row(
     counts = dict(row.get("venue_fills") or {})
     rpnls = dict(row.get("venue_rpnl") or {})
     meta = venue_meta(row.get("contract") or "", counts_all)
-    qv = meta["quote_venue"]
     row = dict(row)
     row.update(meta)
-    row["rpnl"] = round(rpnls.get(qv, 0.0), 2)
-    row["fills"] = counts.get(qv, 0)
-    row["hedge_rpnl"] = round(sum(v for k, v in rpnls.items() if k != qv), 2)
-    row["hedge_fills"] = sum(n for k, n in counts.items() if k != qv)
+    row["rpnl"] = round(sum(v for k, v in rpnls.items() if k not in _HEDGE_VENUES), 2)
+    row["fills"] = sum(n for k, n in counts.items() if k not in _HEDGE_VENUES)
+    row["hedge_rpnl"] = round(sum(v for k, v in rpnls.items() if k in _HEDGE_VENUES), 2)
+    row["hedge_fills"] = sum(n for k, n in counts.items() if k in _HEDGE_VENUES)
     acct = row.get("account") or ""
     row["label"] = meta["label"] + (f" · {acct}" if acct else "")
     if row.get("strategy"):
@@ -1911,9 +1913,8 @@ def _finish_account(acct: dict) -> dict:
     contracts = []
     for con in acct["contracts"].values():
         meta = venue_meta(con["contract"], con["venue_fills"])
-        qv = meta["quote_venue"]
-        quote_rpnl = con["venue_rpnl"].get(qv, 0.0)
-        hedge_rpnl = sum(v for k, v in con["venue_rpnl"].items() if k != qv)
+        quote_rpnl = sum(v for k, v in con["venue_rpnl"].items() if k not in _HEDGE_VENUES)
+        hedge_rpnl = sum(v for k, v in con["venue_rpnl"].items() if k in _HEDGE_VENUES)
         venues = []
         for exch, n in con["venue_fills"].items():
             venues.append({
@@ -1926,7 +1927,7 @@ def _finish_account(acct: dict) -> dict:
         contracts.append({
             "contract": con["contract"],
             "strategy": con.get("strategy") or "",
-            "quote_venue": qv,
+            "quote_venue": meta["quote_venue"],
             "quote_label": meta["quote_label"],
             "quote_symbol": meta["quote_symbol"],
             "has_hedge": meta["has_hedge"],
@@ -1934,8 +1935,8 @@ def _finish_account(acct: dict) -> dict:
             "rpnl": round(quote_rpnl, 2),
             "hedge_rpnl": round(hedge_rpnl, 2),
             "net": round(quote_rpnl + hedge_rpnl, 2),
-            "fills": con["venue_fills"].get(qv, 0),
-            "hedge_fills": sum(n for k, n in con["venue_fills"].items() if k != qv),
+            "fills": sum(n for k, n in con["venue_fills"].items() if k not in _HEDGE_VENUES),
+            "hedge_fills": sum(n for k, n in con["venue_fills"].items() if k in _HEDGE_VENUES),
             "fees": round(con["fees"], 2),
             "venues": venues,
         })
@@ -2519,13 +2520,37 @@ _LOG_COL_ORDER = (
     "id", "created_at", "strategy", "account", "contract", "exchange",
     "service", "level", "name", "message",
 )
+_HIDDEN_TABLES = frozenset({
+    "orders", "events", "bot_control", "balances", "live_state", "reports", "positions",
+})
+_FILL_COL_ORDER = (
+    "id", "created_at", "contract", "exchange", "side", "quantity", "price",
+    "rpnl", "fee", "upnl", "cost", "bid", "ask", "spread", "mark", "position",
+    "slippage", "fill_id", "order_id", "account", "strategy", "source", "is_maker",
+    "fill_type", "role", "pair", "product_id",
+)
+_BAL_COL_ORDER = (
+    "id", "created_at", "account", "account_name", "exchange", "strategy", "balance",
+)
+_CMD_COL_ORDER = (
+    "id", "created_at", "strategy", "account", "contract", "cmd", "status",
+    "payload", "error", "created_by", "taken_at", "done_at",
+)
+_PING_COL_ORDER = ("strategy", "account", "contract", "venue", "pinged_at")
+_SETUP_COL_ORDER = ("strategy", "account", "contract", "updated_at", "setup")
+_COL_ORDER = {
+    "logs": _LOG_COL_ORDER,
+    "fills": _FILL_COL_ORDER,
+    "account_balances": _BAL_COL_ORDER,
+    "bot_command": _CMD_COL_ORDER,
+    "bot_ping": _PING_COL_ORDER,
+    "bot_setup": _SETUP_COL_ORDER,
+}
 
 
 def _ordered_cols(name: str, col_names: list[str]) -> list[str]:
-    if name != "logs":
-        return col_names
-    head = [c for c in _LOG_COL_ORDER if c in col_names]
-    rest = [c for c in col_names if c not in _LOG_COL_ORDER]
+    head = [c for c in _COL_ORDER.get(name, ()) if c in col_names]
+    rest = [c for c in col_names if c not in head]
     return head + rest
 
 
@@ -2533,7 +2558,7 @@ async def _public_tables(conn) -> list[str]:
     rows = await conn.fetch(
         "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
     )
-    return [r["tablename"] for r in rows]
+    return [r["tablename"] for r in rows if r["tablename"] not in _HIDDEN_TABLES]
 
 
 async def _table_meta(conn, name: str) -> tuple[list[str], dict[str, str]]:
@@ -2570,7 +2595,10 @@ def _build_table_filters(
     params: list = []
     cols = set(col_names)
 
-    time_col = "created_at" if "created_at" in cols else ("updated_at" if "updated_at" in cols else None)
+    time_col = next(
+        (c for c in ("created_at", "updated_at", "pinged_at", "time") if c in cols),
+        None,
+    )
     start = _parse_bound(since, end=False)
     stop = _parse_bound(until, end=True)
     if time_col and start:
@@ -2634,7 +2662,10 @@ def _build_table_filters(
 
 def _order_sql(col_names: list[str], sort: str | None, direction: str | None) -> tuple[str, str, str]:
     cols = set(col_names)
-    default = "id" if "id" in cols else ("created_at" if "created_at" in cols else (col_names[0] if col_names else None))
+    default = next(
+        (c for c in ("id", "created_at", "pinged_at", "updated_at", "synced_at") if c in cols),
+        (col_names[0] if col_names else None),
+    )
     col = sort if sort in cols else default
     if not col:
         return "", "id", "desc"
@@ -2814,15 +2845,20 @@ async def _csv_streaming_response(
 
 @app.get("/api/db/tables")
 async def db_tables() -> list[dict]:
-    """All public tables with row counts."""
+    """Browsable public tables with estimated row counts."""
     _require_db()
     async with _db.pool.acquire() as conn:
         names = await _public_tables(conn)
-        out = []
-        for tname in names:
-            count = await conn.fetchval(f"SELECT COUNT(*) FROM {_qi(tname)}")
-            out.append({"name": tname, "rows": int(count)})
-    return out
+        counts = await conn.fetch(
+            """
+            SELECT c.relname AS name, GREATEST(c.reltuples, 0)::bigint AS rows
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND c.relkind = 'r'
+            """
+        )
+        by_name = {r["name"]: int(r["rows"] or 0) for r in counts}
+        return [{"name": tname, "rows": by_name.get(tname, 0)} for tname in names]
 
 
 @app.get("/api/db/table/{name}/facets")
@@ -2843,7 +2879,7 @@ async def db_table_facets(name: str) -> dict:
                 continue
             ident = _qi(col)
             time_clip = ""
-            if name in ("fills", "orders", "logs", "events", "positions") and "created_at" in cols:
+            if name in ("fills", "logs") and "created_at" in cols:
                 time_clip = "AND created_at > NOW() - INTERVAL '365 days'"
             rows = await conn.fetch(
                 f"SELECT DISTINCT TRIM({ident}::text) AS v FROM {_qi(name)} "
@@ -2892,7 +2928,7 @@ async def db_table_export(
 
 
 _RPNL_PACK_KINDS = (
-    "fills", "logs", "orders", "events", "positions", "account_balances", "reports",
+    "fills", "logs", "account_balances",
 )
 
 
@@ -2904,7 +2940,7 @@ async def rpnl_export_pack(
     contract: str | None = Query(None),
     account: str | None = Query(None),
     exchange: str | None = Query(None),
-    kinds: str = Query("fills,logs,orders,events,positions,account_balances"),
+    kinds: str = Query("fills,logs,account_balances"),
 ):
     """ZIP of CSVs for the rPnL chart selection (same filters as the table browser)."""
     _require_db()
@@ -2932,7 +2968,7 @@ async def rpnl_export_pack(
                 "account": account or None,
                 "exchange": exchange or None,
             }
-            if kind in ("fills", "orders", "events", "positions"):
+            if kind == "fills":
                 filt["contract"] = contract
             elif kind == "logs":
                 filt = {
@@ -2994,22 +3030,16 @@ async def db_table(
     )
     stats = None
     cols = set(col_names)
+    agg_cols = [c for c in ("rpnl", "fee", "cost") if c in cols]
     async with _db.pool.acquire() as conn:
         total = int(await conn.fetchval(count_sql, *params) or 0)
         rows = await conn.fetch(data_sql, *data_params)
-        if where_sql and {"rpnl", "fee", "cost"} <= cols:
-            agg = await conn.fetchrow(
-                f"SELECT COALESCE(SUM(rpnl), 0)::float AS rpnl, "
-                f"COALESCE(SUM(fee), 0)::float AS fee, "
-                f"COALESCE(SUM(cost), 0)::float AS cost "
-                f"FROM {tbl} {where_sql}",
-                *params,
+        if where_sql and agg_cols:
+            sel = ", ".join(
+                f"COALESCE(SUM({_qi(c)}), 0)::float AS {c}" for c in agg_cols
             )
-            stats = {
-                "rpnl": float(agg["rpnl"] or 0),
-                "fee": float(agg["fee"] or 0),
-                "cost": float(agg["cost"] or 0),
-            }
+            agg = await conn.fetchrow(f"SELECT {sel} FROM {tbl} {where_sql}", *params)
+            stats = {c: float(agg[c] or 0) for c in agg_cols}
     return {
         "table":   name,
         "columns": col_names,

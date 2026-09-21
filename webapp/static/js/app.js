@@ -114,7 +114,9 @@ function showPage(name) {
   if (name === 'data') {
     if (!dataReady) { initData(); dataReady = true; }
     else showDataTab(dataTab);
-  } else if (dataReady) { clearInterval(fxTimer); clearInterval(evTimer); clearInterval(pxTimer); clearInterval(lgTimer); }
+  } else if (typeof stopDataTimers === 'function') {
+    stopDataTimers();
+  }
   // Charts need a resize when their container becomes visible
   if (name === 'rpnl') {
     if (rpnlChart) {

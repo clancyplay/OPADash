@@ -327,12 +327,10 @@ function renderReportAccounts(accts, snapshot) {
         '" onclick="goToRpnlChart(this.dataset.contract, this.dataset.account, this.dataset.strategy)" title="Open rPnL chart">' +
         '<td>' + escHtml(c.quote_symbol || c.contract) +
         (c.strategy ? ' <span class="rpnl-strat">' + escHtml(c.strategy) + '</span>' : '') +
-        (c.has_hedge ? ' <span style="color:var(--muted);font-size:11px">hedged</span>' : '') +
-        '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + venueBits + '</div></td>' +
-        '<td class="num" style="color:' + rptCol(c.rpnl) + '">' + rptSigned(c.rpnl) + '</td>' +
-        '<td class="num" style="color:#ff9800">' + (c.has_hedge ? rptSigned(c.hedge_rpnl) : '—') + '</td>' +
+        (venueBits ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + venueBits + '</div>' : '') +
+        '</td>' +
         '<td class="num" style="color:' + rptCol(c.net) + '">' + rptSigned(c.net) + '</td>' +
-        '<td class="num">' + (c.fills || 0) + (c.hedge_fills ? ' + ' + c.hedge_fills : '') + '</td></tr>';
+        '<td class="num">' + (c.fills || 0) + '</td></tr>';
     }).join('');
     const stratBits = (a.strategies || []).map(function (s) {
       return '<span class="rpnl-strat">' + escHtml(s) + '</span>';
@@ -353,7 +351,7 @@ function renderReportAccounts(accts, snapshot) {
         '<table class="rpt-xtable"><thead><tr><th>Exchange</th><th class="num">rPnL</th><th class="num">Fees</th><th class="num">Fills</th></tr></thead><tbody>' +
           exchRows + '</tbody></table>' +
         '<div class="rpt-sec">Contracts <span style="font-weight:400;text-transform:none;letter-spacing:0">· click to open rPnL</span></div>' +
-        '<table class="rpt-xtable"><thead><tr><th>Contract</th><th class="num">Quote</th><th class="num">Hedge</th><th class="num">Net</th><th class="num">Fills</th></tr></thead><tbody>' +
+        '<table class="rpt-xtable"><thead><tr><th>Contract</th><th class="num">rPnL</th><th class="num">Fills</th></tr></thead><tbody>' +
           conRows + '</tbody></table>' +
         ((a.positions && a.positions.length) ? '<div class="rpt-sec">Open positions</div>' + posTable(a.positions) : '') +
       '</div></div>';
@@ -361,15 +359,13 @@ function renderReportAccounts(accts, snapshot) {
 }
 
 function posTable(rows) {
-  return '<table class="rpt-xtable"><thead><tr><th>Contract</th><th class="num">Quote</th><th class="num">Hedge</th><th class="num">Mark</th><th class="num">uPnL</th></tr></thead><tbody>' +
+  return '<table class="rpt-xtable"><thead><tr><th>Contract</th><th class="num">Size</th><th class="num">Mark</th><th class="num">uPnL</th></tr></thead><tbody>' +
     rows.map(function (p) {
       const q = p.delta_size != null ? p.delta_size : p.size;
-      const h = p.binance_size != null ? p.binance_size : p.hedge_size;
       const mark = p.mark_price != null ? Number(p.mark_price).toPrecision(6) : '—';
       const upnl = p.net_upnl;
       return '<tr><td>' + escHtml(p.contract || '') + '</td>' +
         '<td class="num">' + (q == null ? '—' : Number(q).toFixed(3)) + '</td>' +
-        '<td class="num">' + (h == null ? '—' : Number(h).toFixed(3)) + '</td>' +
         '<td class="num">' + mark + '</td>' +
         '<td class="num" style="color:' + rptCol(upnl) + '">' + (upnl == null ? '—' : rptSigned(upnl)) + '</td></tr>';
     }).join('') + '</tbody></table>';
