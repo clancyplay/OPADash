@@ -53,14 +53,31 @@
     <div id="rpnlInspect" class="rpnl-inspect"></div>
   </div>
   <div class="rp-charts rpnl-stack">
-    <div class="rpnl-key" id="rpnlKey">
-      <span class="kitem"><span class="kdot" style="background:#26a69a"></span><span id="rkDeltaLab">Quote</span> <span class="kval" id="rkDelta">—</span></span>
-      <span class="kitem" id="rkHedgeItem"><span class="kdot" style="background:#ff9800"></span><span id="rkHedgeLab">Hedge</span> <span class="kval" id="rkHedge">—</span></span>
-      <span class="kitem" id="rkNetItem"><span class="kdot" style="background:#90caf9"></span>Net <span class="kval" id="rkNet">—</span></span>
-      <span class="kitem kitem-end" id="rkContract">Select a contract</span>
-    </div>
     <div class="rp-pane">
-      <div class="rp-pane-lab" id="ohlcPaneLabel">Price · vol · fills</div>
+      <div class="rp-ohlc-hud" id="ohlcHud">
+        <div class="hud-row">
+          <span class="hud-title" id="ohlcHudTitle">Price</span>
+          <span class="hud-chg" id="ohlcHudChg"></span>
+          <span class="hud-eta" id="ohlcHudEta"></span>
+        </div>
+        <div class="hud-ohlc" id="ohlcHudStats"></div>
+      </div>
+      <div class="rp-ohlc-tools" id="ohlcTools">
+        <button type="button" class="rp-tool on" data-ohlc-style="candle" title="Candlesticks">Cdl</button>
+        <button type="button" class="rp-tool" data-ohlc-style="bar" title="OHLC bars">Bar</button>
+        <button type="button" class="rp-tool" data-ohlc-style="line" title="Line">Line</button>
+        <button type="button" class="rp-tool" data-ohlc-style="area" title="Area">Area</button>
+        <span class="rp-tool-gap"></span>
+        <button type="button" class="rp-tool on" data-ohlc-ma="7" title="SMA 7">7</button>
+        <button type="button" class="rp-tool on" data-ohlc-ma="25" title="SMA 25">25</button>
+        <button type="button" class="rp-tool" data-ohlc-ma="99" title="SMA 99">99</button>
+        <span class="rp-tool-gap"></span>
+        <button type="button" class="rp-tool on" data-ohlc-tog="vol" title="Volume">Vol</button>
+        <button type="button" class="rp-tool on" data-ohlc-tog="fills" title="Fill markers">Fills</button>
+        <button type="button" class="rp-tool" data-ohlc-tog="log" title="Log price scale">Log</button>
+      </div>
+      <button type="button" class="rp-go-live" id="ohlcGoLive" hidden onclick="rpnlGoLive()" title="Jump to latest candle">▶</button>
+      <div class="rp-pane-lab" id="ohlcPaneLabel" hidden>Price · vol · fills</div>
       <div id="ohlcChart"></div>
       <div class="chart-empty" id="ohlcEmpty">No price candles for this window</div>
       <div class="chart-legend" id="ohlcLegend"></div>

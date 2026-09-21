@@ -75,14 +75,10 @@ function updateRpnlPaneLabels() {
   const hlab = rpnlMeta.hedge_label || 'Hedge';
   const qsym = rpnlMeta.quote_symbol || sel.contract || '';
   const venueLab = venue === 'hedge' ? hlab : (venue === 'quote' ? qlab : qlab + ' + ' + hlab);
-  const ohlc = document.getElementById('ohlcPaneLabel');
+  const ivl = (document.getElementById('rpnlCandle') || {}).value || '5m';
+  const title = document.getElementById('ohlcHudTitle');
+  if (title) title.textContent = (qsym || 'Price') + (qlab ? ' · ' + qlab : '') + ' · ' + ivl;
   const lab = document.getElementById('rpnlPaneLabel');
-  if (ohlc) {
-    const n = ohlcOrderLines.length;
-    ohlc.textContent = (qsym ? qsym + ' · ' : '') + qlab + ' price · vol · fills ▴▾'
-      + (rpnlMeta.has_hedge ? ' · ' + hlab + ' ●' : '')
-      + (n ? ' · ' + n + ' quote' + (n === 1 ? '' : 's') : '');
-  }
   if (lab) lab.textContent = (rpnlView === 'cumul' ? 'Cumulative rPnL ₹' : 'Per-bucket rPnL ₹') + ' · ' + venueLab;
 }
 
@@ -94,8 +90,32 @@ let rpnlSelectMode = false;
 let rpnlPinFrom = null;
 let rpnlPinTo = null;
 let ohlcChart, ohlcSeries, ohlcHedgeMarkerSeries, ohlcVolSeries;
+let ohlcBarSeries, ohlcLineSeries, ohlcAreaSeries, ohlcQuoteMarkerSeries;
+let ohlcMaSeries = { 7: null, 25: null, 99: null };
+let ohlcMaCache = { 7: [], 25: [], 99: [] };
 let ohlcOrderLines = [];
 let ohlcOrderSig = '';
+let ohlcOrderOwner = null;
+let ohlcHiLine = null, ohlcLoLine = null, ohlcHiLoOwner = null;
+let ohlcMarkerSig = '';
+let rpnlMarkerSig = '';
+let ohlcHoverTime = null;
+let ohlcStyle = 'candle';
+let ohlcMaOn = { 7: true, 25: true, 99: false };
+let ohlcShowVol = true;
+let ohlcShowFills = true;
+let ohlcLogScale = false;
+let rpnlAutoY = true;
+const OHLC_MA = [
+  { p: 7, color: '#f5d76e' },
+  { p: 25, color: '#42a5f5' },
+  { p: 99, color: '#ab47bc' },
+];
+const LS_OHLC_STYLE = 'opadash.ohlcStyle';
+const LS_OHLC_MA = 'opadash.ohlcMa';
+const LS_OHLC_VOL = 'opadash.ohlcVol';
+const LS_OHLC_FILLS = 'opadash.ohlcFills';
+const LS_OHLC_LOG = 'opadash.ohlcLog';
 let rpnlSummaryCache = [];
 let rpnlLoadSeq = 0;
 let rpnlQuoteTimer = null;
@@ -709,29 +729,32 @@ function currentRpnlRow(rows) {
 
 function clearOhlcOrderLines() {
   ohlcOrderSig = '';
-  if (!ohlcSeries) { ohlcOrderLines = []; return; }
+  const owner = ohlcOrderOwner || ohlcSeries;
   ohlcOrderLines.forEach(line => {
-    try { ohlcSeries.removePriceLine(line); } catch (e) {}
+    try { if (owner) owner.removePriceLine(line); } catch (e) {}
   });
   ohlcOrderLines = [];
+  ohlcOrderOwner = null;
 }
 
 function applyOhlcOrderLines(quotes) {
   const list = Array.isArray(quotes) ? quotes : [];
-  const sig = JSON.stringify(list.map(q => [q.side, q.price, q.qty, q.role])) + '#' + (ohlcBarsCache.length ? 1 : 0);
-  if (sig === ohlcOrderSig) {
+  const series = ohlcActiveSeries();
+  const sig = JSON.stringify(list.map(q => [q.side, q.price, q.qty, q.role])) + '#' + (ohlcBarsCache.length ? 1 : 0) + '#' + ohlcStyle;
+  if (sig === ohlcOrderSig && ohlcOrderOwner === series) {
     updateRpnlPaneLabels();
     return;
   }
   clearOhlcOrderLines();
   ohlcOrderSig = sig;
-  if (!ohlcSeries || !list.length || !ohlcBarsCache.length) {
+  if (!series || !list.length || !ohlcBarsCache.length) {
     updateRpnlPaneLabels();
     return;
   }
   const dash = (window.LightweightCharts && LightweightCharts.LineStyle)
     ? LightweightCharts.LineStyle.Dashed
     : 2;
+  ohlcOrderOwner = series;
   list.forEach(q => {
     const px = Number(q.price);
     if (!isFinite(px) || px <= 0) return;
@@ -739,7 +762,7 @@ function applyOhlcOrderLines(quotes) {
     const qty = q.qty != null ? fmtG(q.qty) : '';
     const title = qty || (buy ? 'B' : 'S');
     try {
-      ohlcOrderLines.push(ohlcSeries.createPriceLine({
+      ohlcOrderLines.push(series.createPriceLine({
         price: px,
         color: buy ? '#26a69a' : '#ef5350',
         lineWidth: 1,
@@ -785,6 +808,9 @@ async function refreshRpnlLive() {
     if (!sR.ok) return;
     const rows = filterRpnlWindowRows(await sR.json());
     renderRpnlSummary(rows, hoursArg);
+    tickOhlcLiveMark();
+    paintOhlcHud(ohlcHoverTime);
+    updateOhlcCountdown();
   } catch (e) {}
   if (rpnlLogsOpen() && rpnlKind === 'logs') loadRpnlLogs(false);
 }
@@ -819,8 +845,7 @@ function renderRpnlInspect(row) {
   ].join('|');
   const wasOpen = box.classList.contains('open');
   const wasFolded = box.classList.contains('folded');
-  const mobile = window.matchMedia('(max-width: 720px)').matches;
-  box.className = 'rpnl-inspect open' + ((wasFolded || (!wasOpen && mobile)) ? ' folded' : '');
+  box.className = 'rpnl-inspect open' + ((wasFolded || !wasOpen) ? ' folded' : '');
   box.dataset.contract = row.contract || '';
   box.dataset.account = row.account || '';
   box.dataset.strategy = row.strategy || '';
@@ -838,11 +863,11 @@ function renderRpnlInspect(row) {
       '<button type="button" class="ri-fold" title="Contract setup" onclick="toggleRpnlInspectFold()">▾</button>' +
       '<div class="ri-stats">' +
         rpnlPosHtml(s, 'ri-pos', row.quote_venue) +
-        rpnlWalletHtml(s) +
+        // rpnlWalletHtml(s) +
         '<span class="ri-chip">' + escHtml(qlab) + ' ' + (row.fills || 0) + ' fills' +
           (hedged ? ' · ' + escHtml(hlab) + ' ' + (row.hedge_fills || 0) : '') + '</span>' +
-        (row.strategy ? '<span class="ri-chip">' + escHtml(row.strategy) + '</span>' : '') +
-        (row.live && modeTxt ? '<span class="ri-chip">' + escHtml(modeTxt) + '</span>' : '') +
+        // (row.strategy ? '<span class="ri-chip">' + escHtml(row.strategy) + '</span>' : '') +
+        // (row.live && modeTxt ? '<span class="ri-chip">' + escHtml(modeTxt) + '</span>' : '') +
       '</div>' +
       '<div class="ri-col">' +
         rpnlActsHtml(row) +
@@ -924,7 +949,7 @@ function rpnlPillHtml(r, cur, nameCount) {
       '<span class="p-sym">' + escHtml(name) + '</span>' +
       (strat ? '<span class="rpnl-strat">' + escHtml(strat) + '</span>' : '') +
       '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
-    '<div class="p-val" style="color:' + mainCol + '">' + inrFmt(main) + '</div>' +
+    '<div class="p-val" style="color:' + mainCol + '">' + rpnlPillValInner(r) + '</div>' +
     (maxBit ? '<div class="p-max">' + escHtml(maxBit) + '</div>' : '') +
     (walletBit ? '<div class="p-bal">' + escHtml(walletBit) + '</div>' : '') +
     (mode ? '<div class="p-mode">' + escHtml(mode) + '</div>' : '') +
@@ -934,6 +959,19 @@ function rpnlPillHtml(r, cur, nameCount) {
 function rpnlPillMain(r) {
   const hedged = !!r.has_hedge && !!r.hedge_fills;
   return (Number(r.rpnl) || 0) + (hedged ? (Number(r.hedge_rpnl) || 0) : 0);
+}
+
+function rpnlPillUsdText(r, inr) {
+  const usd = (Number(inr) || 0) / liveUsdInr(r && r.settings);
+  const abs = Math.abs(usd);
+  const d = abs >= 100 ? 0 : (abs >= 10 ? 1 : 2);
+  const sign = usd < 0 ? '−' : '';
+  return sign + '$' + abs.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+function rpnlPillValInner(r) {
+  const main = rpnlPillMain(r);
+  return inrFmt(main) + '<span class="p-usd">' + rpnlPillUsdText(r, main) + '</span>';
 }
 
 function renderRpnlSummary(rows, hours) {
@@ -970,7 +1008,7 @@ function renderRpnlSummary(rows, hours) {
       const val = el.querySelector('.p-val');
       const main = rpnlPillMain(r);
       if (val) {
-        val.textContent = inrFmt(main);
+        val.innerHTML = rpnlPillValInner(r);
         val.style.color = main >= 0 ? 'var(--green)' : 'var(--red)';
       }
       const mode = rpnlPillMode(r);
@@ -1107,9 +1145,14 @@ function rpnlDataBounds() {
 // Map cumulative rPnL onto OHLC candle times so both charts have the same
 // bar count. LWC spaces bars by index, not calendar time — mismatched counts
 // make timestamps sit at different x positions even in the same window.
-function alignRpnlToBars(rpnlPts, bars) {
+function alignRpnlToBars(rpnlPts, bars, prevAligned) {
   if (!bars.length) return rpnlPts;
-  if (!rpnlPts.length) return bars.map(b => ({ time: b.time, value: 0 }));
+  const prevMap = prevAligned && prevAligned.length
+    ? new Map(prevAligned.map(p => [p.time, p.value])) : null;
+  if (!rpnlPts.length) {
+    if (prevMap) return bars.map(b => ({ time: b.time, value: prevMap.has(b.time) ? prevMap.get(b.time) : 0 }));
+    return bars.map(b => ({ time: b.time, value: 0 }));
+  }
   let i = 0;
   let last = 0;
   const firstT = rpnlPts[0].time;
@@ -1119,7 +1162,13 @@ function alignRpnlToBars(rpnlPts, bars) {
       last = rpnlPts[i].value;
       i++;
     }
-    out.push({ time: b.time, value: b.time < firstT ? 0 : last });
+    let value;
+    if (b.time < firstT) {
+      value = prevMap && prevMap.has(b.time) ? prevMap.get(b.time) : 0;
+    } else {
+      value = last;
+    }
+    out.push({ time: b.time, value });
   }
   return out;
 }
@@ -1161,6 +1210,10 @@ function onRpnlLogicalRange(chartId) {
     if (timeRange) maybeExtendRpnl(timeRange);
     if (!rpnlRangePinned && !rpnlSelectMode) rpnlSyncRangeFromView();
     rpnlPaintBrush();
+    if (chartId === 'ohlc') {
+      updateOhlcHiLo();
+      syncOhlcGoLive();
+    }
   };
 }
 
@@ -1208,12 +1261,15 @@ function fillMarkersFromFills(fills, bars, hedgeOnly) {
 }
 
 function applyRpnlFillMarkers() {
-  const fills = rpnlFillsCache || [];
+  const fills = ohlcShowFills ? (rpnlFillsCache || []) : [];
   const snap = rpnlPtsCache.length ? rpnlPtsCache : ohlcBarsCache;
   const venue = currentRpnlVenue();
   const deltaMarks = venue === 'hedge' ? [] : fillMarkersFromFills(fills, snap, false);
   const hedgeMarks = (venue === 'quote' || !rpnlMeta.has_hedge)
     ? [] : fillMarkersFromFills(fills, snap, true);
+  const sig = rpnlView + '|' + JSON.stringify([deltaMarks, hedgeMarks]);
+  if (sig === rpnlMarkerSig) return;
+  rpnlMarkerSig = sig;
   if (rpnlView === 'cumul') {
     if (rpnlSeries) rpnlSeries.setMarkers(deltaMarks);
     if (rpnlHistSeries) rpnlHistSeries.setMarkers([]);
@@ -1313,24 +1369,458 @@ function rpnlDatumEq(a, b) {
     && (a.volume || 0) === (b.volume || 0);
 }
 
-function rpnlSetSeriesData(series, next, prev) {
-  if (!series) return;
+function rpnlMergeByTime(prev, next) {
+  if (!next || !next.length) return (prev || []).slice();
+  if (!prev || !prev.length) return next.slice();
+  const map = new Map();
+  for (let i = 0; i < prev.length; i++) map.set(prev[i].time, prev[i]);
+  for (let i = 0; i < next.length; i++) map.set(next[i].time, next[i]);
+  const out = Array.from(map.values()).sort((a, b) => a.time - b.time);
+  const cap = 10000;
+  if (out.length > cap + 400) return out.slice(out.length - cap);
+  return out;
+}
+
+function rpnlShiftLogical(snap, prev, next) {
+  if (!snap || !snap.logical || !prev || !next || !prev.length || !next.length) return snap;
+  if (prev[0].time === next[0].time) return snap;
+  let dropped = 0;
+  while (dropped < prev.length && prev[dropped].time < next[0].time) dropped++;
+  if (!dropped) return snap;
+  return {
+    logical: { from: snap.logical.from - dropped, to: snap.logical.to - dropped },
+    barSpacing: snap.barSpacing,
+    rightOffset: snap.rightOffset,
+  };
+}
+
+function rpnlAtLiveEdge() {
+  if (!ohlcChart || !ohlcBarsCache.length) return true;
+  try {
+    const vr = ohlcChart.timeScale().getVisibleLogicalRange();
+    if (!vr) return true;
+    return vr.to >= ohlcBarsCache.length - 1.35;
+  } catch (e) { return true; }
+}
+
+let rpnlLiveShiftOn = true;
+function rpnlSetLiveShift(on) {
+  if (!ohlcChart) return;
+  on = !!on;
+  if (on === rpnlLiveShiftOn) return;
+  rpnlLiveShiftOn = on;
+  try {
+    ohlcChart.timeScale().applyOptions({ shiftVisibleRangeOnNewBar: on });
+    if (rpnlChart) rpnlChart.timeScale().applyOptions({ shiftVisibleRangeOnNewBar: on });
+  } catch (e) {}
+}
+
+function rpnlSetSeriesData(series, next, prev, live) {
+  if (!series) return false;
   next = next || [];
   prev = prev || [];
-  const snap = rpnlHoldSnap;
-  if (snap && prev.length && next.length && prev[0].time === next[0].time
-      && next.length >= prev.length && next.length - prev.length <= 2) {
+  if (!next.length) {
+    if (prev.length) {
+      try { series.setData([]); } catch (e) {}
+      return true;
+    }
+    return false;
+  }
+  if (live && prev.length && prev[0].time === next[0].time && next.length >= prev.length) {
     let i = 0;
     const lim = Math.min(prev.length, next.length);
     while (i < lim && rpnlDatumEq(prev[i], next[i])) i++;
-    if (i === next.length) return;
-    try {
-      for (; i < next.length; i++) series.update(next[i]);
-      return;
-    } catch (e) { /* full replace */ }
+    if (i === next.length) return false;
+    if (i >= prev.length - 1) {
+      try {
+        rpnlSetLiveShift(rpnlAtLiveEdge());
+        for (; i < next.length; i++) series.update(next[i]);
+        return false;
+      } catch (e) { /* full replace */ }
+    }
   }
-  series.setData(next);
+  const snap = rpnlHoldSnap;
+  try { series.setData(next); } catch (e) { return true; }
   if (snap) restoreRpnlView(snap);
+  return true;
+}
+
+function ohlcActiveSeries() {
+  if (ohlcStyle === 'bar' && ohlcBarSeries) return ohlcBarSeries;
+  if (ohlcStyle === 'line' && ohlcLineSeries) return ohlcLineSeries;
+  if (ohlcStyle === 'area' && ohlcAreaSeries) return ohlcAreaSeries;
+  return ohlcSeries;
+}
+
+function ohlcLineData(bars) {
+  return (bars || []).map(b => ({ time: b.time, value: b.close }));
+}
+
+function ohlcSma(bars, period) {
+  const out = [];
+  if (!bars || bars.length < period) return out;
+  let sum = 0;
+  for (let i = 0; i < bars.length; i++) {
+    sum += bars[i].close;
+    if (i >= period) sum -= bars[i - period].close;
+    if (i >= period - 1) out.push({ time: bars[i].time, value: sum / period });
+  }
+  return out;
+}
+
+function rpnlCandleSecs() {
+  const v = (document.getElementById('rpnlCandle') || {}).value || '5m';
+  const n = parseInt(v, 10) || 5;
+  if (v.indexOf('h') >= 0) return n * 3600;
+  if (v.indexOf('d') >= 0) return n * 86400;
+  return n * 60;
+}
+
+function restoreOhlcPrefs() {
+  const style = lsGet(LS_OHLC_STYLE, 'candle');
+  if (style === 'candle' || style === 'bar' || style === 'line' || style === 'area') ohlcStyle = style;
+  try {
+    const ma = JSON.parse(lsGet(LS_OHLC_MA, '{}'));
+    if (ma && typeof ma === 'object') {
+      [7, 25, 99].forEach(p => { if (p in ma) ohlcMaOn[p] = !!ma[p]; });
+    }
+  } catch (e) {}
+  ohlcShowVol = lsGet(LS_OHLC_VOL, '1') !== '0';
+  ohlcShowFills = lsGet(LS_OHLC_FILLS, '1') !== '0';
+  ohlcLogScale = lsGet(LS_OHLC_LOG, '0') === '1';
+}
+
+function saveOhlcPrefs() {
+  lsSet(LS_OHLC_STYLE, ohlcStyle);
+  lsSet(LS_OHLC_MA, JSON.stringify(ohlcMaOn));
+  lsSet(LS_OHLC_VOL, ohlcShowVol ? '1' : '0');
+  lsSet(LS_OHLC_FILLS, ohlcShowFills ? '1' : '0');
+  lsSet(LS_OHLC_LOG, ohlcLogScale ? '1' : '0');
+}
+
+function syncOhlcToolButtons() {
+  const box = document.getElementById('ohlcTools');
+  if (!box) return;
+  box.querySelectorAll('[data-ohlc-style]').forEach(btn => {
+    btn.classList.toggle('on', btn.getAttribute('data-ohlc-style') === ohlcStyle);
+  });
+  box.querySelectorAll('[data-ohlc-ma]').forEach(btn => {
+    const p = parseInt(btn.getAttribute('data-ohlc-ma'), 10);
+    btn.classList.toggle('on', !!ohlcMaOn[p]);
+  });
+  const vol = box.querySelector('[data-ohlc-tog="vol"]');
+  const fills = box.querySelector('[data-ohlc-tog="fills"]');
+  const log = box.querySelector('[data-ohlc-tog="log"]');
+  if (vol) vol.classList.toggle('on', ohlcShowVol);
+  if (fills) fills.classList.toggle('on', ohlcShowFills);
+  if (log) log.classList.toggle('on', ohlcLogScale);
+}
+
+function bindOhlcTools() {
+  const box = document.getElementById('ohlcTools');
+  if (!box || box.dataset.bound) return;
+  box.dataset.bound = '1';
+  box.addEventListener('click', ev => {
+    const btn = ev.target.closest('button');
+    if (!btn) return;
+    const style = btn.getAttribute('data-ohlc-style');
+    const ma = btn.getAttribute('data-ohlc-ma');
+    const tog = btn.getAttribute('data-ohlc-tog');
+    if (style) {
+      ohlcStyle = style;
+      applyOhlcChartStyle();
+    } else if (ma) {
+      const p = parseInt(ma, 10);
+      ohlcMaOn[p] = !ohlcMaOn[p];
+      const snap = captureRpnlView();
+      if (snap) rpnlHoldSnap = snap;
+      applyOhlcMovingAverages(ohlcBarsCache, true);
+      if (snap) restoreRpnlView(snap);
+      rpnlHoldSnap = null;
+    } else if (tog === 'vol') {
+      ohlcShowVol = !ohlcShowVol;
+      applyOhlcVolVisible();
+    } else if (tog === 'fills') {
+      ohlcShowFills = !ohlcShowFills;
+      ohlcMarkerSig = '';
+      rpnlMarkerSig = '';
+      applyOhlcFillMarkers();
+      applyRpnlFillMarkers();
+    } else if (tog === 'log') {
+      ohlcLogScale = !ohlcLogScale;
+      applyOhlcLogScale();
+    } else return;
+    saveOhlcPrefs();
+    syncOhlcToolButtons();
+  });
+}
+
+function applyOhlcLogScale() {
+  if (!ohlcChart || !window.LightweightCharts) return;
+  const mode = ohlcLogScale
+    ? LightweightCharts.PriceScaleMode.Logarithmic
+    : LightweightCharts.PriceScaleMode.Normal;
+  try { ohlcChart.priceScale('right').applyOptions({ mode }); } catch (e) {}
+}
+
+function applyOhlcVolVisible() {
+  if (ohlcVolSeries) ohlcVolSeries.applyOptions({ visible: ohlcShowVol });
+  if (!ohlcChart) return;
+  try {
+    ohlcChart.priceScale('').applyOptions({
+      scaleMargins: { top: ohlcShowVol ? 0.78 : 0.96, bottom: 0 },
+    });
+    ohlcChart.priceScale('right').applyOptions({
+      scaleMargins: { top: 0.1, bottom: ohlcShowVol ? 0.18 : 0.05 },
+    });
+  } catch (e) {}
+}
+
+function applyOhlcWatermark() {
+  if (!ohlcChart) return;
+  const sym = rpnlMeta.quote_symbol || currentRpnlSel().contract || '';
+  const ivl = (document.getElementById('rpnlCandle') || {}).value || '5m';
+  const sig = sym + '|' + ivl;
+  if (applyOhlcWatermark._sig === sig) return;
+  applyOhlcWatermark._sig = sig;
+  try {
+    ohlcChart.applyOptions({
+      watermark: {
+        visible: !!sym,
+        text: sym ? (sym + '  ' + ivl) : '',
+        fontSize: 46,
+        fontFamily: 'inherit',
+        fontStyle: 'bold',
+        color: 'rgba(209,212,220,0.04)',
+        horzAlign: 'center',
+        vertAlign: 'center',
+      },
+    });
+  } catch (e) {}
+}
+
+function applyOhlcChartStyle() {
+  if (!ohlcSeries) return;
+  const s = ohlcStyle;
+  const vis = (want) => ({ visible: s === want, lastValueVisible: s === want, priceLineVisible: s === want });
+  try {
+    ohlcSeries.applyOptions(vis('candle'));
+    if (ohlcBarSeries) ohlcBarSeries.applyOptions(vis('bar'));
+    if (ohlcLineSeries) ohlcLineSeries.applyOptions(vis('line'));
+    if (ohlcAreaSeries) ohlcAreaSeries.applyOptions(vis('area'));
+  } catch (e) {}
+  clearOhlcHiLo();
+  ohlcOrderSig = '';
+  applyOhlcOrderLines(quotesForCurrentRpnl());
+  applyOhlcFillMarkers();
+  updateOhlcHiLo();
+  syncOhlcToolButtons();
+}
+
+function applyOhlcMovingAverages(bars, live) {
+  OHLC_MA.forEach(({ p, color }) => {
+    const series = ohlcMaSeries[p];
+    if (!series) return;
+    const prev = ohlcMaCache[p] || [];
+    const next = ohlcMaOn[p] ? ohlcSma(bars, p) : [];
+    series.applyOptions({ visible: !!ohlcMaOn[p] && next.length > 0, color });
+    rpnlSetSeriesData(series, next, live ? prev : [], !!live);
+    ohlcMaCache[p] = next;
+  });
+}
+
+function applyOhlcAllSeries(bars, prevBars, live) {
+  const prevLine = ohlcLineData(prevBars);
+  const line = ohlcLineData(bars);
+  rpnlSetSeriesData(ohlcSeries, bars, prevBars, live);
+  if (ohlcBarSeries) rpnlSetSeriesData(ohlcBarSeries, bars, prevBars, live);
+  if (ohlcLineSeries) rpnlSetSeriesData(ohlcLineSeries, line, prevLine, live);
+  if (ohlcAreaSeries) rpnlSetSeriesData(ohlcAreaSeries, line, prevLine, live);
+  if (ohlcQuoteMarkerSeries) rpnlSetSeriesData(ohlcQuoteMarkerSeries, line, prevLine, live);
+  if (ohlcHedgeMarkerSeries) rpnlSetSeriesData(ohlcHedgeMarkerSeries, line, prevLine, live);
+  if (ohlcVolSeries) rpnlSetSeriesData(ohlcVolSeries, volumeBarsFromOhlc(bars), volumeBarsFromOhlc(prevBars), live);
+  applyOhlcMovingAverages(bars, live);
+}
+
+function applyOhlcFillMarkers() {
+  const fills = ohlcShowFills ? (rpnlFillsCache || []) : [];
+  const qMarks = fillMarkersFromFills(fills, ohlcBarsCache, false);
+  const hMarks = (rpnlMeta.has_hedge ? fillMarkersFromFills(fills, ohlcBarsCache, true) : []);
+  const sig = JSON.stringify([qMarks, hMarks]);
+  if (sig === ohlcMarkerSig) return;
+  ohlcMarkerSig = sig;
+  try {
+    if (ohlcQuoteMarkerSeries) ohlcQuoteMarkerSeries.setMarkers(qMarks);
+    if (ohlcHedgeMarkerSeries) ohlcHedgeMarkerSeries.setMarkers(hMarks);
+    if (ohlcSeries) ohlcSeries.setMarkers([]);
+  } catch (e) {}
+}
+
+function clearOhlcHiLo() {
+  if (ohlcHiLoOwner) {
+    if (ohlcHiLine) try { ohlcHiLoOwner.removePriceLine(ohlcHiLine); } catch (e) {}
+    if (ohlcLoLine) try { ohlcHiLoOwner.removePriceLine(ohlcLoLine); } catch (e) {}
+  }
+  ohlcHiLine = ohlcLoLine = null;
+  ohlcHiLoOwner = null;
+}
+
+function updateOhlcHiLo() {
+  const series = ohlcActiveSeries();
+  if (!series || !ohlcChart || !ohlcBarsCache.length) return;
+  let from = 0, to = ohlcBarsCache.length - 1;
+  try {
+    const vr = ohlcChart.timeScale().getVisibleLogicalRange();
+    if (vr) {
+      from = Math.max(0, Math.floor(vr.from));
+      to = Math.min(ohlcBarsCache.length - 1, Math.ceil(vr.to));
+    }
+  } catch (e) {}
+  let hi = -Infinity, lo = Infinity;
+  for (let i = from; i <= to; i++) {
+    const b = ohlcBarsCache[i];
+    if (!b) continue;
+    if (b.high > hi) hi = b.high;
+    if (b.low < lo) lo = b.low;
+  }
+  if (!isFinite(hi) || !isFinite(lo)) return;
+  if (ohlcHiLoOwner && ohlcHiLoOwner !== series) clearOhlcHiLo();
+  const dash = (window.LightweightCharts && LightweightCharts.LineStyle)
+    ? LightweightCharts.LineStyle.Dotted : 3;
+  const spec = (price, color, title) => ({
+    price, color, lineWidth: 1, lineStyle: dash, axisLabelVisible: true, title,
+  });
+  try {
+    ohlcHiLoOwner = series;
+    if (!ohlcHiLine) ohlcHiLine = series.createPriceLine(spec(hi, 'rgba(38,166,154,.8)', 'H ' + fmtPxFull(hi)));
+    else ohlcHiLine.applyOptions(spec(hi, 'rgba(38,166,154,.8)', 'H ' + fmtPxFull(hi)));
+    if (!ohlcLoLine) ohlcLoLine = series.createPriceLine(spec(lo, 'rgba(239,83,80,.8)', 'L ' + fmtPxFull(lo)));
+    else ohlcLoLine.applyOptions(spec(lo, 'rgba(239,83,80,.8)', 'L ' + fmtPxFull(lo)));
+  } catch (e) {}
+}
+
+function syncOhlcGoLive() {
+  const btn = document.getElementById('ohlcGoLive');
+  if (!btn) return;
+  btn.hidden = rpnlAtLiveEdge();
+}
+
+function rpnlGoLive() {
+  if (!ohlcChart) return;
+  rpnlSetLiveShift(true);
+  try { ohlcChart.timeScale().scrollToRealTime(); } catch (e) {}
+  syncRpnlTimeScale('ohlc');
+  syncOhlcGoLive();
+}
+
+function fmtOhlcEta(secs) {
+  if (secs < 0) secs = 0;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return h + ':' + String(mm).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+function updateOhlcCountdown() {
+  const el = document.getElementById('ohlcHudEta');
+  if (!el) return;
+  if (!ohlcBarsCache.length) { el.textContent = ''; return; }
+  const last = ohlcBarsCache[ohlcBarsCache.length - 1];
+  const left = (last.time + rpnlCandleSecs()) - Math.floor(Date.now() / 1000);
+  el.textContent = fmtOhlcEta(left);
+}
+
+function paintOhlcHud(time) {
+  const stats = document.getElementById('ohlcHudStats');
+  const chgEl = document.getElementById('ohlcHudChg');
+  if (!stats) return;
+  if (!ohlcBarsCache.length) {
+    stats.textContent = '';
+    if (chgEl) chgEl.textContent = '';
+    return;
+  }
+  const d = time ? nearestByTime(ohlcBarsCache, time) : ohlcBarsCache[ohlcBarsCache.length - 1];
+  if (!d) return;
+  const idx = ohlcBarsCache.indexOf(d);
+  const prev = idx > 0 ? ohlcBarsCache[idx - 1] : null;
+  const base = prev ? prev.close : d.open;
+  const delta = d.close - base;
+  const pct = base ? (delta / base) * 100 : 0;
+  const up = delta >= 0;
+  const cls = up ? 'up' : 'dn';
+  if (chgEl) {
+    chgEl.className = 'hud-chg ' + cls;
+    chgEl.textContent = (up ? '+' : '−') + fmtPxFull(Math.abs(delta)) +
+      ' (' + (up ? '+' : '−') + Math.abs(pct).toFixed(Math.abs(pct) >= 10 ? 2 : 3) + '%)';
+  }
+  const fill = fillAtTime(d.time);
+  let html =
+    '<span>O <b>' + fmtPxFull(d.open) + '</b></span>' +
+    '<span>H <b>' + fmtPxFull(d.high) + '</b></span>' +
+    '<span>L <b>' + fmtPxFull(d.low) + '</b></span>' +
+    '<span>C <b class="' + cls + '">' + fmtPxFull(d.close) + '</b></span>' +
+    '<span>Vol <b>' + fmtVol(d.volume) + '</b></span>';
+  if (fill && ohlcShowFills) {
+    const col = fill.rpnl >= 0 ? '#26a69a' : '#ef5350';
+    const qv = (rpnlMeta.quote_venue || 'delta').toLowerCase();
+    const ven = ((fill.exchange || 'delta').toLowerCase() === qv)
+      ? (rpnlMeta.quote_label || 'Quote') : (rpnlMeta.hedge_label || 'Hedge');
+    html += '<span class="hud-fill">' + ven + ' ' + (fill.side || '') +
+      ' <b style="color:' + col + '">' + inrFmtDec(fill.rpnl, 2) + '</b></span>';
+  }
+  stats.innerHTML = html;
+  updateOhlcCountdown();
+}
+
+function tickOhlcLiveMark() {
+  if (!ohlcBarsCache.length || rpnlLoadBusy) return;
+  const row = currentRpnlRow();
+  const mark = Number(row && row.settings && row.settings.mark);
+  if (!isFinite(mark) || mark <= 0) return;
+  const last = ohlcBarsCache[ohlcBarsCache.length - 1];
+  const close = Number(last.close);
+  if (!isFinite(close) || close <= 0) return;
+  if (Math.abs(mark - close) / close > 0.12) return;
+  const now = Math.floor(Date.now() / 1000);
+  if (now >= last.time + rpnlCandleSecs() + 2) return;
+  if (mark === close) { updateOhlcCountdown(); return; }
+  const next = {
+    time: last.time,
+    open: last.open,
+    high: Math.max(last.high, mark),
+    low: Math.min(last.low, mark),
+    close: mark,
+    volume: last.volume,
+  };
+  ohlcBarsCache[ohlcBarsCache.length - 1] = next;
+  const pt = { time: next.time, value: next.close };
+  try {
+    if (ohlcSeries) ohlcSeries.update(next);
+    if (ohlcBarSeries) ohlcBarSeries.update(next);
+    if (ohlcLineSeries) ohlcLineSeries.update(pt);
+    if (ohlcAreaSeries) ohlcAreaSeries.update(pt);
+    if (ohlcQuoteMarkerSeries) ohlcQuoteMarkerSeries.update(pt);
+    if (ohlcHedgeMarkerSeries) ohlcHedgeMarkerSeries.update(pt);
+  } catch (e) {}
+  tickOhlcMasLast(next);
+  if (!ohlcHoverTime) paintOhlcHud(null);
+}
+
+function tickOhlcMasLast(bar) {
+  const bars = ohlcBarsCache;
+  OHLC_MA.forEach(({ p }) => {
+    if (!ohlcMaOn[p] || !ohlcMaSeries[p] || bars.length < p) return;
+    let sum = 0;
+    for (let i = bars.length - p; i < bars.length; i++) sum += bars[i].close;
+    const pt = { time: bar.time, value: sum / p };
+    const cache = ohlcMaCache[p];
+    if (cache.length) cache[cache.length - 1] = pt;
+    try { ohlcMaSeries[p].update(pt); } catch (e) {}
+  });
 }
 
 function tryRpnlFit() {
@@ -1441,19 +1931,35 @@ function rpnlInrFormat() {
 
 function rpnlChartBase(timeScaleVisible) {
   const mobile = window.matchMedia('(max-width: 720px)').matches;
+  const xh = 'rgba(224, 227, 235, 0.28)';
   return {
     autoSize: false,
     layout: { background: { color: '#0e1117' }, textColor: '#d1d4dc', fontSize: mobile ? 10 : 11 },
-    grid:   { vertLines: { color: '#1c2130' }, horzLines: { color: '#1c2130' } },
-    crosshair: { mode: LightweightCharts.CrosshairMode.Magnet },
+    grid:   { vertLines: { color: '#191e2b' }, horzLines: { color: '#191e2b' } },
+    crosshair: {
+      mode: LightweightCharts.CrosshairMode.Magnet,
+      vertLine: {
+        color: xh, width: 1, style: LightweightCharts.LineStyle.Dashed,
+        labelBackgroundColor: '#2962ff',
+      },
+      horzLine: {
+        color: xh, width: 1, style: LightweightCharts.LineStyle.Dashed,
+        labelBackgroundColor: '#2962ff',
+      },
+    },
     rightPriceScale: {
       borderColor: '#303647',
-      minimumWidth: mobile ? 46 : 54,
+      minimumWidth: mobile ? 48 : 58,
       entireTextOnly: true,
-      scaleMargins: { top: 0.12, bottom: timeScaleVisible ? 0.08 : 0.18 },
+      scaleMargins: { top: 0.1, bottom: timeScaleVisible ? 0.08 : 0.18 },
     },
     handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
-    handleScale: { axisPressedMouseMove: { time: true, price: true }, mouseWheel: true, pinch: true },
+    handleScale: {
+      axisPressedMouseMove: { time: true, price: true },
+      axisDoubleClickReset: true,
+      mouseWheel: true,
+      pinch: true,
+    },
     kineticScroll: { mouse: false, touch: true },
     localization: {
       timeFormatter: (t) => rpnlIstTick(t),
@@ -1464,10 +1970,11 @@ function rpnlChartBase(timeScaleVisible) {
       timeVisible: true,
       secondsVisible: false,
       borderColor: '#303647',
-      rightOffset: mobile ? 2 : 3,
-      barSpacing: 6,
-      minBarSpacing: 2,
+      rightOffset: mobile ? 2 : 4,
+      barSpacing: 7,
+      minBarSpacing: 1.5,
       lockVisibleTimeRangeOnResize: true,
+      shiftVisibleRangeOnNewBar: true,
       tickMarkFormatter: (time) => {
         const d = new Date(time * 1000);
         return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
@@ -1509,29 +2016,10 @@ function volumeBarsFromOhlc(bars) {
 }
 
 function paintOhlcLegend(time) {
+  ohlcHoverTime = time || null;
+  paintOhlcHud(time);
   const el = document.getElementById('ohlcLegend');
-  if (!time) { el.style.display = 'none'; return; }
-  const d = nearestByTime(ohlcBarsCache, time);
-  if (!d) { el.style.display = 'none'; return; }
-  const fill = fillAtTime(d.time);
-  let html =
-    '<div class="leg-time">' + fmtChartTime(d.time) + '</div>' +
-    '<div class="leg-row"><span class="leg-label">O</span><span class="leg-val">' + d.open + '</span></div>' +
-    '<div class="leg-row"><span class="leg-label">H</span><span class="leg-val">' + d.high + '</span></div>' +
-    '<div class="leg-row"><span class="leg-label">L</span><span class="leg-val">' + d.low + '</span></div>' +
-    '<div class="leg-row"><span class="leg-label">C</span><span class="leg-val">' + d.close + '</span></div>' +
-    '<div class="leg-row"><span class="leg-label">Vol</span><span class="leg-val">' + fmtVol(d.volume) + '</span></div>';
-  if (fill) {
-    const col = fill.rpnl >= 0 ? '#26a69a' : '#ef5350';
-    const qv = (rpnlMeta.quote_venue || 'delta').toLowerCase();
-    const ven = ((fill.exchange || 'delta').toLowerCase() === qv)
-      ? (rpnlMeta.quote_label || 'Quote')
-      : (rpnlMeta.hedge_label || 'Hedge');
-    html += '<div class="leg-row"><span class="leg-label">' + ven + ' ' + (fill.side || '') + '</span>' +
-      '<span class="leg-val" style="color:' + col + '">' + inrFmtDec(fill.rpnl, 2) + '</span></div>';
-  }
-  el.innerHTML = html;
-  el.style.display = 'block';
+  if (el) el.style.display = 'none';
 }
 
 function paintRpnlLegend(time) {
@@ -1574,7 +2062,8 @@ function paintRpnlLegend(time) {
 function syncCrosshair(origin, param) {
   if (rpnlXhSyncing) return;
   if (!param || !param.time || !param.point || param.point.x < 0) {
-    paintOhlcLegend(null);
+    ohlcHoverTime = null;
+    paintOhlcHud(null);
     paintRpnlLegend(null);
     rpnlXhSyncing = true;
     try {
@@ -1585,13 +2074,15 @@ function syncCrosshair(origin, param) {
     return;
   }
   const t = param.time;
-  paintOhlcLegend(t);
+  ohlcHoverTime = t;
+  paintOhlcHud(t);
   paintRpnlLegend(t);
   rpnlXhSyncing = true;
   try {
-    if (origin !== 'ohlc' && ohlcSeries) {
+    const ohlcS = ohlcActiveSeries();
+    if (origin !== 'ohlc' && ohlcS) {
       const bar = nearestByTime(ohlcBarsCache, t);
-      if (bar) ohlcChart.setCrosshairPosition(bar.close, bar.time, ohlcSeries);
+      if (bar) ohlcChart.setCrosshairPosition(bar.close, bar.time, ohlcS);
     }
     if (origin !== 'rpnl') {
       const p = nearestByTime(rpnlPtsCache, t);
@@ -1610,22 +2101,57 @@ function syncCrosshair(origin, param) {
 }
 
 function initRpnl() {
+  restoreOhlcPrefs();
+  const pxFmt = { type: 'custom', minMove: 0.00000001, formatter: function (p) {
+    return fmtPxFull(p);
+  } };
   ohlcChart = LightweightCharts.createChart(document.getElementById('ohlcChart'), rpnlChartBase(false));
   ohlcSeries = ohlcChart.addCandlestickSeries({
     upColor: '#26a69a', downColor: '#ef5350',
     borderUpColor: '#26a69a', borderDownColor: '#ef5350',
     wickUpColor: '#26a69a', wickDownColor: '#ef5350',
     lastValueVisible: true, priceLineVisible: true,
-    priceFormat: { type: 'custom', minMove: 0.00000001, formatter: function (p) {
-      return fmtPxFull(p);
-    } },
+    priceFormat: pxFmt,
   });
-
+  ohlcBarSeries = ohlcChart.addBarSeries({
+    upColor: '#26a69a', downColor: '#ef5350',
+    thinBars: false,
+    lastValueVisible: false, priceLineVisible: false, visible: false,
+    priceFormat: pxFmt,
+  });
+  ohlcLineSeries = ohlcChart.addLineSeries({
+    color: '#26a69a', lineWidth: 2,
+    lastValueVisible: false, priceLineVisible: false, visible: false,
+    priceFormat: pxFmt,
+  });
+  ohlcAreaSeries = ohlcChart.addAreaSeries({
+    topColor: 'rgba(38,166,154,0.28)',
+    bottomColor: 'rgba(38,166,154,0.00)',
+    lineColor: '#26a69a', lineWidth: 2,
+    lastValueVisible: false, priceLineVisible: false, visible: false,
+    priceFormat: pxFmt,
+  });
+  ohlcQuoteMarkerSeries = ohlcChart.addLineSeries({
+    color: 'rgba(0,0,0,0)',
+    lastValueVisible: false,
+    priceLineVisible: false,
+    crosshairMarkerVisible: false,
+  });
   ohlcHedgeMarkerSeries = ohlcChart.addLineSeries({
     color: 'rgba(0,0,0,0)',
     lastValueVisible: false,
     priceLineVisible: false,
     crosshairMarkerVisible: false,
+  });
+  OHLC_MA.forEach(({ p, color }) => {
+    ohlcMaSeries[p] = ohlcChart.addLineSeries({
+      color, lineWidth: 1,
+      lastValueVisible: false,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false,
+      visible: !!ohlcMaOn[p],
+      priceFormat: pxFmt,
+    });
   });
   ohlcVolSeries = ohlcChart.addHistogramSeries({
     priceFormat: { type: 'volume' },
@@ -1636,6 +2162,10 @@ function initRpnl() {
   ohlcChart.priceScale('').applyOptions({
     scaleMargins: { top: 0.78, bottom: 0 },
   });
+  applyOhlcVolVisible();
+  applyOhlcLogScale();
+  applyOhlcChartStyle();
+  bindOhlcTools();
 
   rpnlChart = LightweightCharts.createChart(document.getElementById('rpnlChart'), rpnlChartBase(true));
   rpnlSeries = rpnlChart.addLineSeries({
@@ -1744,6 +2274,7 @@ function toggleRpnlInspectFold() {
   const box = document.getElementById('rpnlInspect');
   if (!box || !box.classList.contains('open')) return;
   box.classList.toggle('folded');
+  requestAnimationFrame(resizeRpnlCharts);
 }
 function closeRpnlPopovers(ev) {
   const page = document.getElementById('rpnl');
@@ -1846,26 +2377,6 @@ function syncRpnlVenueControl() {
   });
   sel.value = hedged ? rpnlVenuePref : 'quote';
   sel.title = hedged ? '' : 'This contract has no hedge fills';
-  const wrapH = document.getElementById('rkHedgeItem');
-  const wrapN = document.getElementById('rkNetItem');
-  if (wrapH) wrapH.style.display = hedged ? '' : 'none';
-  if (wrapN) wrapN.style.display = hedged ? '' : 'none';
-}
-
-function setRpnlKey(delta, hedge, contract, account) {
-  const net = (delta || 0) + (hedge || 0);
-  const elD = document.getElementById('rkDelta');
-  const elH = document.getElementById('rkHedge');
-  const elN = document.getElementById('rkNet');
-  const elC = document.getElementById('rkContract');
-  const labD = document.getElementById('rkDeltaLab');
-  const labH = document.getElementById('rkHedgeLab');
-  if (labD) labD.textContent = (rpnlMeta.quote_label || 'Quote') + (rpnlMeta.quote_symbol ? ' · ' + rpnlMeta.quote_symbol : '');
-  if (labH) labH.textContent = (rpnlMeta.hedge_label || 'Hedge') + (rpnlMeta.hedge_symbol ? ' · ' + rpnlMeta.hedge_symbol : '');
-  if (elD) { elD.textContent = inrFmtDec(delta || 0, 0); elD.style.color = (delta || 0) >= 0 ? '#26a69a' : '#ef5350'; }
-  if (elH) { elH.textContent = inrFmtDec(hedge || 0, 0); elH.style.color = '#ff9800'; }
-  if (elN) { elN.textContent = inrFmtDec(net, 0); elN.style.color = net >= 0 ? '#90caf9' : '#ef5350'; }
-  if (elC) elC.textContent = (contract || '') + (account ? ' · ' + account : '');
 }
 
 function fillGaps(pts, bucketSecs) {
@@ -1933,17 +2444,18 @@ function applyRpnlData(pts, keepRange, prevPts, prevHedge) {
   const prevDelta = prevPts || [];
   const prevH = prevHedge || [];
   const prevNet = (showDelta && showHedge && prevDelta.length) ? netFromCaches(prevDelta, prevH) : [];
+  const live = !!(keepRange && (prevDelta.length || prevH.length));
   if (rpnlView === 'cumul') {
     rpnlSeries.applyOptions({ visible: showDelta });
     rpnlHistSeries.applyOptions({ visible: false });
-    rpnlSetSeriesData(rpnlSeries, showDelta ? pts : [], showDelta ? prevDelta : []);
+    rpnlSetSeriesData(rpnlSeries, showDelta ? pts : [], showDelta ? prevDelta : [], live);
     if (rpnlHedgeSeries) {
       rpnlHedgeSeries.applyOptions({ visible: showHedge });
-      rpnlSetSeriesData(rpnlHedgeSeries, showHedge ? hedgePts : [], showHedge ? prevH : []);
+      rpnlSetSeriesData(rpnlHedgeSeries, showHedge ? hedgePts : [], showHedge ? prevH : [], live);
     }
     if (rpnlNetSeries) {
       rpnlNetSeries.applyOptions({ visible: netPts.length > 0 });
-      rpnlSetSeriesData(rpnlNetSeries, netPts, prevNet);
+      rpnlSetSeriesData(rpnlNetSeries, netPts, prevNet, live);
     }
   } else {
     rpnlSeries.applyOptions({ visible: false });
@@ -1962,7 +2474,7 @@ function applyRpnlData(pts, keepRange, prevPts, prevHedge) {
       const val = i === 0 ? p.value : parseFloat((p.value - prevSrc[i-1].value).toFixed(4));
       return { time: p.time, value: val, color: val >= 0 ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)' };
     });
-    rpnlSetSeriesData(rpnlHistSeries, bars, prevBars);
+    rpnlSetSeriesData(rpnlHistSeries, bars, prevBars, live);
   }
   applyRpnlFillMarkers();
   if (!keepRange && !rpnlHoldSnap) fitRpnlView();
@@ -1991,16 +2503,26 @@ async function extendRpnl() {
 
 function clearRpnlCharts() {
   rpnlPtsCache = []; rpnlHedgeCache = []; rpnlFillsCache = []; ohlcBarsCache = [];
+  ohlcMaCache = { 7: [], 25: [], 99: [] };
+  ohlcMarkerSig = '';
+  rpnlMarkerSig = '';
   clearOhlcOrderLines();
+  clearOhlcHiLo();
   try {
     if (rpnlSeries) rpnlSeries.setData([]);
     if (rpnlHedgeSeries) rpnlHedgeSeries.setData([]);
     if (rpnlNetSeries) rpnlNetSeries.setData([]);
     if (rpnlHistSeries) { rpnlHistSeries.setData([]); rpnlHistSeries.setMarkers([]); }
     if (ohlcSeries) { ohlcSeries.setData([]); ohlcSeries.setMarkers([]); }
+    if (ohlcBarSeries) ohlcBarSeries.setData([]);
+    if (ohlcLineSeries) ohlcLineSeries.setData([]);
+    if (ohlcAreaSeries) ohlcAreaSeries.setData([]);
     if (ohlcVolSeries) ohlcVolSeries.setData([]);
+    if (ohlcQuoteMarkerSeries) { ohlcQuoteMarkerSeries.setData([]); ohlcQuoteMarkerSeries.setMarkers([]); }
     if (ohlcHedgeMarkerSeries) { ohlcHedgeMarkerSeries.setData([]); ohlcHedgeMarkerSeries.setMarkers([]); }
+    OHLC_MA.forEach(({ p }) => { if (ohlcMaSeries[p]) ohlcMaSeries[p].setData([]); });
   } catch (e) {}
+  paintOhlcHud(null);
 }
 
 async function loadRpnl(keepRange) {
@@ -2116,35 +2638,33 @@ async function loadRpnl(keepRange) {
       try { if (cR) body = await cR.json(); } catch (e) {}
       candleNote = ' · candles failed: ' + (body.detail || (cR && cR.statusText) || 'network');
     }
-    const savedView = keepRange ? captureRpnlView() : null;
-    if (savedView) {
-      rpnlHoldSnap = savedView;
-      freezeRpnlView(savedView);
+    const liveUpdate = !!keepRange && (prevBars.length > 0 || prevPts.length > 0);
+    if (liveUpdate && !bars.length && prevBars.length) bars = prevBars;
+    let savedView = liveUpdate ? captureRpnlView() : null;
+    if (liveUpdate) {
+      ohlcBarsCache = rpnlMergeByTime(prevBars, bars);
+      savedView = rpnlShiftLogical(savedView, prevBars, ohlcBarsCache);
+      if (savedView) rpnlHoldSnap = savedView;
+    } else {
+      ohlcBarsCache = bars;
     }
-    ohlcBarsCache = bars;
-    setOhlcEmpty(!bars.length, bars.length ? '' : ((candleNote || '').replace(/^ · /, '') || 'No price candles for this window'));
+    setOhlcEmpty(!ohlcBarsCache.length, ohlcBarsCache.length ? '' : ((candleNote || '').replace(/^ · /, '') || 'No price candles for this window'));
     try {
-      if (ohlcSeries) rpnlSetSeriesData(ohlcSeries, bars, prevBars);
+      applyOhlcAllSeries(ohlcBarsCache, prevBars, liveUpdate);
     } catch (e) {
-      ohlcBarsCache = [];
-      setOhlcEmpty(true, 'Price chart could not render these candles');
-    }
-    if (ohlcVolSeries) rpnlSetSeriesData(ohlcVolSeries, volumeBarsFromOhlc(ohlcBarsCache), volumeBarsFromOhlc(prevBars));
-    if (ohlcHedgeMarkerSeries) {
-      rpnlSetSeriesData(
-        ohlcHedgeMarkerSeries,
-        ohlcBarsCache.map(b => ({ time: b.time, value: b.close })),
-        prevBars.map(b => ({ time: b.time, value: b.close }))
-      );
+      if (!liveUpdate) {
+        ohlcBarsCache = [];
+        setOhlcEmpty(true, 'Price chart could not render these candles');
+      }
     }
 
-    rpnlPtsCache = ohlcBarsCache.length ? alignRpnlToBars(filled, ohlcBarsCache) : filled;
+    rpnlPtsCache = ohlcBarsCache.length ? alignRpnlToBars(filled, ohlcBarsCache, liveUpdate ? prevPts : null) : filled;
     rpnlHedgeCache = hedgeFilled.length && ohlcBarsCache.length
-      ? alignRpnlToBars(hedgeFilled, ohlcBarsCache)
+      ? alignRpnlToBars(hedgeFilled, ohlcBarsCache, liveUpdate ? prevHedge : null)
       : hedgeFilled;
     applyRpnlData(rpnlPtsCache, true, prevPts, prevHedge);
 
-    if (ohlcSeries && fR && fR.ok) {
+    if (fR && fR.ok) {
       const fd = await fR.json();
       if (seq !== rpnlLoadSeq) return;
       let fills = fd.fills || [];
@@ -2154,20 +2674,19 @@ async function loadRpnl(keepRange) {
         fills = fills.concat(hf.fills || []);
       }
       rpnlFillsCache = fills;
-      ohlcSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, ohlcBarsCache, false));
-      if (ohlcHedgeMarkerSeries) {
-        ohlcHedgeMarkerSeries.setMarkers(fillMarkersFromFills(rpnlFillsCache, ohlcBarsCache, true));
-      }
-      applyRpnlFillMarkers();
-    } else {
+    } else if (!liveUpdate) {
       rpnlFillsCache = [];
-      applyRpnlFillMarkers();
     }
+    applyOhlcFillMarkers();
+    applyRpnlFillMarkers();
 
     applyOhlcOrderLines(quotesForCurrentRpnl());
+    applyOhlcWatermark();
+    paintOhlcHud(ohlcHoverTime);
+    updateOhlcHiLo();
+    syncOhlcGoLive();
 
-    if (keepRange && savedView) {
-      restoreRpnlView(savedView);
+    if (keepRange) {
       rpnlNeedsFit = false;
     } else {
       rpnlNeedsFit = true;
@@ -2180,9 +2699,6 @@ async function loadRpnl(keepRange) {
       return;
     }
 
-    const quoteV  = pts.length ? pts[pts.length - 1].value : 0;
-    const hedgeV  = rpnlMeta.has_hedge && hedgeRaw.length ? hedgeRaw[hedgeRaw.length - 1].value : 0;
-    setRpnlKey(quoteV, hedgeV, d.quote_symbol || d.contract, picked.account);
     if (!rpnlRangePinned) rpnlSyncRangeFromView();
     rpnlPaintBrush();
     if (!keepRange && rpnlNeedsFit) scheduleRpnlFit();
