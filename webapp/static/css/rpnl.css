@@ -300,9 +300,12 @@ body:has(#rpnl.visible) {
 .rp-ohlc-tools {
   position: absolute; top: 6px; right: 78px; z-index: 12;
   display: flex; flex-wrap: wrap; gap: 2px; justify-content: flex-end;
-  max-width: min(520px, 62%);
+  max-width: min(580px, 68%);
+  pointer-events: none;
 }
 .rp-ohlc-tools .rp-tool-gap { width: 4px; }
+.rp-ohlc-tools .rp-tool,
+.rp-ohlc-tools .rp-tool-sel { pointer-events: auto; }
 .rp-ohlc-tools .rp-tool {
   font-size: 10px; font-weight: 700; letter-spacing: .2px;
   padding: 2px 6px; min-height: 22px; line-height: 1;
@@ -327,6 +330,17 @@ body:has(#rpnl.visible) {
 .rp-ohlc-tools .rp-tool[data-ohlc-ma="99"].on {
   color: #ce93d8; border-color: rgba(206, 147, 216, .55);
   background: rgba(206, 147, 216, .12);
+}
+.rp-ohlc-tools .rp-tool-sel {
+  font-size: 10px; font-weight: 700; letter-spacing: .2px;
+  padding: 1px 2px 1px 4px; min-height: 22px; line-height: 1.2;
+  border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--border2);
+  background: rgba(14, 17, 23, .82);
+  color: #e6edf3;
+  font-family: inherit;
+  max-width: 54px;
+  appearance: auto;
 }
 
 .rp-go-live {
@@ -521,7 +535,7 @@ body:has(#rpnl.visible) {
     min-width: 0;
     max-width: none;
   }
-  .rp-bar #rpnlHours, .rp-bar #rpnlCandle { flex: 1 1 calc(50% - 6px); max-width: none; }
+  .rp-bar #rpnlHours { flex: 1 1 calc(50% - 6px); max-width: none; }
   .rp-bar .btn {
     min-height: 32px !important;
     padding: 2px 8px !important;
@@ -580,6 +594,12 @@ body:has(#rpnl.visible) {
   .rp-ohlc-tools {
     top: 40px; right: 48px; left: 8px; bottom: auto;
     max-width: none; justify-content: flex-start;
+  }
+  .rp-ohlc-tools .rp-tool-sel {
+    min-height: 22px !important;
+    font-size: 10px !important;
+    padding: 1px 2px 1px 4px !important;
+    max-width: 56px;
   }
   .rp-go-live { right: 50px; bottom: 12px; }
 

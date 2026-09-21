@@ -16,22 +16,8 @@
         <option value="336">14d</option>
         <option value="720">30d</option>
       </select>
-      <select id="rpnlCandle" title="Candles" aria-label="Candles" onchange="loadRpnlFresh()">
-        <option value="1m">1m</option>
-        <option value="5m" selected>5m</option>
-        <option value="15m">15m</option>
-        <option value="1h">1h</option>
-        <option value="4h">4h</option>
-      </select>
       <button class="btn rp-more-btn" type="button" id="rpnlMoreBtn" onclick="toggleRpnlMore()" aria-expanded="false">More</button>
       <div class="rp-more">
-        <select id="rpnlBucket" title="Bucket" aria-label="Bucket" onchange="loadRpnlFresh()">
-          <option value="1">1m</option>
-          <option value="5" selected>5m</option>
-          <option value="15">15m</option>
-          <option value="30">30m</option>
-          <option value="60">1h</option>
-        </select>
         <select id="rpnlVenue" hidden title="Venue" aria-label="Venue" onchange="onRpnlVenueChange()">
           <option value="both">Both</option>
           <option value="quote">Quote</option>
@@ -57,6 +43,14 @@
         <div class="hud-ohlc" id="ohlcHudStats"></div>
       </div>
       <div class="rp-ohlc-tools" id="ohlcTools">
+        <select id="rpnlCandle" class="rp-tool-sel" title="Candle interval" aria-label="Candles" onchange="loadRpnlFresh()">
+          <option value="1m">1m</option>
+          <option value="5m" selected>5m</option>
+          <option value="15m">15m</option>
+          <option value="1h">1h</option>
+          <option value="4h">4h</option>
+        </select>
+        <span class="rp-tool-gap"></span>
         <button type="button" class="rp-tool on" data-ohlc-style="candle" title="Candlesticks">Cdl</button>
         <button type="button" class="rp-tool" data-ohlc-style="bar" title="OHLC bars">Bar</button>
         <button type="button" class="rp-tool" data-ohlc-style="line" title="Line">Line</button>
@@ -72,6 +66,13 @@
         <span class="rp-tool-gap"></span>
         <button type="button" class="rp-tool on" id="viewCumul" onclick="setRpnlView('cumul')" title="Cumulative rPnL">Cumul</button>
         <button type="button" class="rp-tool" id="viewBucket" onclick="setRpnlView('bucket')" title="Per-bucket rPnL">Bucket</button>
+        <select id="rpnlBucket" class="rp-tool-sel" title="rPnL bucket" aria-label="Bucket" onchange="loadRpnlFresh()">
+          <option value="1">1m</option>
+          <option value="5" selected>5m</option>
+          <option value="15">15m</option>
+          <option value="30">30m</option>
+          <option value="60">1h</option>
+        </select>
         <button type="button" class="rp-tool on" id="toggleAutoY" onclick="toggleAutoY()" title="Toggle rPnL Y-axis auto-scale">Auto Y</button>
         <button type="button" class="rp-tool" id="ohlcFitBtn" onclick="fitRpnlView()" title="Fit both charts to the full window">Fit</button>
       </div>
