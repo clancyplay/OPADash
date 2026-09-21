@@ -136,6 +136,7 @@ let rpnlKindTotal = 0;
 let rpnlKindNoMore = false;
 let rpnlKindCols = [];
 let rpnlView         = 'cumul';
+let rpnlDrawnView    = '';
 let rpnlPtsCache     = [];
 let rpnlHedgeCache   = [];
 let ohlcBarsCache    = [];
@@ -1276,15 +1277,17 @@ function applyRpnlFillMarkers() {
   const sig = rpnlView + '|' + JSON.stringify([deltaMarks, hedgeMarks]);
   if (sig === rpnlMarkerSig) return;
   rpnlMarkerSig = sig;
-  if (rpnlView === 'cumul') {
-    if (rpnlSeries) rpnlSeries.setMarkers(deltaMarks);
-    if (rpnlHistSeries) rpnlHistSeries.setMarkers([]);
-    if (rpnlHedgeSeries) rpnlHedgeSeries.setMarkers(hedgeMarks);
-  } else {
-    if (rpnlSeries) rpnlSeries.setMarkers([]);
-    if (rpnlHedgeSeries) rpnlHedgeSeries.setMarkers([]);
-    if (rpnlHistSeries) rpnlHistSeries.setMarkers(deltaMarks.length ? deltaMarks : hedgeMarks);
-  }
+  try {
+    if (rpnlView === 'cumul') {
+      if (rpnlSeries) rpnlSeries.setMarkers(deltaMarks);
+      if (rpnlHistSeries) rpnlHistSeries.setMarkers([]);
+      if (rpnlHedgeSeries) rpnlHedgeSeries.setMarkers(hedgeMarks);
+    } else {
+      if (rpnlSeries) rpnlSeries.setMarkers([]);
+      if (rpnlHedgeSeries) rpnlHedgeSeries.setMarkers([]);
+      if (rpnlHistSeries) rpnlHistSeries.setMarkers([]);
+    }
+  } catch (e) {}
 }
 
 function loadRpnlFresh() {
@@ -2557,7 +2560,7 @@ function applyRpnlData(pts, keepRange, prevPts, prevHedge) {
   const prevDelta = prevPts || [];
   const prevH = prevHedge || [];
   const prevNet = (showDelta && showHedge && prevDelta.length) ? netFromCaches(prevDelta, prevH) : [];
-  const live = !!(keepRange && (prevDelta.length || prevH.length));
+  const live = !!(keepRange && rpnlDrawnView === rpnlView && (prevDelta.length || prevH.length));
   if (rpnlView === 'cumul') {
     rpnlSeries.applyOptions({ visible: showDelta });
     rpnlHistSeries.applyOptions({ visible: false });
@@ -2589,7 +2592,11 @@ function applyRpnlData(pts, keepRange, prevPts, prevHedge) {
     });
     rpnlSetSeriesData(rpnlHistSeries, bars, prevBars, live);
   }
+  rpnlDrawnView = rpnlView;
   applyRpnlFillMarkers();
+  if (!live && rpnlAutoY && rpnlChart) {
+    try { rpnlChart.priceScale('right').applyOptions({ autoScale: true }); } catch (e) {}
+  }
 }
 
 async function extendRpnl() {
@@ -2615,6 +2622,7 @@ function clearRpnlCharts() {
   ohlcMaCache = { 7: [], 25: [], 99: [] };
   ohlcMarkerSig = '';
   rpnlMarkerSig = '';
+  rpnlDrawnView = '';
   clearOhlcOrderLines();
   clearOhlcHiLo();
   try {
