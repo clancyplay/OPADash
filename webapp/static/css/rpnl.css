@@ -392,6 +392,29 @@ body:has(#rpnl.visible) {
   touch-action: none;
 }
 #ohlcChart canvas, #rpnlChart canvas { touch-action: none; }
+.rp-pane.y-scale::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 64px;
+  z-index: 9;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(41, 98, 255, .16));
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+.rp-pane.y-scale::before {
+  content: 'Y zoom · drag';
+  position: absolute;
+  right: 10px; top: 46%;
+  z-index: 10;
+  pointer-events: none;
+  transform: translateY(-50%) rotate(180deg);
+  writing-mode: vertical-rl;
+  font-size: 10px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase;
+  color: #9ec1ff;
+  text-shadow: 0 1px 2px rgba(0,0,0,.7);
+}
 .chart-empty {
   display: none; position: absolute; inset: 0; z-index: 6;
   align-items: center; justify-content: center;
@@ -638,6 +661,14 @@ body:has(#rpnl.visible) {
     width: 100%;
   }
   .rp-pane { min-height: 180px; }
+  #ohlcChart, #rpnlChart,
+  #ohlcChart canvas, #rpnlChart canvas {
+    touch-action: pan-y pinch-zoom;
+  }
+  #ohlcChart.y-scale, #rpnlChart.y-scale,
+  #ohlcChart.y-scale canvas, #rpnlChart.y-scale canvas {
+    touch-action: none;
+  }
 
   .rp-foot {
     padding: 8px max(8px, var(--safe-r)) calc(12px + var(--safe-b)) max(8px, var(--safe-l));

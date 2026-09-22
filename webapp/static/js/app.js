@@ -10,19 +10,15 @@
   };
 })();
 (function preventPageZoom() {
-  const inChart = function (e) {
-    const t = e && e.target;
-    return !!(t && t.closest && t.closest('#ohlcChart, #rpnlChart'));
-  };
-  const stop = function (e) {
-    if (inChart(e)) return;
-    e.preventDefault();
-  };
+  const stop = function (e) { e.preventDefault(); };
   document.addEventListener('gesturestart', stop, { passive: false });
   document.addEventListener('gesturechange', stop, { passive: false });
   document.addEventListener('gestureend', stop, { passive: false });
   document.addEventListener('touchmove', function (e) {
-    if (e.touches && e.touches.length > 1 && !inChart(e)) e.preventDefault();
+    if (!(e.touches && e.touches.length > 1)) return;
+    const t = e.target;
+    if (t && t.closest && t.closest('#ohlcChart.y-scale, #rpnlChart.y-scale')) return;
+    e.preventDefault();
   }, { passive: false });
 })();
 
@@ -138,6 +134,7 @@ function showPage(name) {
     const rp = document.getElementById('rpnl');
     if (rp && rp.classList.contains('more-open') && typeof toggleRpnlMore === 'function') toggleRpnlMore();
     if (typeof closeOhlcTools === 'function') closeOhlcTools();
+    if (typeof clearRpnlYScaleMode === 'function') clearRpnlYScaleMode();
     const foot = document.getElementById('rpnlTools');
     if (foot && foot.classList.contains('export-open') && typeof toggleRpnlExports === 'function') toggleRpnlExports();
   }

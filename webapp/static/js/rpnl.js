@@ -1538,6 +1538,101 @@ function bindRpnlUserCamera() {
   });
   window.addEventListener('pointerup', clear);
   window.addEventListener('pointercancel', clear);
+  bindRpnlYScaleMode();
+}
+
+function rpnlMobileYAxis() {
+  return window.matchMedia('(max-width: 720px)').matches;
+}
+function rpnlPriceAxisWidth(chart) {
+  try {
+    const w = chart && chart.priceScale('right') && chart.priceScale('right').width();
+    if (w && w > 8) return w;
+  } catch (e) {}
+  return rpnlMobileYAxis() ? 62 : 58;
+}
+function rpnlTouchOnYAxis(el, clientX) {
+  if (!el) return false;
+  const r = el.getBoundingClientRect();
+  const chart = el.id === 'rpnlChart' ? rpnlChart : ohlcChart;
+  return clientX >= (r.right - rpnlPriceAxisWidth(chart) - 12);
+}
+function setRpnlYScaleMode(el, on) {
+  if (!el) return;
+  on = !!on;
+  el.classList.toggle('y-scale', on);
+  const pane = el.closest('.rp-pane');
+  if (pane) pane.classList.toggle('y-scale', on);
+}
+function clearRpnlYScaleMode() {
+  ['ohlcChart', 'rpnlChart'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) setRpnlYScaleMode(el, false);
+  });
+}
+function rpnlZoomPriceScale(chart, dy, h) {
+  if (!chart || !dy) return;
+  const scale = chart.priceScale('right');
+  let top = 0.1;
+  let bot = chart === rpnlChart ? 0.08 : (ohlcShowVol ? 0.18 : 0.05);
+  try {
+    const m = scale.options() && scale.options().scaleMargins;
+    if (m) { top = m.top; bot = m.bottom; }
+  } catch (e) {}
+  const k = dy / Math.max(120, h || 240) * 0.45;
+  const clamp = (v) => Math.max(0.02, Math.min(0.42, v));
+  try {
+    scale.applyOptions({
+      autoScale: false,
+      scaleMargins: { top: clamp(top - k), bottom: clamp(bot - k) },
+    });
+  } catch (e) {}
+  if (chart === rpnlChart && rpnlAutoY) {
+    rpnlAutoY = false;
+    syncRpnlViewButtons();
+  }
+}
+function bindRpnlYScaleMode() {
+  if (bindRpnlYScaleMode._bound) return;
+  bindRpnlYScaleMode._bound = true;
+  ['ohlcChart', 'rpnlChart'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let ax = 0, ay = 0, lastY = 0, t0 = 0;
+    el.addEventListener('touchstart', (ev) => {
+      const t = ev.changedTouches && ev.changedTouches[0];
+      if (!t) return;
+      ax = t.clientX; ay = t.clientY; lastY = t.clientY; t0 = Date.now();
+    }, { passive: true });
+    el.addEventListener('touchmove', (ev) => {
+      if (!el.classList.contains('y-scale') || !ev.touches || !ev.touches[0]) return;
+      const t = ev.touches[0];
+      const dx = t.clientX - ax;
+      const dy = t.clientY - lastY;
+      if (Math.abs(t.clientY - ay) <= Math.abs(dx) && Math.abs(dx) > 6) return;
+      if (Math.abs(dy) < 1) return;
+      ev.preventDefault();
+      const chart = el.id === 'rpnlChart' ? rpnlChart : ohlcChart;
+      rpnlZoomPriceScale(chart, dy, el.clientHeight);
+      lastY = t.clientY;
+    }, { passive: false });
+    el.addEventListener('touchend', (ev) => {
+      if (!rpnlMobileYAxis()) return;
+      const t = ev.changedTouches && ev.changedTouches[0];
+      if (!t) return;
+      const tap = Math.abs(t.clientX - ax) < 12 && Math.abs(t.clientY - ay) < 12 && (Date.now() - t0) < 450;
+      if (!tap) return;
+      if (rpnlTouchOnYAxis(el, t.clientX)) {
+        setRpnlYScaleMode(el, !el.classList.contains('y-scale'));
+      } else if (el.classList.contains('y-scale')) {
+        setRpnlYScaleMode(el, false);
+      }
+    }, { passive: true });
+  });
+  const mq = window.matchMedia('(max-width: 720px)');
+  const onMq = (e) => { if (!e.matches) clearRpnlYScaleMode(); };
+  if (mq.addEventListener) mq.addEventListener('change', onMq);
+  else if (mq.addListener) mq.addListener(onMq);
 }
 
 function rpnlSetLiveShift(on) {
