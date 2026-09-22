@@ -10,12 +10,19 @@
   };
 })();
 (function preventPageZoom() {
-  const stop = function (e) { e.preventDefault(); };
+  const inChart = function (e) {
+    const t = e && e.target;
+    return !!(t && t.closest && t.closest('#ohlcChart, #rpnlChart'));
+  };
+  const stop = function (e) {
+    if (inChart(e)) return;
+    e.preventDefault();
+  };
   document.addEventListener('gesturestart', stop, { passive: false });
   document.addEventListener('gesturechange', stop, { passive: false });
   document.addEventListener('gestureend', stop, { passive: false });
   document.addEventListener('touchmove', function (e) {
-    if (e.touches && e.touches.length > 1) e.preventDefault();
+    if (e.touches && e.touches.length > 1 && !inChart(e)) e.preventDefault();
   }, { passive: false });
 })();
 
@@ -130,6 +137,7 @@ function showPage(name) {
     stopRpnlLive();
     const rp = document.getElementById('rpnl');
     if (rp && rp.classList.contains('more-open') && typeof toggleRpnlMore === 'function') toggleRpnlMore();
+    if (typeof closeOhlcTools === 'function') closeOhlcTools();
     const foot = document.getElementById('rpnlTools');
     if (foot && foot.classList.contains('export-open') && typeof toggleRpnlExports === 'function') toggleRpnlExports();
   }

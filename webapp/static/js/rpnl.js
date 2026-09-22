@@ -2117,7 +2117,7 @@ function rpnlChartBase(timeScaleVisible) {
     },
     rightPriceScale: {
       borderColor: '#303647',
-      minimumWidth: mobile ? 48 : 58,
+      minimumWidth: mobile ? 62 : 58,
       entireTextOnly: true,
       scaleMargins: { top: 0.1, bottom: timeScaleVisible ? 0.08 : 0.18 },
     },
@@ -2427,7 +2427,27 @@ function toggleRpnlMore() {
     if (foot) foot.classList.remove('export-open');
     const ex = document.getElementById('rpnlExportBtn');
     if (ex) ex.classList.remove('on');
+    closeOhlcTools();
   }
+}
+function toggleOhlcTools() {
+  const box = document.getElementById('ohlcTools');
+  const btn = document.getElementById('ohlcToolsBtn');
+  if (!box) return;
+  const open = box.classList.toggle('open');
+  if (btn) {
+    btn.classList.toggle('on', open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  if (open) {
+    const page = document.getElementById('rpnl');
+    if (page && page.classList.contains('more-open')) toggleRpnlMore();
+  }
+}
+function closeOhlcTools() {
+  const box = document.getElementById('ohlcTools');
+  if (!box || !box.classList.contains('open')) return;
+  toggleOhlcTools();
 }
 function toggleRpnlExports() {
   const foot = document.getElementById('rpnlTools');
@@ -2455,6 +2475,10 @@ function closeRpnlPopovers(ev) {
   const foot = document.getElementById('rpnlTools');
   if (foot && foot.classList.contains('export-open') && !(ev && ev.target && ev.target.closest('.rp-foot'))) {
     toggleRpnlExports();
+  }
+  const t = ev && ev.target;
+  if (!(t && (t.closest('#ohlcTools') || t.closest('#ohlcToolsBtn')))) {
+    closeOhlcTools();
   }
 }
 
