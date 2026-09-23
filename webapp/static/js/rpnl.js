@@ -586,15 +586,29 @@ async function sendBotCmd(pill, cmd) {
   }
 }
 
+function rpnlGeomBit(name, ticks, pct, extra) {
+  const t = Number(ticks);
+  let bit = null;
+  if (ticks != null && isFinite(t) && t > 0) bit = name + ' ' + fmtG(t) + 't';
+  else if (pct != null) bit = name + ' ' + fmtG(pct) + '%';
+  if (bit && extra) bit += extra;
+  return bit;
+}
+
 function rpnlSetupBits(s) {
   const bits = [];
   const on = v => v === true || v === 'true' || v === 'on' || v === 1 || v === '1';
   if (s.edge != null) bits.push('edge ' + fmtG(s.edge) + '%');
-  if (s.k != null) bits.push('k ' + fmtG(s.k) + '%');
-  if (s.k_ticks != null) bits.push('k ' + fmtG(s.k_ticks) + 't');
-  if (s.hem != null) bits.push('hem ' + fmtG(s.hem) + '%');
-  if (s.span != null) bits.push('span ' + fmtG(s.span) + '%');
-  if (s.step != null) bits.push('step ' + fmtG(s.step) + '%');
+  if (s.k_ticks != null && Number(s.k_ticks) !== 0) bits.push('k ' + fmtG(s.k_ticks) + 't');
+  else if (s.k != null) bits.push('k ' + fmtG(s.k) + '%');
+  const hem = rpnlGeomBit('hem', s.hem_ticks, s.hem);
+  const span = rpnlGeomBit('span', s.span_ticks, s.span);
+  let stepExtra = '';
+  if (s.step_mult != null && Number(s.step_mult) !== 1) stepExtra = '×' + fmtG(s.step_mult);
+  const step = rpnlGeomBit('step', s.step_ticks, s.step, stepExtra);
+  if (hem) bits.push(hem);
+  if (span) bits.push(span);
+  if (step) bits.push(step);
   if (s.min_spread != null && Number(s.min_spread) > 0) bits.push('min spread ' + fmtG(s.min_spread) + '%');
   if (s.spread_pad != null && Number(s.spread_pad) > 0) bits.push('pad ' + fmtG(s.spread_pad) + '%');
   if (s.fit_auto != null) bits.push('fit auto ' + (on(s.fit_auto) ? 'on' : 'off'));
