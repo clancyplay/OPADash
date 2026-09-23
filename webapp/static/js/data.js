@@ -3,6 +3,7 @@
 // ══════════════════════════════════════════════════════════
 const LS_DATA_TAB = 'opadash.dataTab';
 const LS_DBT_COMPACT = 'opadash.dbtCompact';
+const LS_LG_COLS = 'opadash.lgCols';
 
 let dataTab = 'fills';
 let lgTimer, rsTimer;
@@ -71,6 +72,11 @@ function initData() {
   if (!window._dbtKeysBound) {
     window._dbtKeysBound = true;
     document.addEventListener('keydown', dbtOnKey);
+    document.addEventListener('click', (e) => {
+      const menu = document.getElementById('lgColsMenu');
+      if (!menu || menu.hidden) return;
+      if (!e.target.closest('.lg-cols-wrap')) menu.hidden = true;
+    });
   }
 }
 
@@ -79,7 +85,10 @@ function showDataTab(name) {
   dataTab = name;
   lsSet(LS_DATA_TAB, name);
   const root = document.getElementById('data');
-  if (root) root.classList.toggle('fills-mode', name === 'fills');
+  if (root) {
+    root.classList.toggle('fills-mode', name === 'fills');
+    root.classList.toggle('logs-mode', name === 'logs');
+  }
   ['browser', 'logs', 'rsum'].forEach(t => {
     const panel = document.getElementById('dpanel-' + t);
     const show = t === 'browser' ? (name === 'fills' || name === 'tables') : t === name;
@@ -105,7 +114,14 @@ function showDataTab(name) {
       dbtPaintList();
     }
   }
-  if (name === 'logs') { loadLogsX(true); setupLgAuto(); }
+  if (name === 'logs') {
+    if (typeof strategyIsAll === 'function' && !strategyIsAll(currentStrategy)) {
+      const el = document.getElementById('lgStrategy');
+      if (el) el.value = currentStrategy;
+    }
+    loadLogsX(true);
+    setupLgAuto();
+  }
   if (name === 'rsum') { loadRsum(); setupRsAuto(); }
   if (name === 'logs' || name === 'rsum') {
     const status = document.getElementById('dbtStatus');
@@ -503,9 +519,10 @@ async function dbtCopyPeek() {
 function dbtOnKey(ev) {
   const page = document.getElementById('data');
   if (!page || !page.classList.contains('visible')) return;
-  if (dataTab !== 'fills' && dataTab !== 'tables') return;
   const tag = (ev.target && ev.target.tagName) || '';
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (dataTab === 'logs') { lgOnKey(ev); return; }
+  if (dataTab !== 'fills' && dataTab !== 'tables') return;
   if (ev.key === 'Escape') { dbtClosePeek(); return; }
   if (!dbtPageRows.length) return;
   if (ev.key === 'ArrowDown' || ev.key === 'j') {
@@ -766,21 +783,371 @@ document.addEventListener('change', (e) => {
 });
 
 // ── Live logs ─────────────────────────────────────────────
+const LG_CAP = 8000;
+const LG_META = new Set(['time', 'level', 'service', 'strategy', 'account', 'contract', 'exchange', 'name']);
+const LG_COLS = [
+  { key: 'time', label: 'Time', def: 'compact' },
+  { key: 'level', label: 'Level', def: 'compact' },
+  { key: 'kind', label: 'Kind', def: 'compact' },
+  { key: 'strategy', label: 'Strategy', def: 'compact' },
+  { key: 'contract', label: 'Contract', def: 'compact' },
+  { key: 'bid', label: 'Bid', def: 'compact' },
+  { key: 'ask', label: 'Ask', def: 'compact' },
+  { key: 'hook', label: 'Hook', def: 'compact' },
+  { key: 'pos', label: 'Pos', def: 'compact' },
+  { key: 'buy', label: 'Buy', def: 'expand' },
+  { key: 'sell', label: 'Sell', def: 'expand' },
+  { key: 'side', label: 'Side', def: 'hide' },
+  { key: 'qty', label: 'Qty', def: 'hide' },
+  { key: 'px', label: 'Price', def: 'hide' },
+  { key: 'spread', label: 'Spread', def: 'hide' },
+  { key: 'hem', label: 'Hem', def: 'hide' },
+  { key: 'span', label: 'Span', def: 'hide' },
+  { key: 'step', label: 'Step', def: 'hide' },
+  { key: 'cap', label: 'Cap', def: 'hide' },
+  { key: 'rpnl', label: 'rPnL', def: 'hide' },
+  { key: 'http', label: 'HTTP', def: 'hide' },
+  { key: 'account', label: 'Account', def: 'hide' },
+  { key: 'exchange', label: 'Exchange', def: 'hide' },
+  { key: 'service', label: 'Service', def: 'hide' },
+  { key: 'name', label: 'Logger', def: 'hide' },
+  { key: 'detail', label: 'Detail', def: 'compact' },
+  { key: 'message', label: 'Raw', def: 'hide' },
+];
+const LG_NUM = new Set(['bid', 'ask', 'pos', 'qty', 'px', 'spread', 'rpnl', 'cap']);
 let lgLastId = 0;
 let lgFirstId = 0;
+let lgRows = [];
+let lgPeekId = 0;
+let lgColStates = lgLoadCols();
 
-function lgMeta(l) {
-  const bits = [l.strategy, l.contract, l.account, l.exchange].filter(Boolean);
-  if (!bits.length) return '';
-  return bits.map(b => '<span class="lchip">' + esc(b) + '</span>').join('');
+function lgDefaultCols() {
+  const o = {};
+  LG_COLS.forEach(c => { o[c.key] = c.def; });
+  return o;
 }
-function lgRenderLine(l) {
-  const lv = String(l.level || '').trim();
-  return '<div class="log-line"><span class="lt">' + fmtISTs(l.time) + '</span> ' +
-    '<span class="lsvc">[' + esc(l.service) + ']</span> ' +
-    '<span class="' + logLevelCls(lv) + '">' + esc(lv) + '</span> ' +
-    lgMeta(l) +
-    '<span style="color:#6b768e">' + esc(fmtLogName(l.name)) + '</span> ' + esc(l.message) + '</div>';
+function lgLoadCols() {
+  const o = lgDefaultCols();
+  try {
+    const raw = JSON.parse(lsGet(LS_LG_COLS, '') || 'null');
+    if (raw && typeof raw === 'object') {
+      LG_COLS.forEach(c => {
+        if (raw[c.key] === 'hide' || raw[c.key] === 'compact' || raw[c.key] === 'expand') o[c.key] = raw[c.key];
+      });
+    }
+  } catch {}
+  return o;
+}
+function lgSaveCols() { lsSet(LS_LG_COLS, JSON.stringify(lgColStates)); }
+function lgColState(key) { return lgColStates[key] || 'compact'; }
+function lgVisibleCols() { return LG_COLS.filter(c => lgColState(c.key) !== 'hide'); }
+
+function lgParseQuoteRung(raw) {
+  const src = String(raw || '').trim();
+  if (!src || src === '-') return null;
+  const off = /\boff\b/.test(src);
+  const s = src.replace(/\s*\boff\b\s*/g, ' ').trim();
+  const m = s.match(/^([0-9.eE+-]+)\s+(\S+?)(?:\s+|×)([0-9.eE+-]+)$/)
+    || s.match(/^([0-9.eE+-]+)\s+(\S+)$/);
+  if (!m) return { kind: 'rung', text: src, px: '', role: src, qty: '', off };
+  const qty = m[3] || '';
+  const role = m[2];
+  const px = m[1];
+  return {
+    kind: 'rung', px, role, qty, off,
+    text: (qty ? qty + '@' : '') + px + (role ? ' ' + role : '') + (off ? ' off' : ''),
+  };
+}
+function lgParseQuoteRungs(inner) {
+  if (!inner || inner.trim() === '-') return [];
+  return inner.split(',').map(lgParseQuoteRung).filter(Boolean);
+}
+function lgParseLegBody(depth, body) {
+  const b = String(body || '').trim();
+  const edit = b.match(/^([0-9.eE+-]+)@([0-9.eE+-]+)→([0-9.eE+-]+)@([0-9.eE+-]+)/);
+  if (edit) {
+    return {
+      kind: 'edit', depth,
+      qty0: edit[1], px0: edit[2], qty1: edit[3], px1: edit[4],
+      text: depth + ' ' + edit[1] + '@' + edit[2] + '→' + edit[3] + '@' + edit[4],
+    };
+  }
+  const cr = b.match(/^([0-9.eE+-]+)@([0-9.eE+-]+)/);
+  if (cr) {
+    return { kind: 'create', depth, qty: cr[1], px: cr[2], text: depth + ' ' + cr[1] + '@' + cr[2] };
+  }
+  const at = b.match(/^id=(\S+)\s+([0-9.eE+-]+)\s+@\s+([0-9.eE+-]+)/);
+  if (at) {
+    return { kind: 'create', depth, id: at[1], qty: at[2], px: at[3], text: depth + ' ' + at[2] + '@' + at[3] };
+  }
+  return { kind: 'leg', depth, text: (depth + (b ? ' ' + b : '')).trim() };
+}
+function lgParseBatchLegs(s) {
+  const buy = [], sell = [];
+  const re = /\b(buy|sell):(\d+)\s*/g;
+  const hits = [];
+  let m;
+  while ((m = re.exec(s))) hits.push({ side: m[1], depth: m[2], i: m.index, end: m.index + m[0].length });
+  for (let i = 0; i < hits.length; i++) {
+    const from = hits[i].end;
+    const to = i + 1 < hits.length ? hits[i + 1].i : s.length;
+    const part = lgParseLegBody(hits[i].depth, s.slice(from, to));
+    (hits[i].side === 'buy' ? buy : sell).push(part);
+  }
+  return { buy, sell };
+}
+function lgJoinParts(parts) {
+  return (parts || []).map(p => p.text).join(' · ');
+}
+function lgParse(msg) {
+  const s = String(msg || '').trim();
+  const out = {
+    kind: 'other', bid: '', ask: '', hook: '', spread: '', pos: '', hem: '', span: '', step: '',
+    cap: '', buy: '', sell: '', buyParts: [], sellParts: [], side: '', qty: '', px: '', rpnl: '',
+    http: '', detail: s,
+  };
+  const kv = {};
+  s.replace(/\b([a-z_][a-z0-9_]*)=([^\s]+)/gi, (_, k, v) => { kv[k.toLowerCase()] = v; return ''; });
+  out.pos = kv.pos || '';
+  out.hem = kv.hem || '';
+  out.span = kv.span || '';
+  out.step = kv.step || kv.tail || '';
+  out.spread = kv.spread || '';
+  out.cap = kv.cap || '';
+  out.rpnl = kv.rpnl || '';
+
+  const fill = s.match(/^fill\s+(buy|sell)\s+([0-9.eE+-]+)\s+@\s+([0-9.eE+-]+)(?:\s+rpnl=(\S+))?(.*)$/i);
+  if (fill) {
+    out.kind = 'fill';
+    out.side = fill[1].toLowerCase();
+    out.qty = fill[2];
+    out.px = fill[3];
+    if (fill[4]) out.rpnl = fill[4];
+    out.detail = (fill[5] || '').trim();
+    const bit = { kind: 'fill', qty: fill[2], px: fill[3], text: fill[2] + '@' + fill[3] };
+    if (out.side === 'buy') { out.buyParts = [bit]; out.buy = bit.text; }
+    else { out.sellParts = [bit]; out.sell = bit.text; }
+    return out;
+  }
+
+  const http = s.match(/^(GET|PUT|POST|DELETE)\s+(\/\S+)\s+(\d{3})(?:\s+(.*))?$/);
+  if (http) {
+    out.kind = 'http';
+    out.http = http[1] + ' ' + http[2] + ' ' + http[3];
+    out.detail = [out.http, http[4] || ''].filter(Boolean).join(' ');
+    return out;
+  }
+
+  const batch = s.match(/^(EDIT|CREATE|CANCEL)\s+batch\b(.*)$/i);
+  if (batch) {
+    out.kind = batch[1].toLowerCase();
+    const rest = (batch[2] || '').trim();
+    if (/\b(?:buy|sell):\d+/.test(rest) && !/^(failed|gone|rejected)\b/i.test(rest)) {
+      const legs = lgParseBatchLegs(rest);
+      out.buyParts = legs.buy;
+      out.sellParts = legs.sell;
+      out.buy = lgJoinParts(legs.buy);
+      out.sell = lgJoinParts(legs.sell);
+      out.detail = '';
+    } else {
+      out.detail = rest;
+    }
+    return out;
+  }
+
+  const one = s.match(/^(CREATE|EDIT|CANCEL|ADOPT)\s+(buy|sell):(\d+)\s+(.*)$/i);
+  if (one) {
+    out.kind = one[1].toLowerCase();
+    const part = lgParseLegBody(one[3], one[4]);
+    if (one[2].toLowerCase() === 'buy') { out.buyParts = [part]; out.buy = part.text; }
+    else { out.sellParts = [part]; out.sell = part.text; }
+    out.side = one[2].toLowerCase();
+    if (part.qty) out.qty = part.qty;
+    if (part.px) out.px = part.px;
+    if (part.qty1) { out.qty = part.qty1; out.px = part.px1; }
+    out.detail = '';
+    return out;
+  }
+
+  const book = s.match(/\bbook\s+([0-9.eE+-]+)\s*\/\s*([0-9.eE+-]+)/);
+  const buyM = s.match(/\bbuy\[([^\]]*)\]/);
+  const sellM = s.match(/\bsell\[([^\]]*)\]/);
+  if (book || buyM || sellM || /^now=/.test(s)) {
+    out.kind = 'quote';
+    if (book) { out.bid = book[1]; out.ask = book[2]; }
+    const hook = s.match(/\b(?:hook|ref)=(\S+)(?:\s+([0-9.eE+-]+))?/);
+    if (hook) out.hook = hook[2] ? hook[1] + ' ' + hook[2] : hook[1];
+    else if (kv.mid) out.hook = 'mid ' + kv.mid;
+    if (buyM) { out.buyParts = lgParseQuoteRungs(buyM[1]); out.buy = lgJoinParts(out.buyParts); }
+    if (sellM) { out.sellParts = lgParseQuoteRungs(sellM[1]); out.sell = lgJoinParts(out.sellParts); }
+    out.detail = '';
+    return out;
+  }
+  return out;
+}
+function lgParsed(l) {
+  if (!l._p || l._p._raw !== l.message) {
+    l._p = lgParse(l.message);
+    l._p._raw = l.message;
+  }
+  return l._p;
+}
+
+function lgDash(v) {
+  const s = String(v ?? '').trim();
+  return s ? esc(s) : '<span class="muted">—</span>';
+}
+function lgLevelKind(level) {
+  const lv = String(level || '').trim().toUpperCase();
+  if (lv === 'ERROR' || lv === 'CRITICAL') return 'err';
+  if (lv === 'WARNING' || lv === 'WARN') return 'warn';
+  return '';
+}
+function lgCellText(l, key) {
+  if (key === 'time') return fmtISTs(l.time);
+  if (key === 'name') return fmtLogName(l.name);
+  if (key === 'message') return l.message || '';
+  if (LG_META.has(key)) return l[key] == null ? '' : String(l[key]);
+  const p = lgParsed(l);
+  if (key === 'kind') return p.kind || '';
+  const v = p[key];
+  return v == null ? '' : String(v);
+}
+function lgMiniParts(parts) {
+  if (!parts || !parts.length) return '';
+  const k = parts[0].kind;
+  const cell = (v, extra) => '<span' + (extra ? ' class="' + extra + '"' : '') + '>' + esc(v || '') + '</span>';
+  if (k === 'rung') {
+    return '<div class="lg-rungs lg-rungs-quote">' + parts.map(p => {
+      const m = p.off ? 'muted' : '';
+      return cell(p.qty, m) + cell(p.px, m) + cell(p.role + (p.off ? ' off' : ''), m);
+    }).join('') + '</div>';
+  }
+  if (k === 'edit') {
+    return '<div class="lg-rungs lg-rungs-edit">' + parts.map(p =>
+      cell(p.depth) + cell(p.qty0 + '@' + p.px0) + cell(p.qty1 + '@' + p.px1)
+    ).join('') + '</div>';
+  }
+  if (k === 'fill') {
+    return '<div class="lg-rungs lg-rungs-fill">' + parts.map(p => cell(p.qty) + cell(p.px)).join('') + '</div>';
+  }
+  if (k === 'create') {
+    return '<div class="lg-rungs lg-rungs-create">' + parts.map(p =>
+      cell(p.depth) + cell(p.qty) + cell(p.px)
+    ).join('') + '</div>';
+  }
+  return parts.map(p => '<div class="lg-rung">' + esc(p.text) + '</div>').join('');
+}
+function lgCellHtml(l, col) {
+  const key = col.key;
+  const st = lgColState(key);
+  if (key === 'level') {
+    const lv = String(l.level || '').trim().toUpperCase();
+    return '<span class="lg-pill ' + logLevelCls(lv) + '">' + esc(lv || '—') + '</span>';
+  }
+  if (key === 'kind') {
+    const kind = lgParsed(l).kind || 'other';
+    return '<span class="lg-pill lg-kind-' + esc(kind) + '">' + esc(kind) + '</span>';
+  }
+  if (key === 'side') {
+    const side = lgCellText(l, 'side');
+    if (!side) return lgDash('');
+    return '<span class="side-' + (side === 'sell' ? 'sell' : 'buy') + '">' + esc(side) + '</span>';
+  }
+  if ((key === 'buy' || key === 'sell') && st === 'expand') {
+    const parts = lgParsed(l)[key === 'buy' ? 'buyParts' : 'sellParts'];
+    if (parts && parts.length) return lgMiniParts(parts);
+  }
+  const text = lgCellText(l, key);
+  return text ? esc(text) : lgDash('');
+}
+function lgTdClass(col) {
+  const bits = ['lg-' + lgColState(col.key)];
+  if (LG_NUM.has(col.key)) bits.push('num');
+  if (col.key === 'buy') bits.push('lg-buy');
+  if (col.key === 'sell') bits.push('lg-sell');
+  if (col.key === 'time') bits.push('muted', 'lg-time');
+  if (col.key === 'message' || col.key === 'detail' || col.key === 'http') bits.push('lg-msg');
+  return bits.join(' ');
+}
+function lgRenderRow(l) {
+  const lv = String(l.level || '').trim().toUpperCase();
+  const kind = lgLevelKind(lv);
+  const sel = l.id === lgPeekId ? ' selected' : '';
+  const tds = LG_COLS.map(col => {
+    const hide = lgColState(col.key) === 'hide' ? ' lg-hide' : '';
+    return '<td class="' + lgTdClass(col) + hide + '" data-col="' + col.key + '">' + lgCellHtml(l, col) + '</td>';
+  }).join('');
+  return '<tr class="clickable' + (kind ? ' lg-' + kind : '') + sel +
+    '" data-id="' + l.id + '" onclick="lgShowPeek(' + l.id + ')">' + tds + '</tr>';
+}
+function lgRenderHead() {
+  return LG_COLS.map(col => {
+    const st = lgColState(col.key);
+    const hide = st === 'hide' ? ' lg-hide' : '';
+    const hint = st === 'expand' ? 'Click to compress' : 'Click to expand';
+    return '<th class="lg-th lg-' + st + hide + '" data-col="' + col.key +
+      '" title="' + hint + ' · × hides" onclick="lgColCycle(\'' + col.key + '\')">' +
+      esc(col.label) +
+      '<span class="lg-th-mode">' + (st === 'expand' ? '+' : '…') + '</span>' +
+      '<button type="button" class="lg-th-x" title="Hide column" onclick="event.stopPropagation(); lgColSet(\'' +
+      col.key + '\',\'hide\')">×</button></th>';
+  }).join('');
+}
+function lgColCycle(key) {
+  const st = lgColState(key);
+  if (st === 'hide') { lgColSet(key, 'compact'); return; }
+  lgColSet(key, st === 'expand' ? 'compact' : 'expand');
+}
+function lgColSet(key, state) {
+  lgColStates[key] = state;
+  lgSaveCols();
+  const box = document.getElementById('lgBox');
+  const top = box ? box.scrollTop : 0;
+  const menu = document.getElementById('lgColsMenu');
+  const menuOpen = menu && !menu.hidden;
+  lgPaintAll();
+  if (box) box.scrollTop = top;
+  if (lgPeekId) lgShowPeek(lgPeekId);
+  if (menuOpen) { lgPaintColMenu(); document.getElementById('lgColsMenu').hidden = false; }
+}
+function lgResetCols() {
+  lgColStates = lgDefaultCols();
+  lgSaveCols();
+  lgColSet(LG_COLS[0].key, lgColState(LG_COLS[0].key));
+}
+function lgToggleColsMenu() {
+  const menu = document.getElementById('lgColsMenu');
+  if (!menu) return;
+  if (menu.hidden) { lgPaintColMenu(); menu.hidden = false; }
+  else menu.hidden = true;
+}
+function lgPaintColMenu() {
+  const menu = document.getElementById('lgColsMenu');
+  if (!menu) return;
+  const btn = (key, st, label) => {
+    const on = lgColState(key) === st ? ' on' : '';
+    return '<button type="button" class="lg-col-st' + on + '" onclick="lgColSet(\'' + key + '\',\'' + st + '\')">' + label + '</button>';
+  };
+  menu.innerHTML = LG_COLS.map(col =>
+    '<div class="lg-cols-row"><span>' + esc(col.label) + '</span>' +
+    btn(col.key, 'compact', '…') +
+    btn(col.key, 'expand', '+') +
+    btn(col.key, 'hide', '×') +
+    '</div>'
+  ).join('') +
+    '<div class="lg-cols-foot"><button type="button" class="btn" onclick="lgResetCols()">Reset columns</button></div>';
+}
+function lgPaintColChips() {
+  const el = document.getElementById('lgColChips');
+  if (!el) return;
+  const hidden = LG_COLS.filter(c => lgColState(c.key) === 'hide');
+  if (!hidden.length) { el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  el.innerHTML = '<span class="muted" style="font-size:11px">Hidden</span> ' + hidden.map(c =>
+    '<button type="button" class="dbt-chip" onclick="lgColSet(\'' + c.key + '\',\'compact\')">' +
+    esc(c.label) + ' +</button>'
+  ).join('');
 }
 function lgFilterParams(extra) {
   const val = id => (document.getElementById(id)?.value || '').trim();
@@ -797,6 +1164,79 @@ function lgFilterParams(extra) {
     ...(extra || {}),
   };
 }
+function lgTbody() {
+  return document.querySelector('#lgBox tbody');
+}
+function lgPaintAll() {
+  const box = document.getElementById('lgBox');
+  if (!box) return;
+  if (!lgRows.length) {
+    box.innerHTML = '<div class="tbl-empty">No logs yet. Redeploy the bot service to start streaming them here.</div>';
+    lgPaintChrome();
+    return;
+  }
+  const thead = lgRenderHead();
+  box.innerHTML = '<table class="dtable lg-table"><thead><tr>' + thead +
+    '</tr></thead><tbody>' + lgRows.map(lgRenderRow).join('') + '</tbody></table>';
+  lgPaintChrome();
+}
+function lgAppendRows(lines, where) {
+  const tb = lgTbody();
+  if (!tb) { lgPaintAll(); return; }
+  tb.insertAdjacentHTML(where === 'start' ? 'afterbegin' : 'beforeend', lines.map(lgRenderRow).join(''));
+}
+function lgTrimLive() {
+  const tb = lgTbody();
+  while (lgRows.length > LG_CAP) {
+    const drop = lgRows.shift();
+    if (drop && drop.id === lgPeekId) lgClosePeek();
+    if (tb && tb.firstChild) tb.removeChild(tb.firstChild);
+  }
+  lgFirstId = lgRows.length ? lgRows[0].id : 0;
+}
+function lgPaintStats() {
+  const el = document.getElementById('lgStats');
+  if (!el) return;
+  if (!lgRows.length) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  const counts = { INFO: 0, WARNING: 0, ERROR: 0 };
+  lgRows.forEach(l => {
+    const lv = String(l.level || '').toUpperCase();
+    if (lv === 'WARN' || lv === 'WARNING') counts.WARNING++;
+    else if (lv === 'ERROR' || lv === 'CRITICAL') counts.ERROR++;
+    else if (lv === 'INFO') counts.INFO++;
+  });
+  const cell = (k, v, cls) =>
+    '<div class="ins-cell"><div class="k">' + k + '</div><div class="v' +
+    (cls ? ' ' + cls : '') + '">' + fmtCount(v) + '</div></div>';
+  el.hidden = false;
+  el.innerHTML =
+    cell('Shown', lgRows.length) +
+    cell('Info', counts.INFO, 'lv-INFO') +
+    cell('Warn', counts.WARNING, 'lv-WARNING') +
+    cell('Error', counts.ERROR, 'lv-ERROR');
+}
+function lgPaintChrome() {
+  lgPaintStats();
+  lgPaintColChips();
+  const title = document.getElementById('lgTitle');
+  if (title) title.textContent = lgRows.length ? 'Logs · ' + fmtCount(lgRows.length) + ' shown' : 'Logs';
+  const copy = document.getElementById('lgCopyBtn');
+  if (copy) copy.disabled = !lgRows.length;
+  const status = document.getElementById('lgStatus');
+  if (status) {
+    status.textContent = lgRows.length
+      ? fmtCount(lgRows.length) + ' shown · last id ' + lgLastId
+      : '';
+  }
+  if (lgPeekId) {
+    const tr = document.querySelector('#lgBox tr[data-id="' + lgPeekId + '"]');
+    if (tr) tr.classList.add('selected');
+  }
+}
 
 async function loadLogsX(reset) {
   const initLim = parseInt(document.getElementById('lgLimit').value) || 1000;
@@ -804,29 +1244,32 @@ async function loadLogsX(reset) {
   try {
     let lines;
     if (reset || !lgLastId) {
+      box.classList.add('is-loading');
       const r = await fetch('/api/logs?' + qsObj(lgFilterParams({ limit: initLim })));
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
       lines = (await r.json()).reverse();
-      box.innerHTML = '';
+      lgRows = lines;
+      lgPeekId = 0;
       lgFirstId = lines.length ? lines[0].id : 0;
+      lgLastId = lines.length ? lines[lines.length - 1].id : 0;
+      lgPaintAll();
+      lgClosePeek();
     } else {
       const r = await fetch('/api/logs?' + qsObj(lgFilterParams({ limit: 500, after_id: lgLastId })));
       if (!r.ok) return;
-      lines = await r.json();
+      lines = (await r.json()).filter(l => l.id > lgLastId);
       if (!lines.length) return;
+      lgRows.push(...lines);
+      lgLastId = Math.max(lgLastId, ...lines.map(l => l.id));
+      lgAppendRows(lines, 'end');
+      lgTrimLive();
+      lgPaintChrome();
     }
-    if (!lines.length) {
-      box.innerHTML = '<div class="tbl-empty">No logs yet. Redeploy the bot service to start streaming them here.</div>';
-      lgLastId = 0;
-      return;
-    }
-    box.insertAdjacentHTML('beforeend', lines.map(lgRenderLine).join(''));
-    lgLastId = Math.max(lgLastId, ...lines.map(l => l.id));
-    while (box.children.length > 8000) box.removeChild(box.firstChild);
     if (document.getElementById('lgScroll').checked) box.scrollTop = box.scrollHeight;
-    document.getElementById('lgStatus').textContent = box.children.length + ' shown · last id ' + lgLastId;
   } catch (e) {
     document.getElementById('lgStatus').innerHTML = '<span style="color:var(--red)">Error: ' + esc(e.message) + '</span>';
+  } finally {
+    box.classList.remove('is-loading');
   }
 }
 
@@ -838,13 +1281,150 @@ async function loadOlderLogs() {
     const r = await fetch('/api/logs?' + qsObj(lgFilterParams({ limit: chunk, before_id: lgFirstId })));
     if (!r.ok) return;
     const lines = (await r.json()).reverse();
-    if (!lines.length) { document.getElementById('lgStatus').textContent = 'no older logs'; return; }
+    if (!lines.length) {
+      document.getElementById('lgStatus').textContent = 'no older logs';
+      return;
+    }
     const prevH = box.scrollHeight;
-    box.insertAdjacentHTML('afterbegin', lines.map(lgRenderLine).join(''));
+    lgRows.unshift(...lines);
     lgFirstId = lines[0].id;
+    lgAppendRows(lines, 'start');
+    lgPaintChrome();
     box.scrollTop = box.scrollHeight - prevH;
-    document.getElementById('lgStatus').textContent = box.children.length + ' shown · from id ' + lgFirstId;
   } catch (e) { /* ignore */ }
+}
+
+function lgClearFilters() {
+  ['lgService', 'lgLevel', 'lgSearch', 'lgFrom', 'lgTo', 'lgStrategy',
+    'lgContract', 'lgAccount', 'lgExchange'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  loadLogsX(true);
+}
+
+function lgShowPeek(id) {
+  lgPeekId = id;
+  const row = lgRows.find(r => r.id === id);
+  const peek = document.getElementById('lgPeek');
+  document.querySelectorAll('#lgBox tbody tr').forEach(tr => {
+    tr.classList.toggle('selected', Number(tr.dataset.id) === id);
+  });
+  if (!peek) return;
+  if (!row) { peek.hidden = true; return; }
+  const p = lgParsed(row);
+  const fields = [
+    ['id', row.id],
+    ['time', fmtISTs(row.time)],
+    ['level', row.level],
+    ['kind', p.kind],
+    ['service', row.service],
+    ['strategy', row.strategy],
+    ['account', row.account],
+    ['contract', row.contract],
+    ['exchange', row.exchange],
+    ['logger', row.name],
+    ['bid', p.bid],
+    ['ask', p.ask],
+    ['hook', p.hook],
+    ['spread', p.spread],
+    ['pos', p.pos],
+    ['hem', p.hem],
+    ['span', p.span],
+    ['step', p.step],
+    ['cap', p.cap],
+    ['buy', p.buy],
+    ['sell', p.sell],
+    ['side', p.side],
+    ['qty', p.qty],
+    ['price', p.px],
+    ['rpnl', p.rpnl],
+    ['http', p.http],
+    ['detail', p.detail],
+    ['raw', row.message],
+  ].filter(([, v]) => v != null && String(v).trim() !== '');
+  const idx = lgRows.findIndex(r => r.id === id);
+  peek.hidden = false;
+  peek.innerHTML =
+    '<div class="peek-h"><span>Row ' + (idx + 1) + ' of ' + fmtCount(lgRows.length) +
+      ' · ↑↓ to move · Esc to close</span>' +
+      '<span class="peek-acts">' +
+        '<button class="btn" type="button" onclick="lgCopyPeek()">Copy</button>' +
+        '<button class="btn" type="button" onclick="lgClosePeek()">Close</button>' +
+      '</span></div>' +
+    fields.map(([k, v]) =>
+      '<div class="peek-row"><span class="pk">' + esc(k) + '</span><span class="pv">' +
+      esc(v == null || v === '' ? '—' : String(v)) + '</span></div>'
+    ).join('');
+  peek.scrollTop = 0;
+  const tr = document.querySelector('#lgBox tr[data-id="' + id + '"]');
+  if (tr) tr.scrollIntoView({ block: 'nearest' });
+}
+function lgClosePeek() {
+  lgPeekId = 0;
+  const peek = document.getElementById('lgPeek');
+  if (peek) peek.hidden = true;
+  document.querySelectorAll('#lgBox tbody tr.selected').forEach(tr => tr.classList.remove('selected'));
+}
+async function lgCopyPeek() {
+  const row = lgRows.find(r => r.id === lgPeekId);
+  if (!row) return;
+  const p = lgParsed(row);
+  const text = [
+    ['id', row.id],
+    ['time', fmtISTs(row.time)],
+    ['level', row.level],
+    ['kind', p.kind],
+    ['strategy', row.strategy],
+    ['contract', row.contract],
+    ['account', row.account],
+    ['bid', p.bid],
+    ['ask', p.ask],
+    ['hook', p.hook],
+    ['pos', p.pos],
+    ['buy', p.buy],
+    ['sell', p.sell],
+    ['side', p.side],
+    ['qty', p.qty],
+    ['price', p.px],
+    ['http', p.http],
+    ['detail', p.detail],
+    ['raw', row.message],
+  ].filter(([, v]) => v != null && String(v).trim() !== '')
+    .map(([k, v]) => k + ': ' + v).join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Copied row', 'ok');
+  } catch { toast('Clipboard blocked', 'err'); }
+}
+function lgOnKey(ev) {
+  if (ev.key === 'Escape') { lgClosePeek(); return; }
+  if (!lgRows.length) return;
+  const idx = lgRows.findIndex(r => r.id === lgPeekId);
+  if (ev.key === 'ArrowDown' || ev.key === 'j') {
+    ev.preventDefault();
+    const next = idx < 0 ? 0 : Math.min(lgRows.length - 1, idx + 1);
+    lgShowPeek(lgRows[next].id);
+  } else if (ev.key === 'ArrowUp' || ev.key === 'k') {
+    ev.preventDefault();
+    const next = idx < 0 ? lgRows.length - 1 : Math.max(0, idx - 1);
+    lgShowPeek(lgRows[next].id);
+  }
+}
+
+async function copyLogsPage() {
+  if (!lgRows.length) return;
+  const cols = lgVisibleCols();
+  const header = cols.map(c => c.label).join('\t');
+  const lines = [header].concat(lgRows.map(l => cols.map(c => {
+    return lgCellText(l, c.key).replace(/\t/g, ' ').replace(/\n/g, ' ');
+  }).join('\t')));
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'));
+    toast('Copied ' + lgRows.length + ' rows', 'ok');
+  } catch {
+    toast('Clipboard blocked', 'err');
+  }
 }
 
 async function exportLogsCsv() {

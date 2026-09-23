@@ -3,7 +3,7 @@
   <div class="data-head">
     <div>
       <h1>Data</h1>
-      <p class="sub">Fills, live logs, and the tables the bots actually write.</p>
+      <p class="sub">Fills, a live log table, and the tables the bots actually write.</p>
     </div>
     <span id="dbtStatus" class="ctrl-meta"></span>
   </div>
@@ -129,15 +129,31 @@
 
   <!-- Live logs -->
   <div class="dpanel" id="dpanel-logs">
-    <div class="dctrl">
+    <div class="tbl-toolbar">
+      <div class="tbl-title" id="lgTitle">Logs</div>
+      <div class="tbl-actions">
+        <button class="btn" type="button" onclick="loadOlderLogs()">↑ Older</button>
+        <button class="btn" type="button" onclick="loadLogsX(true)">Refresh</button>
+        <button class="btn" type="button" onclick="exportLogsCsv()">Export CSV</button>
+        <button class="btn" type="button" id="lgCopyBtn" onclick="copyLogsPage()" disabled>Copy page</button>
+        <div class="lg-cols-wrap">
+          <button class="btn" type="button" onclick="lgToggleColsMenu()">Columns</button>
+          <div class="lg-cols-menu" id="lgColsMenu" hidden></div>
+        </div>
+        <label class="ctrl-check"><input type="checkbox" id="lgAuto" checked onchange="setupLgAuto()" /> Live (3s)</label>
+        <label class="ctrl-check"><input type="checkbox" id="lgScroll" checked /> Auto-scroll</label>
+        <span id="lgStatus" class="ctrl-meta"></span>
+      </div>
+    </div>
+    <div class="dbt-filters" id="lgFilters">
       <label>Service
         <select id="lgService" onchange="loadLogsX(true)">
           <option value="">All</option><option value="bot">bot</option><option value="webapp">webapp</option>
         </select>
       </label>
-      <label>Strategy <input type="text" id="lgStrategy" class="dinp" placeholder="stack" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
-      <label>Contract <input type="text" id="lgContract" class="dinp" placeholder="LABUSD" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
-      <label>Account <input type="text" id="lgAccount" class="dinp" placeholder="id" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
+      <label>Strategy <input type="text" id="lgStrategy" class="dinp" placeholder="any" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
+      <label>Contract <input type="text" id="lgContract" class="dinp" placeholder="any" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
+      <label>Account <input type="text" id="lgAccount" class="dinp" placeholder="any" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
       <label>Exchange
         <select id="lgExchange" onchange="loadLogsX(true)">
           <option value="">All</option>
@@ -164,14 +180,16 @@
           <option value="2000">2000</option><option value="5000">5000</option>
         </select>
       </label>
-      <button class="btn" type="button" onclick="loadOlderLogs()">↑ Older</button>
-      <button class="btn" type="button" onclick="loadLogsX(true)">Refresh</button>
-      <button class="btn" type="button" onclick="exportLogsCsv()">Export CSV</button>
-      <label class="ctrl-check"><input type="checkbox" id="lgAuto" checked onchange="setupLgAuto()" /> Live (3s)</label>
-      <label class="ctrl-check"><input type="checkbox" id="lgScroll" checked /> Auto-scroll</label>
-      <span id="lgStatus" class="ctrl-meta"></span>
+      <button class="btn" type="button" onclick="loadLogsX(true)">Apply</button>
+      <button class="btn" type="button" onclick="lgClearFilters()">Clear</button>
     </div>
-    <div class="logs-box" id="lgBox"><div class="tbl-empty">Loading logs…</div></div>
+    <div class="dbt-chips" id="lgColChips" hidden></div>
+    <div class="insights-bar" id="lgStats" hidden></div>
+    <div class="tbl-stage">
+      <div class="tbl-grid-wrap logs-grid" id="lgBox"><div class="tbl-empty">Loading logs…</div></div>
+      <div class="dbt-peek" id="lgPeek" hidden></div>
+    </div>
+    <p class="hint">Parsed quote/edit/fill fields sit in columns so you can line them up against the book. Header click compresses or expands; × hides; Columns (or the chips) brings a column back. Newest at the bottom. Times are IST.</p>
   </div>
 
   <!-- rPnL summary -->
