@@ -4,6 +4,7 @@
 const LS_DATA_TAB = 'opadash.dataTab';
 const LS_DBT_COMPACT = 'opadash.dbtCompact';
 const LS_LG_COLS = 'opadash.lgCols';
+const LS_LG_WIDTHS = 'opadash.lgColW';
 
 let dataTab = 'fills';
 let lgTimer, rsTimer;
@@ -77,6 +78,7 @@ function initData() {
       if (!menu || menu.hidden) return;
       if (!e.target.closest('.lg-cols-wrap')) menu.hidden = true;
     });
+    lgEnsureResizeBound();
   }
 }
 
@@ -815,11 +817,22 @@ const LG_COLS = [
   { key: 'message', label: 'Raw', def: 'hide' },
 ];
 const LG_NUM = new Set(['bid', 'ask', 'pos', 'qty', 'px', 'spread', 'rpnl', 'cap']);
+const LG_W_DEF = {
+  time: 136, level: 70, kind: 72, strategy: 80, contract: 96,
+  bid: 78, ask: 78, hook: 110, pos: 64, buy: 220, sell: 220,
+  side: 56, qty: 64, px: 82, spread: 72, hem: 56, span: 56, step: 72,
+  cap: 72, rpnl: 64, http: 180, account: 88, exchange: 80, service: 72,
+  name: 120, detail: 200, message: 260,
+};
+const LG_W_MIN = 44;
+const LG_W_MAX = 720;
 let lgLastId = 0;
 let lgFirstId = 0;
 let lgRows = [];
 let lgPeekId = 0;
 let lgColStates = lgLoadCols();
+let lgColWidths = lgLoadWidths();
+let lgResize = null;
 
 function lgDefaultCols() {
   const o = {};
@@ -841,6 +854,129 @@ function lgLoadCols() {
 function lgSaveCols() { lsSet(LS_LG_COLS, JSON.stringify(lgColStates)); }
 function lgColState(key) { return lgColStates[key] || 'compact'; }
 function lgVisibleCols() { return LG_COLS.filter(c => lgColState(c.key) !== 'hide'); }
+function lgLoadWidths() {
+  const o = {};
+  try {
+    const raw = JSON.parse(lsGet(LS_LG_WIDTHS, '') || 'null');
+    if (raw && typeof raw === 'object') {
+      Object.keys(raw).forEach(k => {
+        const n = Number(raw[k]);
+        if (Number.isFinite(n)) o[k] = Math.max(LG_W_MIN, Math.min(LG_W_MAX, Math.round(n)));
+      });
+    }
+  } catch {}
+  return o;
+}
+function lgSaveWidths() { lsSet(LS_LG_WIDTHS, JSON.stringify(lgColWidths)); }
+function lgColWidth(key) {
+  const n = lgColWidths[key];
+  if (Number.isFinite(n)) return n;
+  return LG_W_DEF[key] || 100;
+}
+function lgSetWidth(key, px, persist) {
+  const w = Math.max(LG_W_MIN, Math.min(LG_W_MAX, Math.round(px)));
+  lgColWidths[key] = w;
+  const css = w + 'px';
+  const col = document.querySelector('#lgBox col[data-col="' + key + '"]');
+  const th = document.querySelector('#lgBox th[data-col="' + key + '"]');
+  if (col) col.style.width = css;
+  if (th) { th.style.width = css; th.style.minWidth = css; th.style.maxWidth = css; }
+  if (persist) lgSaveWidths();
+}
+function lgRenderColgroup() {
+  return '<colgroup>' + LG_COLS.map(c => {
+    const hide = lgColState(c.key) === 'hide' ? ' class="lg-hide"' : '';
+    return '<col data-col="' + c.key + '"' + hide + ' style="width:' + lgColWidth(c.key) + 'px">';
+  }).join('') + '</colgroup>';
+}
+function lgEnsureResizeBound() {
+  const box = document.getElementById('lgBox');
+  if (!box || box._lgResizeBound) return;
+  box._lgResizeBound = true;
+  box.addEventListener('pointerdown', lgResizeDown);
+  box.addEventListener('dblclick', lgResizeDbl);
+}
+function lgResizeDown(ev) {
+  const handle = ev.target.closest('.lg-th-resize');
+  if (!handle || ev.button) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  const key = handle.dataset.col;
+  const th = handle.parentElement;
+  lgResize = {
+    key,
+    startX: ev.clientX,
+    startW: th.getBoundingClientRect().width,
+    moved: false,
+    pid: ev.pointerId,
+  };
+  try { handle.setPointerCapture(ev.pointerId); } catch {}
+  document.body.classList.add('lg-resizing');
+  const blockClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handle.removeEventListener('click', blockClick, true);
+  };
+  handle.addEventListener('click', blockClick, true);
+  window.addEventListener('pointermove', lgResizeMove);
+  window.addEventListener('pointerup', lgResizeUp);
+  window.addEventListener('pointercancel', lgResizeUp);
+}
+function lgResizeMove(ev) {
+  if (!lgResize) return;
+  const dx = ev.clientX - lgResize.startX;
+  if (Math.abs(dx) > 2) lgResize.moved = true;
+  lgSetWidth(lgResize.key, lgResize.startW + dx, false);
+}
+function lgResizeUp() {
+  if (!lgResize) return;
+  if (lgResize.moved) lgSaveWidths();
+  lgResize = null;
+  document.body.classList.remove('lg-resizing');
+  window.removeEventListener('pointermove', lgResizeMove);
+  window.removeEventListener('pointerup', lgResizeUp);
+  window.removeEventListener('pointercancel', lgResizeUp);
+}
+function lgResizeDbl(ev) {
+  const handle = ev.target.closest('.lg-th-resize');
+  if (!handle) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  lgAutoFit(handle.dataset.col);
+}
+function lgAutoFit(key) {
+  const th = document.querySelector('#lgBox th[data-col="' + key + '"]');
+  const tds = document.querySelectorAll('#lgBox td[data-col="' + key + '"]');
+  let max = 56;
+  const probe = document.getElementById('lgWidthProbe') || (() => {
+    const el = document.createElement('span');
+    el.id = 'lgWidthProbe';
+    el.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(el);
+    return el;
+  })();
+  const sample = th || tds[0];
+  if (sample) {
+    const cs = getComputedStyle(sample);
+    probe.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap;font:' +
+      cs.font + ';letter-spacing:' + cs.letterSpacing + ';';
+  }
+  if (th) {
+    probe.textContent = (th.childNodes[0] && th.childNodes[0].textContent) || '';
+    max = Math.max(max, probe.offsetWidth + 36);
+  }
+  const n = Math.min(tds.length, 80);
+  for (let i = 0; i < n; i++) {
+    const td = tds[i];
+    const rungs = td.querySelector('.lg-rungs');
+    if (rungs) max = Math.max(max, rungs.scrollWidth + 16);
+    else {
+      probe.textContent = (td.innerText || '').replace(/\s+/g, ' ').trim();
+      max = Math.max(max, probe.offsetWidth + 20);
+    }
+  }
+  lgSetWidth(key, max, true);
+}
 
 function lgParseQuoteRung(raw) {
   const src = String(raw || '').trim();
@@ -1085,13 +1221,16 @@ function lgRenderHead() {
   return LG_COLS.map(col => {
     const st = lgColState(col.key);
     const hide = st === 'hide' ? ' lg-hide' : '';
-    const hint = st === 'expand' ? 'Click to compress' : 'Click to expand';
+    const w = lgColWidth(col.key);
+    const hint = 'Drag edge to resize · click wraps/clips · × hides';
     return '<th class="lg-th lg-' + st + hide + '" data-col="' + col.key +
-      '" title="' + hint + ' · × hides" onclick="lgColCycle(\'' + col.key + '\')">' +
+      '" style="width:' + w + 'px;min-width:' + w + 'px;max-width:' + w + 'px" title="' + hint +
+      '" onclick="lgColCycle(\'' + col.key + '\')">' +
       esc(col.label) +
       '<span class="lg-th-mode">' + (st === 'expand' ? '+' : '…') + '</span>' +
       '<button type="button" class="lg-th-x" title="Hide column" onclick="event.stopPropagation(); lgColSet(\'' +
-      col.key + '\',\'hide\')">×</button></th>';
+      col.key + '\',\'hide\')">×</button>' +
+      '<span class="lg-th-resize" data-col="' + col.key + '" title="Drag to resize"></span></th>';
   }).join('');
 }
 function lgColCycle(key) {
@@ -1113,7 +1252,9 @@ function lgColSet(key, state) {
 }
 function lgResetCols() {
   lgColStates = lgDefaultCols();
+  lgColWidths = {};
   lgSaveCols();
+  lgSaveWidths();
   lgColSet(LG_COLS[0].key, lgColState(LG_COLS[0].key));
 }
 function lgToggleColsMenu() {
@@ -1136,7 +1277,8 @@ function lgPaintColMenu() {
     btn(col.key, 'hide', '×') +
     '</div>'
   ).join('') +
-    '<div class="lg-cols-foot"><button type="button" class="btn" onclick="lgResetCols()">Reset columns</button></div>';
+    '<div class="lg-cols-foot"><button type="button" class="btn" onclick="lgResetCols()">Reset columns</button>' +
+    '<span class="muted" style="margin-left:8px;font-size:11px">Drag header edges to set width</span></div>';
 }
 function lgPaintColChips() {
   const el = document.getElementById('lgColChips');
@@ -1176,8 +1318,9 @@ function lgPaintAll() {
     return;
   }
   const thead = lgRenderHead();
-  box.innerHTML = '<table class="dtable lg-table"><thead><tr>' + thead +
+  box.innerHTML = '<table class="dtable lg-table">' + lgRenderColgroup() + '<thead><tr>' + thead +
     '</tr></thead><tbody>' + lgRows.map(lgRenderRow).join('') + '</tbody></table>';
+  lgEnsureResizeBound();
   lgPaintChrome();
 }
 function lgAppendRows(lines, where) {
