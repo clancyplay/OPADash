@@ -1773,7 +1773,7 @@ class EventsDB:
                     RETURNING id
                     """,
                     str(strategy or "").strip()[:40],
-                    str(account or "")[:40],
+                    str(account or "").strip()[:40],
                     str(contract or "").strip()[:80],
                     str(cmd or "").strip().lower()[:32],
                     str(created_by or "dashboard")[:40],

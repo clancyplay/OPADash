@@ -1752,7 +1752,7 @@ async def bot_command(
     cmd = _BOT_CMDS.get(str(req.cmd or "").strip().lower())
     if not cmd:
         raise HTTPException(status_code=400, detail=f"unknown cmd '{req.cmd}'")
-    contract = str(req.contract or "").strip()
+    contract = canon_contract(req.contract or "") or str(req.contract or "").strip()
     if not contract:
         raise HTTPException(status_code=400, detail="contract required")
     tag = (req.strategy or strategy or "").strip()
@@ -1760,7 +1760,7 @@ async def bot_command(
         raise HTTPException(status_code=400, detail="strategy required")
     payload = _max_payload(req.payload) if cmd == "max" else (req.payload if isinstance(req.payload, dict) else None)
     cmd_id = await _db.insert_bot_command(
-        tag, req.account or "", contract, cmd, created_by="dashboard", payload=payload,
+        tag, str(req.account or "").strip(), contract, cmd, created_by="dashboard", payload=payload,
     )
     if cmd_id is None:
         raise HTTPException(status_code=500, detail="failed to queue command")
