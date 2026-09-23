@@ -131,6 +131,7 @@ let rpnlLogsFirstId = 0;
 let rpnlLogsBusy = false;
 let rpnlLogsOlderBusy = false;
 let rpnlLogsNoOlder = false;
+let rpnlLogRows = [];
 let rpnlKind = 'logs';
 let rpnlKindBusy = false;
 let rpnlKindOffset = 0;
@@ -3317,19 +3318,37 @@ function rpnlFmtLogTime(unixSecs) {
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 }
 
-function rpnlLogLine(l) {
-  const bits = [l.strategy, l.contract, l.account, l.exchange].filter(Boolean);
-  const chips = bits.map(function (b) {
-    return '<span class="lchip">' + escHtml(b) + '</span>';
-  }).join('');
-  const lv = String(l.level || '').trim();
-  const lvCls = logLevelCls(lv);
-  return '<div class="log-line"><span class="lt">' + rpnlFmtLogTime(l.time) + '</span> ' +
-    '<span class="lsvc">[' + escHtml(l.service || '') + ']</span> ' +
-    '<span class="' + lvCls + '">' + escHtml(lv) + '</span> ' +
-    chips +
-    '<span style="color:#6b768e">' + escHtml(fmtLogName(l.name)) + '</span> ' +
-    escHtml(l.message || '') + '</div>';
+function rpnlLogsStatus(text) {
+  const st = document.getElementById('rpnlLogsStatus');
+  if (st) st.textContent = text;
+}
+
+function rpnlTrimLogs(box) {
+  while (rpnlLogRows.length > 4000) {
+    const drop = rpnlLogRows.shift();
+    if (drop && typeof lgPeekId !== 'undefined' && drop.id === lgPeekId &&
+        lgPeekSrc === 'rpnl' && typeof lgClosePeek === 'function') lgClosePeek();
+    if (typeof lgView !== 'undefined' && lgView === 'raw') {
+      if (box && box.firstChild) box.removeChild(box.firstChild);
+    } else {
+      const tb = box && box.querySelector('tbody');
+      if (tb && tb.firstChild) tb.removeChild(tb.firstChild);
+    }
+  }
+  rpnlLogsFirstId = rpnlLogRows.length ? rpnlLogRows[0].id : 0;
+}
+
+function rpnlRepaintLogs() {
+  if (!rpnlLogsOpen() || rpnlKind !== 'logs') return;
+  const box = document.getElementById('rpnlLogsBox');
+  if (!box || typeof lgPaintInto !== 'function') return;
+  const top = box.scrollTop;
+  lgPaintInto(box, rpnlLogRows, 'rpnl', 'No logs for this contract / window.');
+  rpnlLogsStatus(rpnlLogRows.length ? rpnlLogRows.length + ' lines' : 'empty');
+  box.scrollTop = top;
+  if (typeof lgPeekId !== 'undefined' && lgPeekId && lgPeekSrc === 'rpnl' && typeof lgShowPeek === 'function') {
+    lgShowPeek(lgPeekId, 'rpnl');
+  }
 }
 
 function syncRpnlKindButtons() {
@@ -3339,6 +3358,13 @@ function syncRpnlKindButtons() {
   });
   const live = document.getElementById('rpnlKindLiveWrap');
   if (live) live.style.display = rpnlKind === 'logs' ? '' : 'none';
+  const panel = document.getElementById('rpnlLogs');
+  if (panel) panel.setAttribute('data-kind', rpnlKind);
+  if (rpnlKind !== 'logs') {
+    const peek = document.getElementById('rpnlLgPeek');
+    if (peek) peek.hidden = true;
+  }
+  if (typeof lgSyncViewButtons === 'function') lgSyncViewButtons();
 }
 
 function rpnlKindTitle() {
@@ -3384,6 +3410,7 @@ function openRpnlKind(kind) {
   if (snap) rpnlHoldSnap = snap;
   const wasOpen = rpnlLogsOpen();
   rpnlKind = kind;
+  if (kind !== 'logs' && typeof lgClosePeek === 'function' && lgPeekSrc === 'rpnl') lgClosePeek();
   page.classList.add('logs-open');
   const panel = document.getElementById('rpnlLogs');
   if (panel) panel.hidden = false;
@@ -3409,6 +3436,7 @@ function closeRpnlKind() {
   page.classList.remove('logs-open');
   const panel = document.getElementById('rpnlLogs');
   if (panel) panel.hidden = true;
+  if (typeof lgClosePeek === 'function' && lgPeekSrc === 'rpnl') lgClosePeek();
   syncRpnlKindButtons();
   requestAnimationFrame(function () {
     applyRpnlChartSize();
@@ -3532,7 +3560,6 @@ async function loadRpnlKindTable(reset) {
 async function loadRpnlLogs(reset) {
   if (!rpnlLogsOpen() || rpnlKind !== 'logs' || rpnlLogsBusy) return;
   const box = document.getElementById('rpnlLogsBox');
-  const st = document.getElementById('rpnlLogsStatus');
   if (!box) return;
   const liveEl = document.getElementById('rpnlLogsLive');
   const live = !liveEl || liveEl.checked;
@@ -3540,36 +3567,33 @@ async function loadRpnlLogs(reset) {
   rpnlLogsBusy = true;
   try {
     let lines;
-    if (reset || !rpnlLogsLastId) {
+    const full = reset || !rpnlLogsLastId;
+    if (full) {
       const r = await fetch('/api/logs?' + rpnlLogQs({ limit: 400 }));
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
       lines = (await r.json()).reverse();
-      box.innerHTML = '';
+      rpnlLogRows = lines;
       rpnlLogsFirstId = lines.length ? lines[0].id : 0;
-      rpnlLogsLastId = 0;
+      rpnlLogsLastId = lines.length ? lines[lines.length - 1].id : 0;
       rpnlLogsNoOlder = false;
+      if (typeof lgPeekSrc !== 'undefined' && lgPeekSrc === 'rpnl' && typeof lgClosePeek === 'function') lgClosePeek();
+      lgPaintInto(box, rpnlLogRows, 'rpnl', 'No logs for this contract / window.');
     } else {
       const r = await fetch('/api/logs?' + rpnlLogQs({ limit: 200, after_id: rpnlLogsLastId }));
       if (!r.ok) return;
       lines = await r.json();
       if (!lines.length) return;
+      rpnlLogRows.push.apply(rpnlLogRows, lines);
+      rpnlLogsLastId = Math.max(rpnlLogsLastId, ...lines.map(function (l) { return l.id; }));
+      lgAppendInto(box, lines, 'end', 'rpnl');
+      rpnlTrimLogs(box);
     }
-    if (!lines.length) {
-      box.innerHTML = '<div style="padding:12px;color:var(--muted);">No logs for this contract / window.</div>';
-      rpnlLogsLastId = 0;
-      rpnlKindTitle();
-      if (st) st.textContent = 'empty';
-      return;
-    }
-    box.insertAdjacentHTML('beforeend', lines.map(rpnlLogLine).join(''));
-    rpnlLogsLastId = Math.max(rpnlLogsLastId, ...lines.map(function (l) { return l.id; }));
-    while (box.children.length > 4000) box.removeChild(box.firstChild);
     const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-    if (reset || stick) box.scrollTop = box.scrollHeight;
+    if (full || stick) box.scrollTop = box.scrollHeight;
     rpnlKindTitle();
-    if (st) st.textContent = box.querySelectorAll('.log-line').length + ' lines';
+    rpnlLogsStatus(rpnlLogRows.length ? rpnlLogRows.length + ' lines' : 'empty');
   } catch (e) {
-    if (st) st.textContent = e.message || 'error';
+    rpnlLogsStatus(e.message || 'error');
   } finally {
     rpnlLogsBusy = false;
   }
@@ -3578,27 +3602,27 @@ async function loadRpnlLogs(reset) {
 async function loadOlderRpnlLogs() {
   if (!rpnlLogsOpen() || rpnlKind !== 'logs' || !rpnlLogsFirstId || rpnlLogsOlderBusy || rpnlLogsNoOlder) return;
   const box = document.getElementById('rpnlLogsBox');
-  const st = document.getElementById('rpnlLogsStatus');
   if (!box) return;
   rpnlLogsOlderBusy = true;
-  if (st) st.textContent = 'loading older…';
+  rpnlLogsStatus('loading older…');
   try {
     const r = await fetch('/api/logs?' + rpnlLogQs({ limit: 400, before_id: rpnlLogsFirstId }));
     if (!r.ok) return;
     const lines = (await r.json()).reverse();
     if (!lines.length) {
       rpnlLogsNoOlder = true;
-      if (st) st.textContent = box.querySelectorAll('.log-line').length + ' lines · start';
+      rpnlLogsStatus(rpnlLogRows.length + ' lines · start');
       return;
     }
     const prevH = box.scrollHeight;
     const prevTop = box.scrollTop;
-    box.insertAdjacentHTML('afterbegin', lines.map(rpnlLogLine).join(''));
+    rpnlLogRows.unshift.apply(rpnlLogRows, lines);
     rpnlLogsFirstId = lines[0].id;
+    lgAppendInto(box, lines, 'start', 'rpnl');
     box.scrollTop = prevTop + (box.scrollHeight - prevH);
-    if (st) st.textContent = box.querySelectorAll('.log-line').length + ' lines';
+    rpnlLogsStatus(rpnlLogRows.length + ' lines');
   } catch (e) {
-    if (st) st.textContent = e.message || 'error';
+    rpnlLogsStatus(e.message || 'error');
   } finally {
     rpnlLogsOlderBusy = false;
   }

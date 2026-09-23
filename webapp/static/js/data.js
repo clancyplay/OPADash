@@ -5,6 +5,7 @@ const LS_DATA_TAB = 'opadash.dataTab';
 const LS_DBT_COMPACT = 'opadash.dbtCompact';
 const LS_LG_COLS = 'opadash.lgCols';
 const LS_LG_WIDTHS = 'opadash.lgColW';
+const LS_LG_VIEW = 'opadash.lgView';
 
 let dataTab = 'fills';
 let lgTimer, rsTimer;
@@ -65,21 +66,24 @@ function stopDataTimers() {
   clearInterval(rsTimer);
 }
 
+function bindDataKeys() {
+  if (window._dbtKeysBound) return;
+  window._dbtKeysBound = true;
+  document.addEventListener('keydown', dbtOnKey);
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.lg-cols-wrap')) return;
+    document.querySelectorAll('.lg-cols-menu').forEach(menu => { menu.hidden = true; });
+  });
+}
+
 function initData() {
   const compact = document.getElementById('dbtCompact');
   if (compact) compact.checked = lsGet(LS_DBT_COMPACT, '1') === '1';
   const tab = lsGet(LS_DATA_TAB, 'fills');
   showDataTab(['fills', 'logs', 'tables', 'rsum'].includes(tab) ? tab : 'fills');
-  if (!window._dbtKeysBound) {
-    window._dbtKeysBound = true;
-    document.addEventListener('keydown', dbtOnKey);
-    document.addEventListener('click', (e) => {
-      const menu = document.getElementById('lgColsMenu');
-      if (!menu || menu.hidden) return;
-      if (!e.target.closest('.lg-cols-wrap')) menu.hidden = true;
-    });
-    lgEnsureResizeBound();
-  }
+  bindDataKeys();
+  lgEnsureBoxBound(document.getElementById('lgBox'));
+  lgSyncViewButtons();
 }
 
 function showDataTab(name) {
@@ -123,6 +127,7 @@ function showDataTab(name) {
     }
     loadLogsX(true);
     setupLgAuto();
+    lgSyncViewButtons();
   }
   if (name === 'rsum') { loadRsum(); setupRsAuto(); }
   if (name === 'logs' || name === 'rsum') {
@@ -519,11 +524,12 @@ async function dbtCopyPeek() {
   } catch { toast('Clipboard blocked', 'err'); }
 }
 function dbtOnKey(ev) {
-  const page = document.getElementById('data');
-  if (!page || !page.classList.contains('visible')) return;
   const tag = (ev.target && ev.target.tagName) || '';
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-  if (dataTab === 'logs') { lgOnKey(ev); return; }
+  lgOnKey(ev);
+  const page = document.getElementById('data');
+  if (!page || !page.classList.contains('visible')) return;
+  if (dataTab === 'logs') return;
   if (dataTab !== 'fills' && dataTab !== 'tables') return;
   if (ev.key === 'Escape') { dbtClosePeek(); return; }
   if (!dbtPageRows.length) return;
@@ -819,11 +825,11 @@ const LG_COLS = [
 const LG_NUM = new Set(['bid', 'ask', 'pos', 'qty', 'px', 'spread', 'rpnl', 'cap']);
 const LG_FLEX = new Set(['buy', 'sell', 'detail', 'message', 'hook', 'http']);
 const LG_W_DEF = {
-  time: 136, level: 70, kind: 72, strategy: 80, contract: 96,
-  bid: 78, ask: 78, hook: 110, pos: 64, buy: 280, sell: 280,
-  side: 56, qty: 64, px: 82, spread: 72, hem: 56, span: 56, step: 72,
-  cap: 72, rpnl: 64, http: 180, account: 88, exchange: 80, service: 72,
-  name: 120, detail: 240, message: 280,
+  time: 118, level: 62, kind: 64, strategy: 76, contract: 92,
+  bid: 70, ask: 70, hook: 92, pos: 56, buy: 220, sell: 220,
+  side: 52, qty: 56, px: 76, spread: 64, hem: 52, span: 52, step: 64,
+  cap: 64, rpnl: 58, http: 160, account: 80, exchange: 76, service: 64,
+  name: 108, detail: 160, message: 220,
 };
 const LG_W_MIN = 44;
 const LG_W_MAX = 720;
@@ -834,6 +840,52 @@ let lgPeekId = 0;
 let lgColStates = lgLoadCols();
 let lgColWidths = lgLoadWidths();
 let lgResize = null;
+let lgPeekSrc = 'data';
+let lgView = (lsGet(LS_LG_VIEW, 'table') === 'raw') ? 'raw' : 'table';
+
+function lgLogRows(source) {
+  if (source === 'rpnl' && typeof rpnlLogRows !== 'undefined' && Array.isArray(rpnlLogRows)) return rpnlLogRows;
+  return lgRows;
+}
+function lgPeekEl(source) {
+  return document.getElementById(source === 'rpnl' ? 'rpnlLgPeek' : 'lgPeek');
+}
+function lgBoxEl(source) {
+  return document.getElementById(source === 'rpnl' ? 'rpnlLogsBox' : 'lgBox');
+}
+function lgSyncViewButtons() {
+  document.querySelectorAll('.lg-view-btn').forEach(btn => {
+    btn.classList.toggle('on', btn.getAttribute('data-lg-view') === lgView);
+  });
+  const rpnlLogs = typeof rpnlKind !== 'undefined' && rpnlKind === 'logs' &&
+    typeof rpnlLogsOpen === 'function' && rpnlLogsOpen();
+  document.querySelectorAll('.lg-view-btn.rp-log-view').forEach(btn => {
+    btn.hidden = !rpnlLogs;
+  });
+  document.querySelectorAll('.lg-cols-wrap').forEach(el => {
+    const rpnlOnly = el.classList.contains('rp-log-cols');
+    el.hidden = lgView === 'raw' || (rpnlOnly && !rpnlLogs);
+  });
+}
+function lgSetView(view) {
+  lgView = view === 'raw' ? 'raw' : 'table';
+  lsSet(LS_LG_VIEW, lgView);
+  lgClosePeek();
+  lgSyncViewButtons();
+  lgPaintAll();
+  if (typeof rpnlRepaintLogs === 'function') rpnlRepaintLogs();
+}
+function lgRawLine(l) {
+  const bits = [l.strategy, l.contract, l.account, l.exchange].filter(Boolean);
+  const chips = bits.map(b => '<span class="lchip">' + esc(b) + '</span>').join('');
+  const lv = String(l.level || '').trim();
+  return '<div class="log-line"><span class="lt">' + fmtISTs(l.time) + '</span> ' +
+    '<span class="lsvc">[' + esc(l.service || '') + ']</span> ' +
+    '<span class="' + logLevelCls(lv) + '">' + esc(lv) + '</span> ' +
+    chips +
+    '<span style="color:#6b768e">' + esc(fmtLogName(l.name)) + '</span> ' +
+    esc(l.message || '') + '</div>';
+}
 
 function lgDefaultCols() {
   const o = {};
@@ -879,26 +931,31 @@ function lgSetWidth(key, px, persist) {
   const w = Math.max(LG_W_MIN, Math.min(LG_W_MAX, Math.round(px)));
   lgColWidths[key] = w;
   const css = w + 'px';
-  const col = document.querySelector('#lgBox col[data-col="' + key + '"]');
-  const th = document.querySelector('#lgBox th[data-col="' + key + '"]');
-  if (col) col.style.width = css;
-  if (th) {
+  document.querySelectorAll('.lg-table col[data-col="' + key + '"]').forEach(col => { col.style.width = css; });
+  document.querySelectorAll('.lg-table th[data-col="' + key + '"]').forEach(th => {
     th.style.width = css;
     th.style.minWidth = css;
     th.style.maxWidth = persist || !lgColIsFlex(key) ? css : '';
-  }
+  });
   if (persist) lgSaveWidths();
 }
 function lgColFloor(key) {
-  if (key === 'buy' || key === 'sell') return 160;
-  if (key === 'detail' || key === 'message' || key === 'http') return 96;
-  if (lgColIsFlex(key)) return 88;
+  if (key === 'buy' || key === 'sell') return 108;
+  if (key === 'detail' || key === 'message' || key === 'http') return 80;
+  if (lgColIsFlex(key)) return 72;
   return lgColWidth(key);
 }
-function lgLayoutColumns() {
-  if (lgResize) return;
-  const box = document.getElementById('lgBox');
-  const table = box && box.querySelector('table.lg-table');
+function lgFitMin(key) {
+  if (key === 'buy' || key === 'sell') return 100;
+  if (key === 'time') return 104;
+  if (key === 'detail' || key === 'message' || key === 'http') return 68;
+  if (lgColIsFlex(key)) return 60;
+  if (key === 'level' || key === 'kind' || key === 'pos') return 46;
+  return 50;
+}
+function lgLayoutRoot(box) {
+  if (lgResize || !box) return;
+  const table = box.querySelector('table.lg-table');
   if (!table) return;
   const vis = lgVisibleCols();
   if (!vis.length) return;
@@ -931,6 +988,22 @@ function lgLayoutColumns() {
       });
     }
   }
+  let used = out.reduce((a, b) => a + b, 0);
+  if (avail > 0 && used > avail) {
+    let deficit = used - avail;
+    const mins = vis.map(c => lgFitMin(c.key));
+    const slack = out.map((w, i) => ({ i, room: Math.max(0, w - mins[i]) })).filter(x => x.room > 0);
+    const roomSum = slack.reduce((a, x) => a + x.room, 0);
+    if (roomSum > 0) {
+      slack.forEach((x, n) => {
+        if (deficit <= 0) return;
+        const share = n === slack.length - 1 ? deficit : Math.round(deficit * (x.room / roomSum));
+        const take = Math.max(0, Math.min(x.room, share, deficit));
+        out[x.i] -= take;
+        deficit -= take;
+      });
+    }
+  }
   vis.forEach((c, i) => {
     const css = out[i] + 'px';
     const col = table.querySelector('col[data-col="' + c.key + '"]');
@@ -944,14 +1017,17 @@ function lgLayoutColumns() {
   });
   table.style.width = Math.max(avail, out.reduce((a, b) => a + b, 0)) + 'px';
 }
+function lgLayoutColumns() {
+  lgLayoutRoot(document.getElementById('lgBox'));
+  lgLayoutRoot(document.getElementById('rpnlLogsBox'));
+}
 function lgRenderColgroup() {
   return '<colgroup>' + LG_COLS.map(c => {
     const hide = lgColState(c.key) === 'hide' ? ' class="lg-hide"' : '';
     return '<col data-col="' + c.key + '"' + hide + ' style="width:' + lgColWidth(c.key) + 'px">';
   }).join('') + '</colgroup>';
 }
-function lgEnsureResizeBound() {
-  const box = document.getElementById('lgBox');
+function lgEnsureBoxBound(box) {
   if (!box) return;
   if (!box._lgResizeBound) {
     box._lgResizeBound = true;
@@ -961,11 +1037,15 @@ function lgEnsureResizeBound() {
   if (!box._lgLayoutRo && window.ResizeObserver) {
     box._lgLayoutRo = new ResizeObserver(() => {
       if (lgResize) return;
-      lgLayoutColumns();
+      lgLayoutRoot(box);
     });
     box._lgLayoutRo.observe(box);
   }
-  lgLayoutColumns();
+  lgLayoutRoot(box);
+}
+function lgEnsureResizeBound() {
+  lgEnsureBoxBound(document.getElementById('lgBox'));
+  lgEnsureBoxBound(document.getElementById('rpnlLogsBox'));
 }
 function lgResizeDown(ev) {
   const handle = ev.target.closest('.lg-th-resize');
@@ -1014,11 +1094,14 @@ function lgResizeDbl(ev) {
   if (!handle) return;
   ev.preventDefault();
   ev.stopPropagation();
-  lgAutoFit(handle.dataset.col);
+  lgAutoFit(handle.dataset.col, handle.closest('table'));
 }
-function lgAutoFit(key) {
-  const th = document.querySelector('#lgBox th[data-col="' + key + '"]');
-  const tds = document.querySelectorAll('#lgBox td[data-col="' + key + '"]');
+function lgAutoFit(key, table) {
+  table = table || document.querySelector('#lgBox table.lg-table') ||
+    document.querySelector('#rpnlLogsBox table.lg-table');
+  if (!table) return;
+  const th = table.querySelector('th[data-col="' + key + '"]');
+  const tds = table.querySelectorAll('td[data-col="' + key + '"]');
   let max = 56;
   const probe = document.getElementById('lgWidthProbe') || (() => {
     const el = document.createElement('span');
@@ -1289,16 +1372,17 @@ function lgTdClass(col) {
   if (col.key === 'message' || col.key === 'detail' || col.key === 'http') bits.push('lg-msg');
   return bits.join(' ');
 }
-function lgRenderRow(l) {
+function lgRenderRow(l, source) {
+  source = source || 'data';
   const lv = String(l.level || '').trim().toUpperCase();
   const kind = lgLevelKind(lv);
-  const sel = l.id === lgPeekId ? ' selected' : '';
+  const sel = (l.id === lgPeekId && source === lgPeekSrc) ? ' selected' : '';
   const tds = LG_COLS.map(col => {
     const hide = lgColState(col.key) === 'hide' ? ' lg-hide' : '';
     return '<td class="' + lgTdClass(col) + hide + '" data-col="' + col.key + '">' + lgCellHtml(l, col) + '</td>';
   }).join('');
   return '<tr class="clickable' + (kind ? ' lg-' + kind : '') + sel +
-    '" data-id="' + l.id + '" onclick="lgShowPeek(' + l.id + ')">' + tds + '</tr>';
+    '" data-id="' + l.id + '" onclick="lgShowPeek(' + l.id + ',\'' + source + '\')">' + tds + '</tr>';
 }
 function lgRenderHead() {
   return LG_COLS.map(col => {
@@ -1325,14 +1409,17 @@ function lgColCycle(key) {
 function lgColSet(key, state) {
   lgColStates[key] = state;
   lgSaveCols();
-  const box = document.getElementById('lgBox');
-  const top = box ? box.scrollTop : 0;
-  const menu = document.getElementById('lgColsMenu');
-  const menuOpen = menu && !menu.hidden;
+  const dataBox = document.getElementById('lgBox');
+  const rpnlBox = document.getElementById('rpnlLogsBox');
+  const dataTop = dataBox ? dataBox.scrollTop : 0;
+  const rpnlTop = rpnlBox ? rpnlBox.scrollTop : 0;
+  const openMenus = [...document.querySelectorAll('.lg-cols-menu')].filter(m => !m.hidden);
   lgPaintAll();
-  if (box) box.scrollTop = top;
-  if (lgPeekId) lgShowPeek(lgPeekId);
-  if (menuOpen) { lgPaintColMenu(); document.getElementById('lgColsMenu').hidden = false; }
+  if (typeof rpnlRepaintLogs === 'function') rpnlRepaintLogs();
+  if (dataBox) dataBox.scrollTop = dataTop;
+  if (rpnlBox) rpnlBox.scrollTop = rpnlTop;
+  if (lgPeekId) lgShowPeek(lgPeekId, lgPeekSrc);
+  openMenus.forEach(menu => { lgPaintColMenu(menu); menu.hidden = false; });
 }
 function lgResetCols() {
   lgColStates = lgDefaultCols();
@@ -1341,14 +1428,19 @@ function lgResetCols() {
   lgSaveWidths();
   lgColSet(LG_COLS[0].key, lgColState(LG_COLS[0].key));
 }
-function lgToggleColsMenu() {
-  const menu = document.getElementById('lgColsMenu');
+function lgToggleColsMenu(ev) {
+  const wrap = ev && ev.target && ev.target.closest('.lg-cols-wrap');
+  const menu = (wrap && wrap.querySelector('.lg-cols-menu')) || document.getElementById('lgColsMenu');
   if (!menu) return;
-  if (menu.hidden) { lgPaintColMenu(); menu.hidden = false; }
-  else menu.hidden = true;
+  const open = menu.hidden;
+  document.querySelectorAll('.lg-cols-menu').forEach(m => { m.hidden = true; });
+  if (open) {
+    lgPaintColMenu(menu);
+    menu.hidden = false;
+  }
 }
-function lgPaintColMenu() {
-  const menu = document.getElementById('lgColsMenu');
+function lgPaintColMenu(el) {
+  const menu = el || document.getElementById('lgColsMenu') || document.getElementById('rpnlLgColsMenu');
   if (!menu) return;
   const btn = (key, st, label) => {
     const on = lgColState(key) === st ? ' on' : '';
@@ -1367,6 +1459,7 @@ function lgPaintColMenu() {
 function lgPaintColChips() {
   const el = document.getElementById('lgColChips');
   if (!el) return;
+  if (lgView === 'raw') { el.hidden = true; el.innerHTML = ''; return; }
   const hidden = LG_COLS.filter(c => lgColState(c.key) === 'hide');
   if (!hidden.length) { el.hidden = true; el.innerHTML = ''; return; }
   el.hidden = false;
@@ -1390,34 +1483,62 @@ function lgFilterParams(extra) {
     ...(extra || {}),
   };
 }
-function lgTbody() {
-  return document.querySelector('#lgBox tbody');
+function lgTbody(box) {
+  box = box || document.getElementById('lgBox');
+  return box && box.querySelector('tbody');
+}
+function lgPaintInto(box, rows, source, emptyMsg) {
+  if (!box) return;
+  lgEnsureBoxBound(box);
+  if (!rows.length) {
+    box.innerHTML = '<div class="tbl-empty">' + esc(emptyMsg || 'No logs yet.') + '</div>';
+    return;
+  }
+  if (lgView === 'raw') {
+    box.innerHTML = rows.map(lgRawLine).join('');
+    return;
+  }
+  box.innerHTML = '<table class="dtable lg-table">' + lgRenderColgroup() + '<thead><tr>' + lgRenderHead() +
+    '</tr></thead><tbody>' + rows.map(l => lgRenderRow(l, source || 'data')).join('') + '</tbody></table>';
+  lgLayoutRoot(box);
 }
 function lgPaintAll() {
   const box = document.getElementById('lgBox');
   if (!box) return;
-  if (!lgRows.length) {
-    box.innerHTML = '<div class="tbl-empty">No logs yet. Redeploy the bot service to start streaming them here.</div>';
-    lgPaintChrome();
-    return;
-  }
-  const thead = lgRenderHead();
-  box.innerHTML = '<table class="dtable lg-table">' + lgRenderColgroup() + '<thead><tr>' + thead +
-    '</tr></thead><tbody>' + lgRows.map(lgRenderRow).join('') + '</tbody></table>';
-  lgEnsureResizeBound();
+  lgPaintInto(
+    box, lgRows, 'data',
+    'No logs yet. Redeploy the bot service to start streaming them here.',
+  );
   lgPaintChrome();
 }
+function lgAppendInto(box, lines, where, source) {
+  if (!box || !lines.length) return;
+  if (lgView === 'raw') {
+    box.insertAdjacentHTML(where === 'start' ? 'afterbegin' : 'beforeend', lines.map(lgRawLine).join(''));
+    return;
+  }
+  const tb = lgTbody(box);
+  if (!tb) {
+    lgPaintInto(box, lgLogRows(source), source);
+    return;
+  }
+  tb.insertAdjacentHTML(
+    where === 'start' ? 'afterbegin' : 'beforeend',
+    lines.map(l => lgRenderRow(l, source || 'data')).join(''),
+  );
+}
 function lgAppendRows(lines, where) {
-  const tb = lgTbody();
-  if (!tb) { lgPaintAll(); return; }
-  tb.insertAdjacentHTML(where === 'start' ? 'afterbegin' : 'beforeend', lines.map(lgRenderRow).join(''));
+  lgAppendInto(document.getElementById('lgBox'), lines, where, 'data');
 }
 function lgTrimLive() {
-  const tb = lgTbody();
+  const box = document.getElementById('lgBox');
+  const tb = lgTbody(box);
   while (lgRows.length > LG_CAP) {
     const drop = lgRows.shift();
-    if (drop && drop.id === lgPeekId) lgClosePeek();
-    if (tb && tb.firstChild) tb.removeChild(tb.firstChild);
+    if (drop && drop.id === lgPeekId && lgPeekSrc === 'data') lgClosePeek();
+    if (lgView === 'raw') {
+      if (box && box.firstChild) box.removeChild(box.firstChild);
+    } else if (tb && tb.firstChild) tb.removeChild(tb.firstChild);
   }
   lgFirstId = lgRows.length ? lgRows[0].id : 0;
 }
@@ -1455,12 +1576,11 @@ function lgPaintChrome() {
   if (copy) copy.disabled = !lgRows.length;
   const status = document.getElementById('lgStatus');
   if (status) {
-    status.textContent = lgRows.length
-      ? fmtCount(lgRows.length) + ' shown · last id ' + lgLastId
-      : '';
+    status.textContent = lgLastId ? 'id ' + lgLastId : '';
   }
   if (lgPeekId) {
-    const tr = document.querySelector('#lgBox tr[data-id="' + lgPeekId + '"]');
+    const box = lgBoxEl(lgPeekSrc);
+    const tr = box && box.querySelector('tr[data-id="' + lgPeekId + '"]');
     if (tr) tr.classList.add('selected');
   }
 }
@@ -1530,14 +1650,21 @@ function lgClearFilters() {
   loadLogsX(true);
 }
 
-function lgShowPeek(id) {
+function lgShowPeek(id, source) {
+  if (lgView === 'raw') return;
+  source = source || lgPeekSrc || 'data';
+  lgPeekSrc = source;
   lgPeekId = id;
-  const row = lgRows.find(r => r.id === id);
-  const peek = document.getElementById('lgPeek');
-  document.querySelectorAll('#lgBox tbody tr').forEach(tr => {
-    tr.classList.toggle('selected', Number(tr.dataset.id) === id);
+  const rows = lgLogRows(source);
+  const row = rows.find(r => r.id === id);
+  const peek = lgPeekEl(source);
+  const box = lgBoxEl(source);
+  document.querySelectorAll('#lgBox tbody tr, #rpnlLogsBox tbody tr').forEach(tr => {
+    tr.classList.toggle('selected', source === (tr.closest('#rpnlLogsBox') ? 'rpnl' : 'data') && Number(tr.dataset.id) === id);
   });
   if (!peek) return;
+  const other = lgPeekEl(source === 'rpnl' ? 'data' : 'rpnl');
+  if (other) other.hidden = true;
   if (!row) { peek.hidden = true; return; }
   const p = lgParsed(row);
   const fields = [
@@ -1570,10 +1697,10 @@ function lgShowPeek(id) {
     ['detail', p.detail],
     ['raw', row.message],
   ].filter(([, v]) => v != null && String(v).trim() !== '');
-  const idx = lgRows.findIndex(r => r.id === id);
+  const idx = rows.findIndex(r => r.id === id);
   peek.hidden = false;
   peek.innerHTML =
-    '<div class="peek-h"><span>Row ' + (idx + 1) + ' of ' + fmtCount(lgRows.length) +
+    '<div class="peek-h"><span>Row ' + (idx + 1) + ' of ' + fmtCount(rows.length) +
       ' · ↑↓ to move · Esc to close</span>' +
       '<span class="peek-acts">' +
         '<button class="btn" type="button" onclick="lgCopyPeek()">Copy</button>' +
@@ -1584,17 +1711,21 @@ function lgShowPeek(id) {
       esc(v == null || v === '' ? '—' : String(v)) + '</span></div>'
     ).join('');
   peek.scrollTop = 0;
-  const tr = document.querySelector('#lgBox tr[data-id="' + id + '"]');
+  const tr = box && box.querySelector('tr[data-id="' + id + '"]');
   if (tr) tr.scrollIntoView({ block: 'nearest' });
 }
 function lgClosePeek() {
   lgPeekId = 0;
-  const peek = document.getElementById('lgPeek');
-  if (peek) peek.hidden = true;
-  document.querySelectorAll('#lgBox tbody tr.selected').forEach(tr => tr.classList.remove('selected'));
+  const dataPeek = document.getElementById('lgPeek');
+  const rpnlPeek = document.getElementById('rpnlLgPeek');
+  if (dataPeek) dataPeek.hidden = true;
+  if (rpnlPeek) rpnlPeek.hidden = true;
+  document.querySelectorAll('#lgBox tbody tr.selected, #rpnlLogsBox tbody tr.selected').forEach(tr => {
+    tr.classList.remove('selected');
+  });
 }
 async function lgCopyPeek() {
-  const row = lgRows.find(r => r.id === lgPeekId);
+  const row = lgLogRows(lgPeekSrc).find(r => r.id === lgPeekId);
   if (!row) return;
   const p = lgParsed(row);
   const text = [
@@ -1625,30 +1756,53 @@ async function lgCopyPeek() {
   } catch { toast('Clipboard blocked', 'err'); }
 }
 function lgOnKey(ev) {
-  if (ev.key === 'Escape') { lgClosePeek(); return; }
-  if (!lgRows.length) return;
-  const idx = lgRows.findIndex(r => r.id === lgPeekId);
+  if (ev.key === 'Escape' && lgPeekId) {
+    lgClosePeek();
+    ev.preventDefault();
+    return;
+  }
+  if (lgView === 'raw') return;
+  const dataPage = document.getElementById('data');
+  const rpnlPage = document.getElementById('rpnl');
+  let source = null;
+  if (dataPage && dataPage.classList.contains('visible') && dataTab === 'logs') source = 'data';
+  else if (rpnlPage && rpnlPage.classList.contains('visible') &&
+      typeof rpnlLogsOpen === 'function' && rpnlLogsOpen() && rpnlKind === 'logs') source = 'rpnl';
+  if (!source) return;
+  const rows = lgLogRows(source);
+  if (!rows.length) return;
+  const idx = rows.findIndex(r => r.id === lgPeekId && source === lgPeekSrc);
   if (ev.key === 'ArrowDown' || ev.key === 'j') {
     ev.preventDefault();
-    const next = idx < 0 ? 0 : Math.min(lgRows.length - 1, idx + 1);
-    lgShowPeek(lgRows[next].id);
+    const next = idx < 0 ? 0 : Math.min(rows.length - 1, idx + 1);
+    lgShowPeek(rows[next].id, source);
   } else if (ev.key === 'ArrowUp' || ev.key === 'k') {
     ev.preventDefault();
-    const next = idx < 0 ? lgRows.length - 1 : Math.max(0, idx - 1);
-    lgShowPeek(lgRows[next].id);
+    const next = idx < 0 ? rows.length - 1 : Math.max(0, idx - 1);
+    lgShowPeek(rows[next].id, source);
   }
 }
 
 async function copyLogsPage() {
   if (!lgRows.length) return;
-  const cols = lgVisibleCols();
-  const header = cols.map(c => c.label).join('\t');
-  const lines = [header].concat(lgRows.map(l => cols.map(c => {
-    return lgCellText(l, c.key).replace(/\t/g, ' ').replace(/\n/g, ' ');
-  }).join('\t')));
+  let text;
+  if (lgView === 'raw') {
+    text = lgRows.map(l => {
+      const bits = [fmtISTs(l.time), '[' + (l.service || '') + ']', l.level,
+        l.strategy, l.contract, l.account, fmtLogName(l.name), l.message]
+        .filter(v => v != null && String(v).trim() !== '');
+      return bits.join(' ');
+    }).join('\n');
+  } else {
+    const cols = lgVisibleCols();
+    const header = cols.map(c => c.label).join('\t');
+    text = [header].concat(lgRows.map(l => cols.map(c => {
+      return lgCellText(l, c.key).replace(/\t/g, ' ').replace(/\n/g, ' ');
+    }).join('\t'))).join('\n');
+  }
   try {
-    await navigator.clipboard.writeText(lines.join('\n'));
-    toast('Copied ' + lgRows.length + ' rows', 'ok');
+    await navigator.clipboard.writeText(text);
+    toast('Copied ' + lgRows.length + (lgView === 'raw' ? ' lines' : ' rows'), 'ok');
   } catch {
     toast('Clipboard blocked', 'err');
   }
@@ -1668,3 +1822,6 @@ function setupLgAuto() {
   clearInterval(lgTimer);
   if (document.getElementById('lgAuto').checked && dataTab === 'logs') lgTimer = setInterval(() => loadLogsX(false), 3000);
 }
+
+bindDataKeys();
+lgSyncViewButtons();

@@ -133,11 +133,13 @@
       <div class="tbl-title" id="lgTitle">Logs</div>
       <div class="tbl-actions">
         <button class="btn" type="button" onclick="loadOlderLogs()">↑ Older</button>
+        <button class="btn lg-view-btn" type="button" data-lg-view="table" onclick="lgSetView('table')">Table</button>
+        <button class="btn lg-view-btn" type="button" data-lg-view="raw" onclick="lgSetView('raw')">Raw</button>
         <button class="btn" type="button" onclick="loadLogsX(true)">Refresh</button>
         <button class="btn" type="button" onclick="exportLogsCsv()">Export CSV</button>
         <button class="btn" type="button" id="lgCopyBtn" onclick="copyLogsPage()" disabled>Copy page</button>
         <div class="lg-cols-wrap">
-          <button class="btn" type="button" onclick="lgToggleColsMenu()">Columns</button>
+          <button class="btn" type="button" onclick="lgToggleColsMenu(event)">Columns</button>
           <div class="lg-cols-menu" id="lgColsMenu" hidden></div>
         </div>
         <label class="ctrl-check"><input type="checkbox" id="lgAuto" checked onchange="setupLgAuto()" /> Live (3s)</label>
