@@ -6,6 +6,7 @@ const LS_DBT_COMPACT = 'opadash.dbtCompact';
 const LS_LG_COLS = 'opadash.lgCols';
 const LS_LG_WIDTHS = 'opadash.lgColW';
 const LS_LG_VIEW = 'opadash.lgView';
+const LS_DBT_COLW = 'opadash.dbtColW';
 
 let dataTab = 'fills';
 let lgTimer, rsTimer;
@@ -83,6 +84,7 @@ function initData() {
   showDataTab(['fills', 'logs', 'tables', 'rsum'].includes(tab) ? tab : 'fills');
   bindDataKeys();
   lgEnsureBoxBound(document.getElementById('lgBox'));
+  dbtEnsureGridBound();
   lgSyncViewButtons();
 }
 
@@ -180,6 +182,146 @@ function dbtToggleCompact() {
   const el = document.getElementById('dbtCompact');
   lsSet(LS_DBT_COMPACT, el && el.checked ? '1' : '0');
   if (dbtPageRows.length) dbtPaintGrid();
+}
+
+const DBT_W_MIN = 48;
+const DBT_W_MAX = 720;
+let dbtColWidthsAll = dbtLoadAllWidths();
+let dbtResize = null;
+
+function dbtLoadAllWidths() {
+  try {
+    const raw = JSON.parse(lsGet(LS_DBT_COLW, '') || 'null');
+    if (raw && typeof raw === 'object') return raw;
+  } catch {}
+  return {};
+}
+function dbtSaveAllWidths() { lsSet(LS_DBT_COLW, JSON.stringify(dbtColWidthsAll)); }
+function dbtWidthsMap() {
+  if (!dbtName) return {};
+  if (!dbtColWidthsAll[dbtName] || typeof dbtColWidthsAll[dbtName] !== 'object') dbtColWidthsAll[dbtName] = {};
+  return dbtColWidthsAll[dbtName];
+}
+function dbtDefaultWidth(col) {
+  const c = String(col || '');
+  if (c === 'id') return 64;
+  if (/_at$/.test(c) || c === 'created_at' || c === 'updated_at' || c === 'pinged_at') return 148;
+  if (c === 'side') return 56;
+  if (c === 'contract' || c === 'quote_symbol' || c === 'symbol') return 112;
+  if (c === 'account') return 96;
+  if (c === 'exchange' || c === 'strategy' || c === 'service' || c === 'level') return 88;
+  if (['quantity', 'qty', 'price', 'rpnl', 'upnl', 'fee', 'mark', 'bid', 'ask', 'spread', 'position'].includes(c)) return 84;
+  if (c === 'order_id' || c === 'fill_id') return 140;
+  if (c === 'message' || c === 'payload' || c === 'setup' || c === 'details') return 240;
+  return 120;
+}
+function dbtColWidth(col) {
+  const n = dbtWidthsMap()[col];
+  if (Number.isFinite(n)) return Math.max(DBT_W_MIN, Math.min(DBT_W_MAX, n));
+  return dbtDefaultWidth(col);
+}
+function dbtColSel(col) {
+  return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(col) : String(col).replace(/"/g, '\\"');
+}
+function dbtSetWidth(col, px, persist) {
+  const w = Math.max(DBT_W_MIN, Math.min(DBT_W_MAX, Math.round(px)));
+  dbtWidthsMap()[col] = w;
+  const css = w + 'px';
+  const grid = document.getElementById('dbtGrid');
+  if (grid) {
+    grid.querySelectorAll('col[data-col="' + dbtColSel(col) + '"]').forEach(el => { el.style.width = css; });
+    grid.querySelectorAll('th[data-col="' + dbtColSel(col) + '"]').forEach(th => {
+      th.style.width = css;
+      th.style.minWidth = css;
+      th.style.maxWidth = css;
+    });
+    const table = grid.querySelector('table.dbt-table');
+    if (table) {
+      table.style.width = dbtVisibleCols().reduce((a, c) => a + dbtColWidth(c), 0) + 'px';
+    }
+  }
+  if (persist) dbtSaveAllWidths();
+}
+function dbtEnsureGridBound() {
+  const grid = document.getElementById('dbtGrid');
+  if (!grid || grid._dbtResizeBound) return;
+  grid._dbtResizeBound = true;
+  grid.addEventListener('pointerdown', dbtResizeDown);
+  grid.addEventListener('dblclick', dbtResizeDbl);
+}
+function dbtResizeDown(ev) {
+  const handle = ev.target.closest('.lg-th-resize');
+  if (!handle || ev.button) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  const key = handle.dataset.col;
+  const th = handle.parentElement;
+  dbtResize = { key, startX: ev.clientX, startW: th.getBoundingClientRect().width, moved: false };
+  try { handle.setPointerCapture(ev.pointerId); } catch {}
+  document.body.classList.add('lg-resizing');
+  const blockClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handle.removeEventListener('click', blockClick, true);
+  };
+  handle.addEventListener('click', blockClick, true);
+  window.addEventListener('pointermove', dbtResizeMove);
+  window.addEventListener('pointerup', dbtResizeUp);
+  window.addEventListener('pointercancel', dbtResizeUp);
+}
+function dbtResizeMove(ev) {
+  if (!dbtResize) return;
+  const dx = ev.clientX - dbtResize.startX;
+  if (Math.abs(dx) > 2) dbtResize.moved = true;
+  dbtSetWidth(dbtResize.key, dbtResize.startW + dx, false);
+}
+function dbtResizeUp() {
+  if (!dbtResize) return;
+  if (dbtResize.moved) dbtSaveAllWidths();
+  dbtResize = null;
+  document.body.classList.remove('lg-resizing');
+  window.removeEventListener('pointermove', dbtResizeMove);
+  window.removeEventListener('pointerup', dbtResizeUp);
+  window.removeEventListener('pointercancel', dbtResizeUp);
+}
+function dbtResizeDbl(ev) {
+  const handle = ev.target.closest('.lg-th-resize');
+  if (!handle) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  dbtAutoFit(handle.dataset.col);
+}
+function dbtAutoFit(col) {
+  const grid = document.getElementById('dbtGrid');
+  const table = grid && grid.querySelector('table.dbt-table');
+  if (!table) return;
+  const sel = dbtColSel(col);
+  const th = table.querySelector('th[data-col="' + sel + '"]');
+  const tds = table.querySelectorAll('td[data-col="' + sel + '"]');
+  let max = 56;
+  const probe = document.getElementById('lgWidthProbe') || (() => {
+    const el = document.createElement('span');
+    el.id = 'lgWidthProbe';
+    el.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(el);
+    return el;
+  })();
+  const sample = th || tds[0];
+  if (sample) {
+    const cs = getComputedStyle(sample);
+    probe.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap;font:' +
+      cs.font + ';letter-spacing:' + cs.letterSpacing + ';';
+  }
+  if (th) {
+    probe.textContent = (th.childNodes[0] && th.childNodes[0].textContent) || col;
+    max = Math.max(max, probe.offsetWidth + 28);
+  }
+  const n = Math.min(tds.length, 80);
+  for (let i = 0; i < n; i++) {
+    probe.textContent = (tds[i].innerText || '').replace(/\s+/g, ' ').trim();
+    max = Math.max(max, probe.offsetWidth + 20);
+  }
+  dbtSetWidth(col, max, true);
 }
 
 async function downloadNamedCsv(url, fallbackName) {
@@ -555,21 +697,33 @@ function dbtPaintGrid() {
     grid.innerHTML = '<div class="tbl-empty">No rows match these filters.</div>';
     return;
   }
+  const colgroup = '<colgroup>' + cols.map(c =>
+    '<col data-col="' + esc(c) + '" style="width:' + dbtColWidth(c) + 'px">'
+  ).join('') + '</colgroup>';
   const thead = cols.map(c => {
     const on = dbtSort === c;
     const arrow = on ? (dbtDir === 'asc' ? '▲' : '▼') : '';
-    return '<th class="sortable' + (on ? ' sorted' : '') + (dbtIsNum(c, dbtTypes) ? ' num' : '') +
-      '" onclick="dbtSortBy(\'' + c + '\')">' + esc(c) +
-      (arrow ? '<span class="sa">' + arrow + '</span>' : '') + '</th>';
+    const w = dbtColWidth(c);
+    const js = c.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return '<th class="sortable dbt-th' + (on ? ' sorted' : '') + (dbtIsNum(c, dbtTypes) ? ' num' : '') +
+      '" data-col="' + esc(c) + '" style="width:' + w + 'px;min-width:' + w + 'px;max-width:' + w +
+      'px" title="Drag edge to resize · double-click edge to auto-fit · click to sort" onclick="dbtSortBy(\'' +
+      js + '\')">' + esc(c) +
+      (arrow ? '<span class="sa">' + arrow + '</span>' : '') +
+      '<span class="lg-th-resize" data-col="' + esc(c) + '" title="Drag to resize"></span></th>';
   }).join('');
   const body = dbtPageRows.map((row, ri) => {
     const tds = cols.map(col => {
       const cls = dbtCellClass(col, row[col]);
-      return '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + dbtCellHtml(col, row[col]) + '</td>';
+      return '<td data-col="' + esc(col) + '"' + (cls ? ' class="' + cls + '"' : '') + '>' +
+        dbtCellHtml(col, row[col]) + '</td>';
     }).join('');
     return '<tr class="clickable' + (ri === dbtPeekIdx ? ' selected' : '') + '" onclick="dbtShowPeek(' + ri + ')">' + tds + '</tr>';
   }).join('');
-  grid.innerHTML = '<table class="dtable"><thead><tr>' + thead + '</tr></thead><tbody>' + body + '</tbody></table>';
+  const sum = cols.reduce((a, c) => a + dbtColWidth(c), 0);
+  grid.innerHTML = '<table class="dtable dbt-table" style="width:' + sum + 'px">' + colgroup +
+    '<thead><tr>' + thead + '</tr></thead><tbody>' + body + '</tbody></table>';
+  dbtEnsureGridBound();
 }
 
 function dbtPaintPager() {
@@ -935,23 +1089,16 @@ function lgSetWidth(key, px, persist) {
   document.querySelectorAll('.lg-table th[data-col="' + key + '"]').forEach(th => {
     th.style.width = css;
     th.style.minWidth = css;
-    th.style.maxWidth = persist || !lgColIsFlex(key) ? css : '';
+    th.style.maxWidth = css;
+  });
+  document.querySelectorAll('.lg-table').forEach(table => {
+    const vis = lgVisibleCols();
+    table.style.width = vis.reduce((a, c) => a + (c.key === key ? w : lgColWidth(c.key)), 0) + 'px';
   });
   if (persist) lgSaveWidths();
 }
-function lgColFloor(key) {
-  if (key === 'buy' || key === 'sell') return 108;
-  if (key === 'detail' || key === 'message' || key === 'http') return 80;
-  if (lgColIsFlex(key)) return 72;
-  return lgColWidth(key);
-}
-function lgFitMin(key) {
-  if (key === 'buy' || key === 'sell') return 100;
-  if (key === 'time') return 104;
-  if (key === 'detail' || key === 'message' || key === 'http') return 68;
-  if (lgColIsFlex(key)) return 60;
-  if (key === 'level' || key === 'kind' || key === 'pos') return 46;
-  return 50;
+function lgColPinned(key) {
+  return Number.isFinite(lgColWidths[key]);
 }
 function lgLayoutRoot(box) {
   if (lgResize || !box) return;
@@ -962,45 +1109,18 @@ function lgLayoutRoot(box) {
   const avail = Math.max(0, box.clientWidth);
   const base = vis.map(c => lgColWidth(c.key));
   const sum = base.reduce((a, b) => a + b, 0);
-  const flex = vis.map((c, i) => lgColIsFlex(c.key) ? i : -1).filter(i => i >= 0);
   const out = base.slice();
-  if (avail > sum && flex.length) {
-    const extra = avail - sum;
-    let used = 0;
-    const each = extra / flex.length;
-    flex.forEach((i, n) => {
-      const add = n === flex.length - 1 ? extra - used : Math.floor(each);
-      used += add;
-      out[i] += add;
-    });
-  } else if (avail < sum && flex.length) {
-    let deficit = sum - avail;
-    const slack = flex.map(i => ({ i, room: Math.max(0, out[i] - lgColFloor(vis[i].key)) }))
-      .filter(x => x.room > 0);
-    const roomSum = slack.reduce((a, x) => a + x.room, 0);
-    if (roomSum > 0) {
-      slack.forEach((x, n) => {
-        if (deficit <= 0) return;
-        const share = n === slack.length - 1 ? deficit : Math.round(deficit * (x.room / roomSum));
-        const take = Math.max(0, Math.min(x.room, share, deficit));
-        out[x.i] -= take;
-        deficit -= take;
-      });
-    }
-  }
-  let used = out.reduce((a, b) => a + b, 0);
-  if (avail > 0 && used > avail) {
-    let deficit = used - avail;
-    const mins = vis.map(c => lgFitMin(c.key));
-    const slack = out.map((w, i) => ({ i, room: Math.max(0, w - mins[i]) })).filter(x => x.room > 0);
-    const roomSum = slack.reduce((a, x) => a + x.room, 0);
-    if (roomSum > 0) {
-      slack.forEach((x, n) => {
-        if (deficit <= 0) return;
-        const share = n === slack.length - 1 ? deficit : Math.round(deficit * (x.room / roomSum));
-        const take = Math.max(0, Math.min(x.room, share, deficit));
-        out[x.i] -= take;
-        deficit -= take;
+  const anyPinned = vis.some(c => lgColPinned(c.key));
+  if (!anyPinned && avail > sum) {
+    const grow = vis.map((c, i) => lgColIsFlex(c.key) ? i : -1).filter(i => i >= 0);
+    if (grow.length) {
+      const extra = avail - sum;
+      let used = 0;
+      const each = extra / grow.length;
+      grow.forEach((i, n) => {
+        const add = n === grow.length - 1 ? extra - used : Math.floor(each);
+        used += add;
+        out[i] += add;
       });
     }
   }
@@ -1011,11 +1131,11 @@ function lgLayoutRoot(box) {
     if (col) col.style.width = css;
     if (th) {
       th.style.width = css;
-      th.style.minWidth = Math.min(base[i], out[i]) + 'px';
+      th.style.minWidth = css;
       th.style.maxWidth = css;
     }
   });
-  table.style.width = Math.max(avail, out.reduce((a, b) => a + b, 0)) + 'px';
+  table.style.width = Math.max(out.reduce((a, b) => a + b, 0), 0) + 'px';
 }
 function lgLayoutColumns() {
   lgLayoutRoot(document.getElementById('lgBox'));
@@ -1087,7 +1207,6 @@ function lgResizeUp() {
   window.removeEventListener('pointermove', lgResizeMove);
   window.removeEventListener('pointerup', lgResizeUp);
   window.removeEventListener('pointercancel', lgResizeUp);
-  lgLayoutColumns();
 }
 function lgResizeDbl(ev) {
   const handle = ev.target.closest('.lg-th-resize');
@@ -1135,7 +1254,6 @@ function lgAutoFit(key, table) {
     }
   }
   lgSetWidth(key, max, true);
-  lgLayoutColumns();
 }
 
 function lgParseQuoteRung(raw) {

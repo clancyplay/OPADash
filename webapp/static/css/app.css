@@ -485,6 +485,16 @@
   .dtable td { padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
   #data .dtable th { padding: 6px 8px; }
   #data .dtable td { padding: 5px 8px; }
+  .dtable.dbt-table {
+    table-layout: fixed;
+    width: max-content;
+    min-width: 0;
+  }
+  .dtable.dbt-table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dbt-th { position: relative; padding-right: 12px !important; }
   .dtable tr:hover td { background: rgba(255,255,255,.025); }
   .dtable tr.clickable { cursor: pointer; }
   .dtable tr.total-row td { font-weight: 700; border-top: 2px solid var(--border2); }
@@ -606,8 +616,8 @@
 
   .lg-table {
     table-layout: fixed;
-    width: 100%;
-    min-width: 100%;
+    width: max-content;
+    min-width: 0;
   }
   .lg-table td { vertical-align: top; }
   .lg-table th.lg-hide, .lg-table td.lg-hide, .lg-table col.lg-hide { display: none !important; }
