@@ -460,18 +460,38 @@ function liveVenueCv(s, venue) {
   return 1;
 }
 
+function liveUpnlCapInr(s) {
+  const rate = liveUsdInr(s);
+  const wallet = Number(s && s.wallet_inr);
+  const maxUsd = Number(s && s.max_usd);
+  let cap = 0;
+  if (isFinite(wallet) && wallet > 0) cap = Math.max(cap, wallet * 4);
+  if (isFinite(maxUsd) && maxUsd > 0) cap = Math.max(cap, maxUsd * rate * 8);
+  return cap;
+}
+
 function liveUpnlInr(s, venue) {
   if (!s) return null;
   const size = Number(s.pos);
+  if (!isFinite(size) || !size) return null;
   const entry = Number(s.entry);
   const mark = Number(s.mark);
-  if (isFinite(size) && size && entry > 0 && mark > 0) {
-    return size * (mark - entry) * liveUsdInr(s) * liveVenueCv(s, venue);
+  const rate = liveUsdInr(s);
+  const cv = liveVenueCv(s, venue);
+  let computed = null;
+  if (isFinite(entry) && entry > 0 && isFinite(mark) && mark > 0) {
+    computed = size * (mark - entry) * rate * cv;
   }
-  if (s.upnl != null && s.upnl !== '') {
-    const reported = Number(s.upnl);
-    if (isFinite(reported)) return reported;
-  }
+  const reported = (s.upnl != null && s.upnl !== '') ? Number(s.upnl) : NaN;
+  const cap = liveUpnlCapInr(s);
+  const pick = function (v) {
+    if (v == null || !isFinite(v)) return null;
+    if (cap > 0 && Math.abs(v) > cap) return null;
+    return v;
+  };
+  const fromBook = pick(computed);
+  if (fromBook != null) return fromBook;
+  if (isFinite(reported)) return pick(reported);
   return null;
 }
 
