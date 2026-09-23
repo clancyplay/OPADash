@@ -380,10 +380,10 @@ def _hedge_venue_label(raw: str | None) -> str:
     return codes.get(v, codes.get(v.lower(), v))
 
 
-_SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold", "wallet_exch"}
+_SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold", "wallet_exch", "hook"}
 _SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr"}
 _SETUP_KEYS = (
-    "hem", "span", "step", "hem_ticks", "span_ticks", "step_ticks", "step_mult",
+    "hook", "hem", "span", "step", "hem_ticks", "span_ticks", "step_ticks", "step_mult",
     "fit_auto", "span_spread", "vol_gate", "vol_stable",
     "orders", "live_orders", "max_pos", "max_usd", "ignore", "ignore_usd",
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",

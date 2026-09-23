@@ -601,6 +601,7 @@ function rpnlSetupBits(s) {
   if (s.edge != null) bits.push('edge ' + fmtG(s.edge) + '%');
   if (s.k_ticks != null && Number(s.k_ticks) !== 0) bits.push('k ' + fmtG(s.k_ticks) + 't');
   else if (s.k != null) bits.push('k ' + fmtG(s.k) + '%');
+  if (s.hook) bits.push('hook ' + s.hook);
   const hem = rpnlGeomBit('hem', s.hem_ticks, s.hem);
   const span = rpnlGeomBit('span', s.span_ticks, s.span);
   let stepExtra = '';
