@@ -569,7 +569,7 @@
 
   .lg-table {
     table-layout: fixed;
-    width: max-content;
+    width: 100%;
     min-width: 100%;
   }
   .lg-table td { vertical-align: top; }
@@ -579,25 +579,41 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .lg-table td.lg-expand {
-    white-space: normal; word-break: break-word; overflow: hidden;
+    white-space: normal; overflow: hidden;
   }
   .lg-table td.lg-buy { color: var(--green); }
   .lg-table td.lg-sell { color: var(--red); }
+  .lg-table td.lg-buy.lg-expand,
+  .lg-table td.lg-sell.lg-expand {
+    word-break: normal;
+    overflow-wrap: normal;
+  }
   .lg-table td.lg-msg {
     overflow: hidden; text-overflow: ellipsis;
   }
-  .lg-table td.lg-msg.lg-expand { white-space: normal; word-break: break-word; }
+  .lg-table td.lg-msg.lg-expand { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
   .lg-table td.lg-msg.lg-compact { white-space: nowrap; }
   .lg-rungs {
-    display: grid; column-gap: 8px; row-gap: 1px;
-    font-variant-numeric: tabular-nums; font-size: 11px; line-height: 1.35;
-    max-width: 100%; overflow: hidden;
+    display: grid; column-gap: 10px; row-gap: 2px;
+    width: 100%;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums; font-size: 11px; line-height: 1.4;
   }
-  .lg-rungs-quote { grid-template-columns: 3.2em 7.2em minmax(3.2em, 1fr); }
-  .lg-rungs-edit { grid-template-columns: 1.5em 7.8em 7.8em; }
-  .lg-rungs-create { grid-template-columns: 1.5em 3.2em 7.2em; }
-  .lg-rungs-fill { grid-template-columns: 3.2em 7.2em; }
-  .lg-rung { line-height: 1.35; }
+  .lg-rungs > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .lg-rungs .lg-rd { text-align: right; color: var(--muted); }
+  .lg-rungs .lg-rq, .lg-rungs .lg-rp { text-align: right; }
+  .lg-rungs .lg-rr { text-align: left; color: #9aa3b8; }
+  .lg-rungs .lg-ra { text-align: center; color: var(--muted); opacity: .7; }
+  .lg-rungs-quote { grid-template-columns: max-content max-content minmax(3em, 1fr); }
+  .lg-rungs-edit { grid-template-columns: max-content max-content minmax(0, 1fr) max-content max-content minmax(0, 1fr); }
+  .lg-rungs-create { grid-template-columns: max-content max-content minmax(0, 1fr); }
+  .lg-rungs-fill { grid-template-columns: max-content minmax(0, 1fr); }
+  .lg-rung { line-height: 1.35; white-space: nowrap; }
   .lg-th { position: relative; padding-right: 28px !important; cursor: pointer; user-select: none; }
   .lg-th-mode { font-size: 9px; color: var(--accent); margin-left: 4px; opacity: .75; }
   .lg-th-x {

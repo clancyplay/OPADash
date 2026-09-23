@@ -817,12 +817,13 @@ const LG_COLS = [
   { key: 'message', label: 'Raw', def: 'hide' },
 ];
 const LG_NUM = new Set(['bid', 'ask', 'pos', 'qty', 'px', 'spread', 'rpnl', 'cap']);
+const LG_FLEX = new Set(['buy', 'sell', 'detail', 'message', 'hook', 'http']);
 const LG_W_DEF = {
   time: 136, level: 70, kind: 72, strategy: 80, contract: 96,
-  bid: 78, ask: 78, hook: 110, pos: 64, buy: 220, sell: 220,
+  bid: 78, ask: 78, hook: 110, pos: 64, buy: 280, sell: 280,
   side: 56, qty: 64, px: 82, spread: 72, hem: 56, span: 56, step: 72,
   cap: 72, rpnl: 64, http: 180, account: 88, exchange: 80, service: 72,
-  name: 120, detail: 200, message: 260,
+  name: 120, detail: 240, message: 280,
 };
 const LG_W_MIN = 44;
 const LG_W_MAX = 720;
@@ -873,6 +874,7 @@ function lgColWidth(key) {
   if (Number.isFinite(n)) return n;
   return LG_W_DEF[key] || 100;
 }
+function lgColIsFlex(key) { return LG_FLEX.has(key); }
 function lgSetWidth(key, px, persist) {
   const w = Math.max(LG_W_MIN, Math.min(LG_W_MAX, Math.round(px)));
   lgColWidths[key] = w;
@@ -880,8 +882,67 @@ function lgSetWidth(key, px, persist) {
   const col = document.querySelector('#lgBox col[data-col="' + key + '"]');
   const th = document.querySelector('#lgBox th[data-col="' + key + '"]');
   if (col) col.style.width = css;
-  if (th) { th.style.width = css; th.style.minWidth = css; th.style.maxWidth = css; }
+  if (th) {
+    th.style.width = css;
+    th.style.minWidth = css;
+    th.style.maxWidth = persist || !lgColIsFlex(key) ? css : '';
+  }
   if (persist) lgSaveWidths();
+}
+function lgColFloor(key) {
+  if (key === 'buy' || key === 'sell') return 160;
+  if (key === 'detail' || key === 'message' || key === 'http') return 96;
+  if (lgColIsFlex(key)) return 88;
+  return lgColWidth(key);
+}
+function lgLayoutColumns() {
+  if (lgResize) return;
+  const box = document.getElementById('lgBox');
+  const table = box && box.querySelector('table.lg-table');
+  if (!table) return;
+  const vis = lgVisibleCols();
+  if (!vis.length) return;
+  const avail = Math.max(0, box.clientWidth);
+  const base = vis.map(c => lgColWidth(c.key));
+  const sum = base.reduce((a, b) => a + b, 0);
+  const flex = vis.map((c, i) => lgColIsFlex(c.key) ? i : -1).filter(i => i >= 0);
+  const out = base.slice();
+  if (avail > sum && flex.length) {
+    const extra = avail - sum;
+    let used = 0;
+    const each = extra / flex.length;
+    flex.forEach((i, n) => {
+      const add = n === flex.length - 1 ? extra - used : Math.floor(each);
+      used += add;
+      out[i] += add;
+    });
+  } else if (avail < sum && flex.length) {
+    let deficit = sum - avail;
+    const slack = flex.map(i => ({ i, room: Math.max(0, out[i] - lgColFloor(vis[i].key)) }))
+      .filter(x => x.room > 0);
+    const roomSum = slack.reduce((a, x) => a + x.room, 0);
+    if (roomSum > 0) {
+      slack.forEach((x, n) => {
+        if (deficit <= 0) return;
+        const share = n === slack.length - 1 ? deficit : Math.round(deficit * (x.room / roomSum));
+        const take = Math.max(0, Math.min(x.room, share, deficit));
+        out[x.i] -= take;
+        deficit -= take;
+      });
+    }
+  }
+  vis.forEach((c, i) => {
+    const css = out[i] + 'px';
+    const col = table.querySelector('col[data-col="' + c.key + '"]');
+    const th = table.querySelector('th[data-col="' + c.key + '"]');
+    if (col) col.style.width = css;
+    if (th) {
+      th.style.width = css;
+      th.style.minWidth = Math.min(base[i], out[i]) + 'px';
+      th.style.maxWidth = css;
+    }
+  });
+  table.style.width = Math.max(avail, out.reduce((a, b) => a + b, 0)) + 'px';
 }
 function lgRenderColgroup() {
   return '<colgroup>' + LG_COLS.map(c => {
@@ -891,10 +952,20 @@ function lgRenderColgroup() {
 }
 function lgEnsureResizeBound() {
   const box = document.getElementById('lgBox');
-  if (!box || box._lgResizeBound) return;
-  box._lgResizeBound = true;
-  box.addEventListener('pointerdown', lgResizeDown);
-  box.addEventListener('dblclick', lgResizeDbl);
+  if (!box) return;
+  if (!box._lgResizeBound) {
+    box._lgResizeBound = true;
+    box.addEventListener('pointerdown', lgResizeDown);
+    box.addEventListener('dblclick', lgResizeDbl);
+  }
+  if (!box._lgLayoutRo && window.ResizeObserver) {
+    box._lgLayoutRo = new ResizeObserver(() => {
+      if (lgResize) return;
+      lgLayoutColumns();
+    });
+    box._lgLayoutRo.observe(box);
+  }
+  lgLayoutColumns();
 }
 function lgResizeDown(ev) {
   const handle = ev.target.closest('.lg-th-resize');
@@ -936,6 +1007,7 @@ function lgResizeUp() {
   window.removeEventListener('pointermove', lgResizeMove);
   window.removeEventListener('pointerup', lgResizeUp);
   window.removeEventListener('pointercancel', lgResizeUp);
+  lgLayoutColumns();
 }
 function lgResizeDbl(ev) {
   const handle = ev.target.closest('.lg-th-resize');
@@ -969,13 +1041,18 @@ function lgAutoFit(key) {
   for (let i = 0; i < n; i++) {
     const td = tds[i];
     const rungs = td.querySelector('.lg-rungs');
-    if (rungs) max = Math.max(max, rungs.scrollWidth + 16);
-    else {
+    if (rungs) {
+      const prev = rungs.style.width;
+      rungs.style.width = 'max-content';
+      max = Math.max(max, Math.ceil(rungs.scrollWidth) + 24);
+      rungs.style.width = prev;
+    } else {
       probe.textContent = (td.innerText || '').replace(/\s+/g, ' ').trim();
       max = Math.max(max, probe.offsetWidth + 20);
     }
   }
   lgSetWidth(key, max, true);
+  lgLayoutColumns();
 }
 
 function lgParseQuoteRung(raw) {
@@ -1152,24 +1229,30 @@ function lgCellText(l, key) {
 function lgMiniParts(parts) {
   if (!parts || !parts.length) return '';
   const k = parts[0].kind;
-  const cell = (v, extra) => '<span' + (extra ? ' class="' + extra + '"' : '') + '>' + esc(v || '') + '</span>';
+  const cell = (v, extra) => {
+    const t = v == null ? '' : String(v);
+    return '<span class="' + (extra || '') + '" title="' + esc(t) + '">' + esc(t) + '</span>';
+  };
   if (k === 'rung') {
     return '<div class="lg-rungs lg-rungs-quote">' + parts.map(p => {
-      const m = p.off ? 'muted' : '';
-      return cell(p.qty, m) + cell(p.px, m) + cell(p.role + (p.off ? ' off' : ''), m);
+      const m = p.off ? ' muted' : '';
+      return cell(p.qty, 'lg-rq' + m) + cell(p.px, 'lg-rp' + m) + cell(p.role + (p.off ? ' off' : ''), 'lg-rr' + m);
     }).join('') + '</div>';
   }
   if (k === 'edit') {
     return '<div class="lg-rungs lg-rungs-edit">' + parts.map(p =>
-      cell(p.depth) + cell(p.qty0 + '@' + p.px0) + cell(p.qty1 + '@' + p.px1)
+      cell(p.depth, 'lg-rd') +
+      cell(p.qty0, 'lg-rq') + cell(p.px0, 'lg-rp') +
+      cell('→', 'lg-ra') +
+      cell(p.qty1, 'lg-rq') + cell(p.px1, 'lg-rp')
     ).join('') + '</div>';
   }
   if (k === 'fill') {
-    return '<div class="lg-rungs lg-rungs-fill">' + parts.map(p => cell(p.qty) + cell(p.px)).join('') + '</div>';
+    return '<div class="lg-rungs lg-rungs-fill">' + parts.map(p => cell(p.qty, 'lg-rq') + cell(p.px, 'lg-rp')).join('') + '</div>';
   }
   if (k === 'create') {
     return '<div class="lg-rungs lg-rungs-create">' + parts.map(p =>
-      cell(p.depth) + cell(p.qty) + cell(p.px)
+      cell(p.depth, 'lg-rd') + cell(p.qty, 'lg-rq') + cell(p.px, 'lg-rp')
     ).join('') + '</div>';
   }
   return parts.map(p => '<div class="lg-rung">' + esc(p.text) + '</div>').join('');
@@ -1223,8 +1306,9 @@ function lgRenderHead() {
     const hide = st === 'hide' ? ' lg-hide' : '';
     const w = lgColWidth(col.key);
     const hint = 'Drag edge to resize · click wraps/clips · × hides';
+    const max = lgColIsFlex(col.key) ? '' : ';max-width:' + w + 'px';
     return '<th class="lg-th lg-' + st + hide + '" data-col="' + col.key +
-      '" style="width:' + w + 'px;min-width:' + w + 'px;max-width:' + w + 'px" title="' + hint +
+      '" style="width:' + w + 'px;min-width:' + w + 'px' + max + '" title="' + hint +
       '" onclick="lgColCycle(\'' + col.key + '\')">' +
       esc(col.label) +
       '<span class="lg-th-mode">' + (st === 'expand' ? '+' : '…') + '</span>' +
