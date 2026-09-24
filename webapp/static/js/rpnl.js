@@ -626,7 +626,10 @@ function rpnlSetupBits(s) {
   const hem = rpnlGeomBit('hem', s.hem_ticks, s.hem);
   const span = rpnlGeomBit('span', s.span_ticks, s.span);
   let stepExtra = '';
-  if (s.step_mult != null && Number(s.step_mult) !== 1) stepExtra = '×' + fmtG(s.step_mult);
+  if (s.step_mult != null && s.step_mult !== 1 && s.step_mult !== '1' && Number(s.step_mult) !== 1) {
+    const t = String(s.step_mult);
+    stepExtra = '×' + (isFinite(Number(t)) ? fmtG(Number(t)) : t);
+  }
   const step = rpnlGeomBit('step', s.step_ticks, s.step, stepExtra);
   if (hem) bits.push(hem);
   if (span) bits.push(span);
