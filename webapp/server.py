@@ -2582,7 +2582,8 @@ _LOG_COL_ORDER = (
     "service", "level", "name", "message",
 )
 _HIDDEN_TABLES = frozenset({
-    "orders", "events", "bot_control", "balances", "live_state", "reports", "positions",
+    "orders", "events", "bot_control", "balances", "live_state", "reports",
+    "positions", "trade_snaps",
 })
 _FILL_COL_ORDER = (
     "id", "created_at", "contract", "exchange", "side", "quantity", "price",
@@ -3403,21 +3404,25 @@ async def positions_snapshots(
         args.append(strategy)
         where += f" AND strategy = ${len(args)}"
     args.append(limit)
-    async with _db.pool.acquire() as conn:
-        rows = await conn.fetch(
-            f"""
-            SELECT created_at,
-                   delta_size::float    AS delta_size,
-                   delta_entry::float   AS delta_entry,
-                   binance_size::float  AS binance_size,
-                   binance_entry::float AS binance_entry,
-                   mark_price::float    AS mark_price,
-                   net_upnl::float      AS net_upnl
-            FROM positions WHERE {where}
-            ORDER BY created_at DESC LIMIT ${len(args)}
-            """,
-            *args,
-        )
+    try:
+        async with _db.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT created_at,
+                       delta_size::float    AS delta_size,
+                       delta_entry::float   AS delta_entry,
+                       binance_size::float  AS binance_size,
+                       binance_entry::float AS binance_entry,
+                       mark_price::float    AS mark_price,
+                       net_upnl::float      AS net_upnl
+                FROM positions WHERE {where}
+                ORDER BY created_at DESC LIMIT ${len(args)}
+                """,
+                *args,
+            )
+    except Exception as extra:
+        logger.debug("webapp: positions snapshots skipped (%s)", extra)
+        return []
     cv = _CONTRACT_VALUE.get(contract.upper(), 1.0)
     return [
         {

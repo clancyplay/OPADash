@@ -131,22 +131,6 @@ class EventsDB:
             return
         async with self.pool.acquire() as conn:
             await conn.execute("""
-                CREATE TABLE IF NOT EXISTS events (
-                    id          BIGSERIAL PRIMARY KEY,
-                    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    contract    VARCHAR(30)  NOT NULL,
-                    event_type  VARCHAR(50)  NOT NULL,
-                    order_id    VARCHAR(100),
-                    side        VARCHAR(10),
-                    price       NUMERIC(22, 8),
-                    quantity    NUMERIC(22, 4),
-                    status      VARCHAR(50),
-                    details     JSONB
-                );
-                CREATE INDEX IF NOT EXISTS idx_events_contract   ON events(contract);
-                CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at DESC);
-            """)
-            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS fills (
                     id          BIGSERIAL PRIMARY KEY,
                     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -178,55 +162,6 @@ class EventsDB:
                 ON fills(strategy, account, contract);
             """)
             await conn.execute("""
-                CREATE TABLE IF NOT EXISTS orders (
-                    id              BIGSERIAL PRIMARY KEY,
-                    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    contract        VARCHAR(30)  NOT NULL,
-                    exchange        VARCHAR(20)  NOT NULL,
-                    order_id        VARCHAR(100) NOT NULL,
-                    side            VARCHAR(10)  NOT NULL,
-                    order_type      VARCHAR(30),
-                    price           NUMERIC(22, 8),
-                    avg_fill_price  NUMERIC(22, 8),
-                    size            NUMERIC(22, 4),
-                    filled_size     NUMERIC(22, 4) NOT NULL DEFAULT 0,
-                    status          VARCHAR(30),
-                    rpnl            NUMERIC(22, 2),
-                    source          VARCHAR(10)  NOT NULL DEFAULT 'live',
-                    details         JSONB,
-                    UNIQUE (exchange, order_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_orders_contract   ON orders(contract);
-                CREATE INDEX IF NOT EXISTS idx_orders_exchange   ON orders(exchange);
-                CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);
-            """)
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS positions (
-                    id            BIGSERIAL PRIMARY KEY,
-                    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    contract      VARCHAR(30)  NOT NULL,
-                    delta_size    NUMERIC(22, 4),
-                    delta_entry   NUMERIC(22, 8),
-                    binance_size  NUMERIC(22, 4),
-                    binance_entry NUMERIC(22, 8),
-                    mark_price    NUMERIC(22, 8),
-                    net_upnl      NUMERIC(22, 4)
-                );
-                CREATE INDEX IF NOT EXISTS idx_positions_contract   ON positions(contract);
-                CREATE INDEX IF NOT EXISTS idx_positions_created_at ON positions(created_at DESC);
-            """)
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS balances (
-                    id              BIGSERIAL PRIMARY KEY,
-                    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    delta_balance   NUMERIC(22, 4),
-                    binance_balance NUMERIC(22, 4),
-                    total_balance   NUMERIC(22, 4)
-                );
-                CREATE INDEX IF NOT EXISTS idx_balances_created_at ON balances(created_at DESC);
-            """)
-            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS account_balances (
                     id            BIGSERIAL PRIMARY KEY,
                     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -238,16 +173,6 @@ class EventsDB:
                 );
                 CREATE INDEX IF NOT EXISTS idx_account_balances_lookup
                     ON account_balances (account, exchange, created_at DESC);
-            """)
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS reports (
-                    id          BIGSERIAL PRIMARY KEY,
-                    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    kind        VARCHAR(20)  NOT NULL DEFAULT 'periodic',
-                    message     TEXT         NOT NULL,
-                    summary     JSONB
-                );
-                CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports(created_at DESC);
             """)
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS logs (
@@ -273,19 +198,12 @@ class EventsDB:
                 CREATE INDEX IF NOT EXISTS idx_logs_strategy
                     ON logs (strategy) WHERE COALESCE(strategy, '') <> '';
             """)
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS bot_control (
-                    id             INT PRIMARY KEY DEFAULT 1,
-                    desired_state  VARCHAR(20) NOT NULL DEFAULT 'running',
-                    note           TEXT,
-                    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_by     VARCHAR(40),
-                    CONSTRAINT bot_control_singleton CHECK (id = 1)
-                );
-                INSERT INTO bot_control (id, desired_state)
-                VALUES (1, 'running')
-                ON CONFLICT (id) DO NOTHING;
-            """)
+            try:
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs (created_at)"
+                )
+            except Exception as e:
+                self.logger.warning("events_db: idx_logs_created_at — %s", e)
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bot_command (
                     id          BIGSERIAL PRIMARY KEY,
@@ -348,13 +266,6 @@ class EventsDB:
                     recorded_by VARCHAR(40)
                 );
                 CREATE INDEX IF NOT EXISTS idx_dw_created_at ON deposits_withdrawals(created_at DESC);
-            """)
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS live_state (
-                    symbol       VARCHAR(30) PRIMARY KEY,
-                    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    data         JSONB NOT NULL DEFAULT '{}'
-                );
             """)
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bot_ping (
@@ -1547,9 +1458,8 @@ class EventsDB:
                     """
                     SELECT DISTINCT strategy FROM (
                         SELECT strategy::text AS strategy FROM fills
-                        UNION SELECT strategy::text FROM orders
-                        UNION SELECT strategy::text FROM positions
-                        UNION SELECT strategy::text FROM events
+                        UNION SELECT strategy::text FROM bot_ping
+                        UNION SELECT strategy::text FROM bot_setup
                     ) s
                     WHERE strategy IS NOT NULL AND strategy <> ''
                     ORDER BY strategy
@@ -1903,69 +1813,39 @@ class EventsDB:
             return []
 
     async def get_status_snapshot(self, strategy: str = "opa3") -> dict:
-        """Aggregate for the Bot status page: latest balance, latest position per
-        contract, and the timestamp of the most recent activity (liveness)."""
+        """Bot status: last bot_ping + latest wallet. Positions live on bot_setup."""
         empty = {"last_seen": None, "balance": None, "positions": []}
         if not self.pool:
             return empty
         try:
+            args: list = []
+            where = ""
+            if not strategy_is_all(strategy):
+                args.append(strategy)
+                where = "WHERE strategy = $1"
             async with self.pool.acquire() as conn:
+                last_ping = await conn.fetchval(
+                    f"SELECT MAX(pinged_at) FROM bot_ping {where}",
+                    *args,
+                )
                 bal = await conn.fetchrow(
-                    """
-                    SELECT created_at,
-                           COALESCE(delta_balance,   0)::float AS delta_balance,
-                           COALESCE(binance_balance, 0)::float AS binance_balance,
-                           COALESCE(total_balance,   0)::float AS total_balance
-                    FROM balances WHERE strategy = $1 ORDER BY id DESC LIMIT 1
+                    f"""
+                    SELECT created_at, exchange, COALESCE(balance, 0)::float AS balance
+                    FROM account_balances {where}
+                    ORDER BY created_at DESC LIMIT 1
                     """,
-                    strategy,
+                    *args,
                 )
-                positions = await conn.fetch(
-                    """
-                    SELECT DISTINCT ON (contract)
-                           contract, created_at,
-                           COALESCE(delta_size,   0)::float AS delta_size,
-                           COALESCE(delta_entry,  0)::float AS delta_entry,
-                           COALESCE(binance_size, 0)::float AS binance_size,
-                           COALESCE(mark_price,   0)::float AS mark_price,
-                           COALESCE(net_upnl,     0)::float AS net_upnl
-                    FROM positions
-                    WHERE strategy = $1
-                    ORDER BY contract, created_at DESC
-                    """,
-                    strategy,
-                )
-                last_event = await conn.fetchval(
-                    "SELECT MAX(created_at) FROM events WHERE strategy = $1", strategy
-                )
-
-            last_times = [t for t in (
-                bal["created_at"] if bal else None,
-                positions[0]["created_at"] if positions else None,
-                last_event,
-            ) if t is not None]
-            last_seen = max(last_times) if last_times else None
-
             return {
-                "last_seen": last_seen.isoformat() if last_seen else None,
+                "last_seen": last_ping.isoformat() if last_ping else None,
                 "balance": {
                     "time":            int(bal["created_at"].timestamp()),
-                    "delta_balance":   bal["delta_balance"],
-                    "binance_balance": bal["binance_balance"],
-                    "total_balance":   bal["total_balance"],
+                    "delta_balance":   0.0,
+                    "binance_balance": 0.0,
+                    "total_balance":   bal["balance"],
+                    "exchange":        bal["exchange"],
                 } if bal else None,
-                "positions": [
-                    {
-                        "contract":     p["contract"],
-                        "time":         int(p["created_at"].timestamp()),
-                        "delta_size":   p["delta_size"],
-                        "delta_entry":  p["delta_entry"],
-                        "binance_size": p["binance_size"],
-                        "mark_price":   p["mark_price"],
-                        "net_upnl":     p["net_upnl"],
-                    }
-                    for p in positions
-                ],
+                "positions": [],
             }
         except Exception as e:
             self.logger.warning("events_db: get_status_snapshot failed — %s", e)
