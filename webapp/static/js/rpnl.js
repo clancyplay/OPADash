@@ -3272,15 +3272,10 @@ const RPNL_KIND_META = {
   logs: { label: 'Logs', table: null },
   fills: { label: 'Fills', table: 'fills' },
 };
-const RPNL_KIND_COLS = {
-  fills: [
-    'created_at', 'exchange', 'side', 'quantity', 'price', 'rpnl', 'fee', 'upnl',
-    'fill_id', 'bid', 'ask', 'spread', 'mark', 'position', 'slippage',
-    'funding_rate', 'predicted_funding', 'open_interest', 'volume', 'implied_vol',
-    'account', 'strategy', 'order_id', 'contract',
-  ],
-};
-const RPNL_KIND_HIDE = { fills: ['id', 'details'] };
+function rpnlFillCols(allCols) {
+  if (typeof dbtColsFor === 'function') return dbtColsFor('fills', allCols, true);
+  return (allCols || []).filter(function (c) { return c !== 'id' && c !== 'details'; });
+}
 
 function rpnlLogsOpen() {
   const page = document.getElementById('rpnl');
@@ -3336,11 +3331,13 @@ function rpnlLogQs(extra) {
 }
 
 function rpnlTableQs(extra) {
-  const f = rpnlExportFilters();
+  const picked = currentRpnlSel();
   const all = rpnlKindScopeVal() === 'all';
+  const win = rpnlLogWindow();
+  const strat = picked.strategy || (strategyIsAll(currentStrategy) ? '' : currentStrategy);
   const p = {
-    since: f.since,
-    until: f.until,
+    since: win.since,
+    until: win.until,
     q: rpnlKindSearchVal(),
     sort: 'created_at',
     dir: 'desc',
@@ -3348,9 +3345,9 @@ function rpnlTableQs(extra) {
     offset: 0,
   };
   if (!all) {
-    p.contract = f.contract;
-    if (f.account) p.account = f.account;
-    if (f.strategy) p.strategy = f.strategy;
+    if (picked.contract) p.contract = picked.contract;
+    if (picked.account) p.account = picked.account;
+    if (strat && !strategyIsAll(strat)) p.strategy = strat;
   }
   return rpnlQs(Object.assign(p, extra || {}));
 }
@@ -3511,25 +3508,9 @@ function exportRpnlOpenKind() {
 }
 
 function rpnlKindCell(col, v) {
-  if (v == null || v === '') return '<span style="color:var(--muted)">—</span>';
-  if ((col === 'created_at' || col === 'updated_at') && typeof v === 'number') {
-    return escHtml(rpnlFmtLogTime(v));
-  }
-  if (col === 'side') {
-    const sl = String(v).toLowerCase();
-    const cls = sl === 'buy' ? 'side-buy' : (sl === 'sell' ? 'side-sell' : '');
-    return cls ? '<span class="' + cls + '">' + escHtml(String(v)) + '</span>' : escHtml(String(v));
-  }
-  if ((col === 'rpnl' || col === 'upnl' || col === 'net_upnl' || col === 'fee') && isFinite(Number(v))) {
-    const n = Number(v);
-    const cls = n > 0 ? 'side-buy' : (n < 0 ? 'side-sell' : '');
-    return '<span class="' + cls + '">' + escHtml(String(n)) + '</span>';
-  }
-  let s = typeof v === 'object' ? JSON.stringify(v) : String(v);
-  if (s.length > 140) {
-    return '<span title="' + escHtml(s) + '">' + escHtml(s.slice(0, 140)) + '…</span>';
-  }
-  return escHtml(s);
+  if (typeof dbtCellHtml === 'function') return dbtCellHtml(col, v);
+  if (v == null || v === '') return '<span class="muted">—</span>';
+  return escHtml(String(v));
 }
 
 async function loadRpnlKindTable(reset) {
@@ -3547,12 +3528,9 @@ async function loadRpnlKindTable(reset) {
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
     const d = await r.json();
     const allCols = d.columns || [];
-    const pref = RPNL_KIND_COLS[rpnlKind] || [];
-    const hide = RPNL_KIND_HIDE[rpnlKind] || ['id'];
-    const cols = pref.filter(function (c) { return allCols.indexOf(c) >= 0; })
-      .concat(allCols.filter(function (c) {
-        return pref.indexOf(c) < 0 && hide.indexOf(c) < 0;
-      }));
+    const cols = rpnlKind === 'fills' ? rpnlFillCols(allCols) : allCols.filter(function (c) {
+      return c !== 'id' && c !== 'details';
+    });
     const idx = {};
     allCols.forEach(function (c, i) { idx[c] = i; });
     rpnlKindCols = cols;
@@ -3581,7 +3559,11 @@ async function loadRpnlKindTable(reset) {
     }
     tb.insertAdjacentHTML('beforeend', rows.map(function (row) {
       return '<tr>' +
-        cols.map(function (c) { return '<td>' + rpnlKindCell(c, row[idx[c]]) + '</td>'; }).join('') +
+        cols.map(function (c) {
+          const v = row[idx[c]];
+          const cls = typeof dbtCellClass === 'function' ? dbtCellClass(c, v) : '';
+          return '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + rpnlKindCell(c, v) + '</td>';
+        }).join('') +
         '</tr>';
     }).join(''));
     rpnlKindOffset += rows.length;

@@ -2753,8 +2753,14 @@ def _build_table_filters(
         ident = _qi(key)
         if key == "contract":
             aliases = contract_aliases(text)
+            compact = canon_contract(text)
             params.append(aliases)
-            wheres.append(f"UPPER({ident}::text) = ANY(${len(params)}::text[])")
+            params.append(compact)
+            a, c = len(params) - 1, len(params)
+            wheres.append(
+                f"(UPPER({ident}::text) = ANY(${a}::text[]) "
+                f"OR UPPER(REPLACE(REPLACE({ident}::text, '-', ''), '_', '')) = ${c})"
+            )
         elif key == "account":
             if text in ("__blank__", "(blank)"):
                 wheres.append(f"COALESCE(TRIM({ident}::text), '') = ''")

@@ -170,13 +170,14 @@ function dbtCompactOn() {
   const el = document.getElementById('dbtCompact');
   return !el || el.checked;
 }
-function dbtVisibleCols() {
+function dbtColsFor(name, allCols, compact) {
   const hide = new Set(DBT_HIDDEN_ALWAYS);
-  if (dbtCompactOn()) {
-    (DBT_COMPACT_HIDE[dbtName] || []).forEach(c => hide.add(c));
-  }
-  const vis = dbtColumns.filter(c => !hide.has(c));
-  return vis.length ? vis : dbtColumns;
+  if (compact) (DBT_COMPACT_HIDE[name] || []).forEach(c => hide.add(c));
+  const vis = (allCols || []).filter(c => !hide.has(c));
+  return vis.length ? vis : (allCols || []);
+}
+function dbtVisibleCols() {
+  return dbtColsFor(dbtName, dbtColumns, dbtCompactOn());
 }
 function dbtToggleCompact() {
   const el = document.getElementById('dbtCompact');
