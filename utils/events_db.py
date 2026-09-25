@@ -1556,16 +1556,28 @@ class EventsDB:
             if level:
                 params.append(level.upper())
                 wheres.append(f"level = ${len(params)}")
-            if strategy:
+            if strategy and not strategy_is_all(strategy):
                 params.append(str(strategy).strip())
-                wheres.append(f"strategy = ${len(params)}")
+                i = len(params)
+                wheres.append(
+                    f"(strategy = ${i} OR name ILIKE (${i} || '/%') OR message ILIKE ('%[' || ${i} || '.py]%'))"
+                )
             if account:
                 params.append(str(account).strip())
-                wheres.append(f"COALESCE(account, '') = ${len(params)}")
+                i = len(params)
+                wheres.append(f"(COALESCE(account, '') = ${i} OR COALESCE(account, '') = '')")
             if contract:
                 aliases = contract_aliases(contract)
+                compact = canon_contract(contract)
                 params.append(aliases)
-                wheres.append(f"UPPER(COALESCE(contract, '')) = ANY(${len(params)}::text[])")
+                params.append(compact)
+                params.append(f"%{compact}%")
+                a, c, m = len(params) - 2, len(params) - 1, len(params)
+                wheres.append(
+                    f"(UPPER(COALESCE(contract, '')) = ANY(${a}::text[]) "
+                    f"OR UPPER(REPLACE(REPLACE(COALESCE(contract, ''), '-', ''), '_', '')) = ${c} "
+                    f"OR UPPER(REPLACE(REPLACE(COALESCE(message, ''), '-', ''), '_', '')) LIKE ${m})"
+                )
             if exchange:
                 params.append(str(exchange).strip().lower())
                 wheres.append(f"LOWER(COALESCE(exchange, '')) = ${len(params)}")

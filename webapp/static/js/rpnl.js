@@ -3301,28 +3301,36 @@ function rpnlKindScopeVal() {
   return (el && el.value) === 'all' ? 'all' : 'contract';
 }
 
-function rpnlLogQs(extra) {
-  const f = rpnlExportFilters();
-  const all = rpnlKindScopeVal() === 'all';
-  let since = f.since;
-  let until = f.until;
-  if (!(Number(until) - Number(since) > 120)) {
-    const v = rpnlCurrentHours != null ? rpnlCurrentHours : rpnlHoursSel();
-    const hours = v === 'today' ? 24 : (Number(v) || 24);
-    const now = Date.now() / 1000;
-    since = String(Math.floor(now - hours * 3600));
-    until = String(Math.floor(now + 60));
+function rpnlLogWindow() {
+  if (rpnlRangePinned && rpnlPinFrom != null && rpnlPinTo != null) {
+    const a = Math.min(rpnlPinFrom, rpnlPinTo);
+    const b = Math.max(rpnlPinFrom, rpnlPinTo);
+    if (b - a > 120) return { since: String(Math.floor(a)), until: String(Math.floor(b) + 1) };
   }
+  const v = rpnlCurrentHours != null ? rpnlCurrentHours : rpnlHoursSel();
+  const hours = v === 'today' ? 24 : (Number(v) || 24);
+  const now = Date.now() / 1000;
+  return {
+    since: String(Math.floor(now - hours * 3600)),
+    until: String(Math.floor(now + 60)),
+  };
+}
+
+function rpnlLogQs(extra) {
+  const picked = currentRpnlSel();
+  const all = rpnlKindScopeVal() === 'all';
+  const win = rpnlLogWindow();
+  const strat = picked.strategy || (strategyIsAll(currentStrategy) ? '' : currentStrategy);
   const p = {
-    since: since,
-    until: until,
+    since: win.since,
+    until: win.until,
     search: rpnlKindSearchVal(),
     limit: 400,
   };
   if (!all) {
-    p.contract = f.contract;
-    if (f.account) p.account = f.account;
-    if (f.strategy) p.strategy = f.strategy;
+    if (picked.contract) p.contract = picked.contract;
+    if (picked.account) p.account = picked.account;
+    if (strat && !strategyIsAll(strat)) p.strategy = strat;
   }
   return rpnlQs(Object.assign(p, extra || {}));
 }
