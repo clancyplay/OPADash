@@ -3304,9 +3304,18 @@ function rpnlKindScopeVal() {
 function rpnlLogQs(extra) {
   const f = rpnlExportFilters();
   const all = rpnlKindScopeVal() === 'all';
+  let since = f.since;
+  let until = f.until;
+  if (!(Number(until) - Number(since) > 120)) {
+    const v = rpnlCurrentHours != null ? rpnlCurrentHours : rpnlHoursSel();
+    const hours = v === 'today' ? 24 : (Number(v) || 24);
+    const now = Date.now() / 1000;
+    since = String(Math.floor(now - hours * 3600));
+    until = String(Math.floor(now + 60));
+  }
   const p = {
-    since: f.since,
-    until: f.until,
+    since: since,
+    until: until,
     search: rpnlKindSearchVal(),
     limit: 400,
   };

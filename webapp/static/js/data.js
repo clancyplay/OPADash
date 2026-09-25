@@ -1369,6 +1369,35 @@ function lgParse(msg) {
     return out;
   }
 
+  const opt = s.match(/^(CREATE|EDIT|CANCEL|ADOPT)\s+\S+:(buy|sell)\s+(.*)$/i);
+  if (opt) {
+    out.kind = opt[1].toLowerCase();
+    out.side = opt[2].toLowerCase();
+    const body = String(opt[3] || '').replace(/^id=\S+\s+/, '');
+    const edit = body.match(/^([0-9.eE+-]+)@([0-9.eE+-]+)\s*→\s*([0-9.eE+-]+)@([0-9.eE+-]+)/);
+    const cr = body.match(/^([0-9.eE+-]+)@([0-9.eE+-]+)/);
+    let part;
+    if (edit) {
+      part = {
+        kind: 'edit', depth: '',
+        qty0: edit[1], px0: edit[2], qty1: edit[3], px1: edit[4],
+        text: edit[1] + '@' + edit[2] + '→' + edit[3] + '@' + edit[4],
+      };
+      out.qty = edit[3];
+      out.px = edit[4];
+    } else if (cr) {
+      part = { kind: 'create', depth: '', qty: cr[1], px: cr[2], text: cr[1] + '@' + cr[2] };
+      out.qty = cr[1];
+      out.px = cr[2];
+    } else {
+      part = { kind: 'leg', depth: '', text: body };
+    }
+    if (out.side === 'buy') { out.buyParts = [part]; out.buy = part.text; }
+    else { out.sellParts = [part]; out.sell = part.text; }
+    out.detail = '';
+    return out;
+  }
+
   const one = s.match(/^(CREATE|EDIT|CANCEL|ADOPT)\s+(buy|sell):(\d+)\s+(.*)$/i);
   if (one) {
     out.kind = one[1].toLowerCase();

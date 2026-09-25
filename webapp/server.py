@@ -1584,6 +1584,50 @@ async def _fetch_coinbase_ohlc(symbol: str, interval: str, lookback_secs: int) -
     raise RuntimeError(f"no Coinbase candles for {symbol}: {detail}")
 
 
+async def _delta_native_symbol(symbol: str, strategy: str = "", account: str | None = None) -> str:
+    """Dashed Delta product id. Compact pills (CXAUT4280260926) are not candle symbols."""
+    raw = (symbol or "").strip()
+    if not raw or "-" in raw or _db is None or not _db.pool:
+        return raw
+    canon = canon_contract(raw)
+    strat = "" if strategy_is_all(strategy) else (strategy or "").strip()
+    acct = (account or "").strip()
+    try:
+        async with _db.pool.acquire() as conn:
+            named = await conn.fetchval(
+                """
+                SELECT setup->>'symbol'
+                FROM bot_setup
+                WHERE UPPER(REPLACE(REPLACE(contract, '-', ''), '_', '')) = $1
+                  AND COALESCE(setup->>'symbol', '') LIKE '%-%'
+                  AND ($2 = '' OR strategy::text = $2)
+                  AND ($3 = '' OR COALESCE(account, '') = $3)
+                ORDER BY updated_at DESC NULLS LAST
+                LIMIT 1
+                """,
+                canon, strat, acct,
+            )
+            if named:
+                return str(named)
+            filled = await conn.fetchval(
+                """
+                SELECT contract
+                FROM fills
+                WHERE UPPER(REPLACE(REPLACE(contract, '-', ''), '_', '')) = $1
+                  AND contract LIKE '%-%'
+                  AND ($2 = '' OR strategy::text = $2)
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                canon, strat,
+            )
+            if filled:
+                return str(filled)
+    except Exception as exc:
+        logger.debug("webapp: native symbol lookup failed for %s: %s", canon, exc)
+    return raw
+
+
 @app.get("/api/candles")
 async def candles(
     symbol: str = Query(..., description="Contract name e.g. LABUSD"),
@@ -1602,6 +1646,8 @@ async def candles(
     lookback = _window_lookback_secs(hours, today)
     qv = meta["quote_venue"]
     quote_symbol = meta.get("quote_symbol") or contract
+    if qv == "delta":
+        quote_symbol = await _delta_native_symbol(quote_symbol, strategy, account) or quote_symbol
     try:
         if qv == "binance":
             bars = await _fetch_binance_ohlc(quote_symbol, interval, lookback)
