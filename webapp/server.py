@@ -30,7 +30,9 @@ from pydantic import BaseModel
 from config.settings import Settings
 from config.symbol import SYMBOL_LAB, SYMBOL_MMT, SYMBOL_VELVET, SYMBOL_AIOT
 from config import symbol as _symbol_module
-from utils.events_db import EventsDB, canon_contract, contract_aliases, ping_is_live, strategy_is_all
+from utils.events_db import (
+    EventsDB, canon_contract, contract_aliases, contract_match_sql, ping_is_live, strategy_is_all,
+)
 from utils.logger import start_db_log_forwarder
 from webapp.wallets import fetch_idle_wallets
 
@@ -3205,7 +3207,7 @@ async def fills_list(
     if contract:
         aliases = contract_aliases(contract)
         params.append(aliases)
-        wheres.append(f"UPPER(contract) = ANY(${len(params)}::text[])")
+        wheres.append(contract_match_sql(f"${len(params)}"))
     if exchange == "hedge":
         wheres.append("exchange <> 'delta'")
     elif exchange:

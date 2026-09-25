@@ -57,6 +57,17 @@ def contract_aliases(contract: str) -> list[str]:
     return aliases
 
 
+def contract_match_sql(param: str, column: str = "contract") -> str:
+    """Dashed product ids and compact pills are the same contract.
+
+    C-XAUT-4280-260926 and CXAUT4280260926 both match a query for either form.
+    `param` is a bound text[] of contract_aliases().
+    """
+    col = f"COALESCE({column}, '')"
+    compact = f"UPPER(REPLACE(REPLACE({col}, '-', ''), '_', ''))"
+    return f"(UPPER({col}) = ANY({param}::text[]) OR {compact} = ANY({param}::text[]))"
+
+
 def canon_contract(contract: str) -> str:
     name = (contract or "").upper().replace("-", "").replace("_", "")
     if name.endswith("USDTM"):
@@ -2634,7 +2645,7 @@ class EventsDB:
             params: list = [aliases]
             sql = (
                 "SELECT LOWER(exchange) AS exchange, COUNT(*)::int AS n FROM fills "
-                "WHERE UPPER(contract) = ANY($1::text[])"
+                f"WHERE {contract_match_sql('$1')}"
             )
             if not strategy_is_all(strategy):
                 params.append(strategy)
@@ -2668,7 +2679,7 @@ class EventsDB:
             step = max(60, int(bucket_seconds or 300))
             aliases = contract_aliases(contract)
             params: list = [aliases]
-            where = "UPPER(contract) = ANY($1::text[])"
+            where = contract_match_sql("$1")
             if not strategy_is_all(strategy):
                 params.append(strategy)
                 where += f" AND strategy::text = ${len(params)}"
@@ -2771,7 +2782,7 @@ class EventsDB:
                            exchange,
                            COALESCE(SUM(rpnl), 0)    AS bucket_pnl
                     FROM fills
-                    WHERE UPPER(contract) = ANY($1::text[]) AND created_at >= $2{strat_sql}
+                    WHERE {contract_match_sql('$1')} AND created_at >= $2{strat_sql}
                       {exch_sql}{acct_sql}
                     GROUP BY bucket, exchange
                     ORDER BY bucket
