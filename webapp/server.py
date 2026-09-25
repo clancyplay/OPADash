@@ -1584,6 +1584,28 @@ async def _fetch_coinbase_ohlc(symbol: str, interval: str, lookback_secs: int) -
     raise RuntimeError(f"no Coinbase candles for {symbol}: {detail}")
 
 
+def _option_symbol_from_canon(name: str) -> str:
+    """CXAUT4280260926 → C-XAUT-4280-260926. Delta candles need the dashed product id."""
+    raw = (name or "").strip()
+    if len(raw) > 2 and raw[1] == "-" and raw[0] in "CPcp":
+        return raw[0].upper() + raw[1:]
+    compact = canon_contract(raw)
+    if len(compact) < 10 or compact[0] not in "CP":
+        return ""
+    expiry = compact[-6:]
+    mm, dd = int(expiry[2:4]), int(expiry[4:])
+    if not (1 <= mm <= 12 and 1 <= dd <= 31):
+        return ""
+    body = compact[1:-6]
+    i = len(body)
+    while i > 0 and body[i - 1].isdigit():
+        i -= 1
+    under, strike = body[:i], body[i:]
+    if not under or not strike:
+        return ""
+    return f"{compact[0]}-{under}-{int(strike)}-{expiry}"
+
+
 async def _delta_native_symbol(symbol: str, strategy: str = "", account: str | None = None) -> str:
     """Dashed Delta product id. Compact pills (CXAUT4280260926) are not candle symbols."""
     raw = (symbol or "").strip()
@@ -1625,7 +1647,8 @@ async def _delta_native_symbol(symbol: str, strategy: str = "", account: str | N
                 return str(filled)
     except Exception as exc:
         logger.debug("webapp: native symbol lookup failed for %s: %s", canon, exc)
-    return raw
+    built = _option_symbol_from_canon(raw)
+    return built or raw
 
 
 @app.get("/api/candles")

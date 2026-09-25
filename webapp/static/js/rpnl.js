@@ -2922,7 +2922,7 @@ async function loadRpnl(keepRange) {
     const candleIvl = (document.getElementById('rpnlCandle') || {}).value || '5m';
     const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit + '&exchange=' + venue + stratQ;
     const fillUrl = '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit + stratQ;
-    const candleUrl = '/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + winQ + acctBit;
+    const candleUrl = '/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + winQ + acctBit + stratQ;
     const settled = await Promise.allSettled([
       fetch(url),
       fetch(candleUrl),
