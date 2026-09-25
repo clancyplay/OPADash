@@ -213,6 +213,13 @@ function fmtPxFull(v) {
   return s + out;
 }
 
+function rpnlPillIssue(mode) {
+  const m = String(mode || '').trim().toLowerCase();
+  if (!m || m === 'quoting') return false;
+  if (/bid\s*\+|ask\s*[-−]/.test(m)) return false;
+  return true;
+}
+
 function rpnlModeText(s, brief) {
   if (!s) return '';
   const mode = String(s.mode || '').trim();
@@ -223,7 +230,8 @@ function rpnlModeText(s, brief) {
   if (!isFinite(rest)) rest = 0;
   const size = s.size_pct == null ? NaN : Number(s.size_pct);
   const skipWhy = brief && (!!s.trip_why || !!s.probing);
-  if (mode && mode !== 'quoting') {
+  const show = mode && mode !== 'quoting' && (!brief || rpnlPillIssue(mode));
+  if (show) {
     let t = mode;
     if (left > 0) t += ' ' + Math.round(left) + 's';
     else if (rest > 0) t += ' ' + Math.round(rest) + 's';
