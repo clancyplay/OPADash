@@ -3515,8 +3515,8 @@ function exportRpnlOpenKind() {
   exportRpnlKind(rpnlKind);
 }
 
-function rpnlKindCell(col, v) {
-  if (typeof dbtCellHtml === 'function') return dbtCellHtml(col, v);
+function rpnlKindCell(col, v, row) {
+  if (typeof dbtCellHtml === 'function') return dbtCellHtml(col, v, row);
   if (v == null || v === '') return '<span class="muted">—</span>';
   return escHtml(String(v));
 }
@@ -3535,6 +3535,7 @@ async function loadRpnlKindTable(reset) {
     const r = await fetch('/api/db/table/' + encodeURIComponent(meta.table) + '?' + rpnlTableQs({ offset: offset }));
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
     const d = await r.json();
+    if (d.usdinr > 0 && typeof dbtUsdInr !== 'undefined') dbtUsdInr = Number(d.usdinr);
     const allCols = d.columns || [];
     const cols = rpnlKind === 'fills' ? rpnlFillCols(allCols) : allCols.filter(function (c) {
       return c !== 'id' && c !== 'details';
@@ -3555,7 +3556,9 @@ async function loadRpnlKindTable(reset) {
         return;
       }
       box.innerHTML = '<table class="dtable"><thead><tr>' +
-        cols.map(function (c) { return '<th>' + escHtml(c) + '</th>'; }).join('') +
+        cols.map(function (c) {
+          return '<th>' + escHtml(typeof dbtColTitle === 'function' ? dbtColTitle(c) : c) + '</th>';
+        }).join('') +
         '</tr></thead><tbody></tbody></table>';
     }
     const tb = box.querySelector('tbody');
@@ -3569,8 +3572,11 @@ async function loadRpnlKindTable(reset) {
       return '<tr>' +
         cols.map(function (c) {
           const v = row[idx[c]];
+          const rec = {
+            exchange: idx.exchange != null ? row[idx.exchange] : '',
+          };
           const cls = typeof dbtCellClass === 'function' ? dbtCellClass(c, v) : '';
-          return '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + rpnlKindCell(c, v) + '</td>';
+          return '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + rpnlKindCell(c, v, rec) + '</td>';
         }).join('') +
         '</tr>';
     }).join(''));

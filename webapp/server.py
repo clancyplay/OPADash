@@ -3188,6 +3188,7 @@ async def db_table(
         "sort":    sort_col,
         "dir":     sort_dir,
         "stats":   stats,
+        "usdinr":  float(_db.usdinr_rate or 87),
         "rows":    [[_jsonable(r[c]) for c in col_names] for r in rows],
     }
 

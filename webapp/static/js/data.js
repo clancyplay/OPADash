@@ -143,6 +143,7 @@ let dbtName = null, dbtLastOther = null, dbtOffset = 0, dbtTotal = 0;
 let dbtSort = '', dbtDir = 'desc';
 let dbtColumns = [];
 let dbtTypes = {};
+let dbtUsdInr = 87;
 let dbtPageRows = [];
 let dbtPeekIdx = -1;
 let dbtGen = 0;
@@ -211,7 +212,8 @@ function dbtDefaultWidth(col) {
   if (c === 'contract' || c === 'quote_symbol' || c === 'symbol') return 112;
   if (c === 'account') return 96;
   if (c === 'exchange' || c === 'strategy' || c === 'service' || c === 'level') return 88;
-  if (['quantity', 'qty', 'price', 'rpnl', 'upnl', 'fee', 'mark', 'bid', 'ask', 'spread', 'position'].includes(c)) return 84;
+  if (c === 'rpnl') return 168;
+  if (['quantity', 'qty', 'price', 'upnl', 'fee', 'mark', 'bid', 'ask', 'spread', 'position'].includes(c)) return 84;
   if (c === 'order_id' || c === 'fill_id') return 140;
   if (c === 'message' || c === 'payload' || c === 'setup' || c === 'details') return 240;
   return 120;
@@ -599,8 +601,71 @@ function dbtCellText(col, v) {
   if (typeof v === 'boolean') return v ? 'yes' : 'no';
   return String(v);
 }
-function dbtCellHtml(col, v) {
+const DBT_TITLES = {
+  created_at: 'Time IST',
+  updated_at: 'Updated IST',
+  pinged_at: 'Ping IST',
+  contract: 'Contract',
+  account: 'Account',
+  exchange: 'Venue',
+  side: 'Side',
+  strategy: 'Strategy',
+  order_id: 'Order',
+  fill_id: 'Fill id',
+  quantity: 'Qty',
+  price: 'Price $',
+  rpnl: 'rPnL ₹ / $',
+  fee: 'Fee $',
+  cost: 'Cost $',
+  upnl: 'uPnL $',
+  net_upnl: 'uPnL $',
+  bid: 'Bid $',
+  ask: 'Ask $',
+  mark: 'Mark $',
+  spread: 'Spread %',
+  slippage: 'Slip %',
+  position: 'Pos',
+  volume: 'Volume',
+  funding_rate: 'Funding',
+  predicted_funding: 'Pred funding',
+  open_interest: 'OI',
+  implied_vol: 'IV %',
+  volatility: 'Vol %',
+  settlement_px: 'Settle $',
+  is_maker: 'Maker',
+  pair: 'Pair',
+  crop: 'Crop',
+  kind: 'Kind',
+  expiry: 'Expiry',
+  field: 'Field',
+  role: 'Role',
+  fill_type: 'Fill type',
+  source: 'Source',
+  product_id: 'Product',
+  margin_ccy: 'Margin ccy',
+  commission_asset: 'Fee ccy',
+};
+function dbtColTitle(col) {
+  return DBT_TITLES[col] || col;
+}
+function dbtRpnlHtml(v, row) {
+  const n = Number(v);
+  if (!isFinite(n)) return esc(String(v));
+  const exch = String((row && row.exchange) || '').toLowerCase();
+  const rate = dbtUsdInr > 0 ? dbtUsdInr : 87;
+  const inr = exch === 'coindcx' ? n : n * rate;
+  const usd = exch === 'coindcx' ? n / rate : n;
+  const inrBit = typeof inrFmtDec === 'function'
+    ? inrFmtDec(inr, Math.abs(inr) >= 100 ? 2 : 2)
+    : ((inr < 0 ? '−' : '+') + '₹' + Math.abs(inr).toFixed(2));
+  const usdBit = typeof usdFmtDec === 'function'
+    ? usdFmtDec(usd, Math.abs(usd) >= 10 ? 2 : 4)
+    : ((usd < 0 ? '−' : '+') + '$' + Math.abs(usd).toFixed(4));
+  return esc(inrBit) + ' <span class="muted">' + esc(usdBit) + '</span>';
+}
+function dbtCellHtml(col, v, row) {
   if (v == null || v === '') return '<span class="muted">—</span>';
+  if (col === 'rpnl') return dbtRpnlHtml(v, row);
   if (dbtIsTime(col) && typeof v === 'number') return esc(fmtISTs(v));
   if (typeof v === 'boolean') return v ? 'yes' : 'no';
   if (col === 'level') return esc(String(v));
@@ -709,7 +774,7 @@ function dbtPaintGrid() {
     return '<th class="sortable dbt-th' + (on ? ' sorted' : '') + (dbtIsNum(c, dbtTypes) ? ' num' : '') +
       '" data-col="' + esc(c) + '" style="width:' + w + 'px;min-width:' + w + 'px;max-width:' + w +
       'px" title="Drag edge to resize · double-click edge to auto-fit · click to sort" onclick="dbtSortBy(\'' +
-      js + '\')">' + esc(c) +
+      js + '\')">' + esc(dbtColTitle(c)) +
       (arrow ? '<span class="sa">' + arrow + '</span>' : '') +
       '<span class="lg-th-resize" data-col="' + esc(c) + '" title="Drag to resize"></span></th>';
   }).join('');
@@ -717,7 +782,7 @@ function dbtPaintGrid() {
     const tds = cols.map(col => {
       const cls = dbtCellClass(col, row[col]);
       return '<td data-col="' + esc(col) + '"' + (cls ? ' class="' + cls + '"' : '') + '>' +
-        dbtCellHtml(col, row[col]) + '</td>';
+        dbtCellHtml(col, row[col], row) + '</td>';
     }).join('');
     return '<tr class="clickable' + (ri === dbtPeekIdx ? ' selected' : '') + '" onclick="dbtShowPeek(' + ri + ')">' + tds + '</tr>';
   }).join('');
@@ -764,7 +829,7 @@ function dbtPaintStats(stats) {
   };
   const cls = (x) => (Number(x) >= 0 ? 'pos-pos' : 'pos-neg');
   let html = '<div class="ins-cell"><div class="k">Matching rows</div><div class="v">' + fmtCount(dbtTotal) + '</div></div>';
-  if (stats.rpnl != null) html += '<div class="ins-cell"><div class="k">Sum rPnL</div><div class="v ' + cls(stats.rpnl) + '">' + pnl(stats.rpnl) + '</div></div>';
+  if (stats.rpnl != null) html += '<div class="ins-cell"><div class="k">Sum rPnL ₹ / $</div><div class="v ' + cls(stats.rpnl) + '">' + dbtRpnlHtml(stats.rpnl, { exchange: 'delta' }) + '</div></div>';
   if (stats.fee != null) html += '<div class="ins-cell"><div class="k">Sum fee</div><div class="v pos-neg">' + n(stats.fee) + '</div></div>';
   if (stats.cost != null) html += '<div class="ins-cell"><div class="k">Sum cost</div><div class="v">' + n(stats.cost) + '</div></div>';
   el.innerHTML = html;
@@ -791,6 +856,7 @@ async function renderDbTable() {
     dbtTotal = d.total;
     dbtColumns = d.columns || [];
     dbtTypes = d.types || {};
+    if (d.usdinr > 0) dbtUsdInr = Number(d.usdinr);
     dbtSort = d.sort || dbtSort;
     dbtDir = d.dir || dbtDir;
     dbtSyncFilterVisibility(dbtColumns);
