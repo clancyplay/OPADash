@@ -118,9 +118,17 @@ body:has(#rpnl.visible) {
 }
 .rpnl-pill.active { border-color: var(--accent); background: rgba(41, 98, 255, .12); }
 .rpnl-pill.live { border-color: rgba(38, 166, 154, .45); }
+.rpnl-pill.live.stopped { border-color: rgba(255, 183, 77, .55); }
+.rpnl-pill.live.flattening { border-color: rgba(239, 83, 80, .5); }
 .rpnl-pill .p-live {
   width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
   background: var(--green); box-shadow: 0 0 6px var(--green);
+}
+.rpnl-pill .p-live.stopped {
+  background: #ffb74d; box-shadow: 0 0 6px #ffb74d;
+}
+.rpnl-pill .p-live.flattening {
+  background: var(--red); box-shadow: 0 0 6px var(--red);
 }
 .rpnl-pill .p-name {
   font-size: 11px; font-weight: 700; color: #fff;
@@ -145,6 +153,8 @@ body:has(#rpnl.visible) {
 .rpnl-pill .p-max,
 .rpnl-pill .p-bal { font-size: 10px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .rpnl-pill .p-mode { font-size: 10px; color: #ffb74d; margin-top: 3px; }
+.rpnl-pill .p-mode.stop { color: #ffb74d; font-weight: 650; letter-spacing: .2px; }
+.rpnl-pill .p-mode.bad { color: var(--red); font-weight: 650; }
 
 /* Inspect + setup */
 .rpnl-inspect {
@@ -173,6 +183,8 @@ body:has(#rpnl.visible) {
 }
 .rpnl-inspect .ri-col { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .rpnl-inspect .ri-chip { color: var(--muted); font-size: 11px; }
+.rpnl-inspect .ri-chip.status.stop { color: #ffb74d; font-weight: 650; }
+.rpnl-inspect .ri-chip.status.bad { color: var(--red); font-weight: 650; }
 .rpnl-inspect .ri-pos { font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .rpnl-inspect .ri-pos.long, .rpnl-inspect .ri-pos .up { color: var(--green); }
 .rpnl-inspect .ri-pos.short, .rpnl-inspect .ri-pos .dn { color: var(--red); }

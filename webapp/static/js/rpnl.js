@@ -220,8 +220,35 @@ function rpnlPillIssue(mode) {
   return true;
 }
 
+function rpnlDashStatus(s) {
+  if (!s) return { key: '', label: '', tone: '' };
+  const mode = String(s.mode || '').trim().toLowerCase();
+  const held = s.hold === true || s.hold === 1 || s.hold === 'true' || s.hold === '1';
+  if (mode === 'flattening') return { key: 'flattening', label: 'Closing', tone: 'bad' };
+  if (held || mode === 'stopped') return { key: 'stopped', label: 'Stopped', tone: 'stop' };
+  return { key: '', label: '', tone: '' };
+}
+
+function rpnlStatusLabel(mode) {
+  const m = String(mode || '').trim().toLowerCase();
+  if (m === 'stopped') return 'Stopped';
+  if (m === 'flattening') return 'Closing';
+  if (m === 'paused') return 'Paused';
+  if (m === 'waiting') return 'Waiting';
+  if (m === 'stale') return 'Stale book';
+  if (m === 'rest') return 'Rest';
+  if (m === 'no-volume') return 'Quiet';
+  if (m === 'fill-pause') return 'Fill pause';
+  if (m === 'grind-cover') return 'Cover';
+  if (m === 'trend-cover') return 'Trend cover';
+  if (m === 'size-cool') return 'Size cool';
+  return String(mode || '').trim();
+}
+
 function rpnlModeText(s, brief) {
   if (!s) return '';
+  const dash = rpnlDashStatus(s);
+  if (dash.label) return dash.label;
   const mode = String(s.mode || '').trim();
   const why = String(s.mode_why || '').trim();
   let left = Number(s.pause_left);
@@ -232,10 +259,10 @@ function rpnlModeText(s, brief) {
   const skipWhy = brief && (!!s.trip_why || !!s.probing);
   const show = mode && mode !== 'quoting' && (!brief || rpnlPillIssue(mode));
   if (show) {
-    let t = mode;
+    let t = rpnlStatusLabel(mode);
     if (left > 0) t += ' ' + Math.round(left) + 's';
     else if (rest > 0) t += ' ' + Math.round(rest) + 's';
-    if (why && !skipWhy) t += ' · ' + why;
+    if (why && !skipWhy && !/^dash stop$/i.test(why)) t += ' · ' + why;
     if (isFinite(size) && size < 99.5 && mode !== 'size-cool') t += ' · size ' + fmtG(size) + '%';
     return t;
   }
@@ -933,7 +960,7 @@ function renderRpnlInspect(row) {
       '<button type="button" class="ri-fold" title="Contract setup" onclick="toggleRpnlInspectFold()">▾</button>' +
       '<div class="ri-stats">' +
         rpnlPosHtml(s, 'ri-pos', row.quote_venue) +
-        // rpnlWalletHtml(s) +
+        rpnlStatusChip(s) +
         '<span class="ri-chip">' + escHtml(qlab) + ' ' + (row.fills || 0) + ' fills' +
           (hedged ? ' · ' + escHtml(hlab) + ' ' + (row.hedge_fills || 0) : '') + '</span>' +
         // (row.strategy ? '<span class="ri-chip">' + escHtml(row.strategy) + '</span>' : '') +
@@ -980,6 +1007,20 @@ function renderRpnlInspect(row) {
   }
 }
 
+function rpnlLiveDot(r) {
+  if (!r || !r.live) return '';
+  const st = rpnlDashStatus(r.settings);
+  const cls = 'p-live' + (st.key ? ' ' + st.key : '');
+  const title = st.label || 'Live';
+  return '<span class="' + cls + '" title="' + escHtml(title) + '"></span>';
+}
+
+function rpnlStatusChip(s) {
+  const st = rpnlDashStatus(s);
+  if (!st.label) return '';
+  return '<span class="ri-chip status ' + st.tone + '">' + escHtml(st.label) + '</span>';
+}
+
 function rpnlPillMode(r) {
   return rpnlModeText(r && r.settings, true) || '';
 }
@@ -1014,15 +1055,18 @@ function rpnlPillHtml(r, cur, nameCount) {
   const maxBit = rpnlPillMax(r);
   const walletBit = rpnlPillWallet(r);
   const strat = r.strategy || '';
-  return '<button type="button" class="rpnl-pill' + active + liveCls + '" data-rpnl-key="' + escHtml(key) + '">' +
-    '<div class="p-name">' + (r.live ? '<span class="p-live" title="live"></span>' : '') +
+  const st = rpnlDashStatus(r.settings);
+  const statusCls = st.key ? ' ' + st.key : '';
+  const modeCls = st.tone ? ' ' + st.tone : '';
+  return '<button type="button" class="rpnl-pill' + active + liveCls + statusCls + '" data-rpnl-key="' + escHtml(key) + '">' +
+    '<div class="p-name">' + rpnlLiveDot(r) +
       '<span class="p-sym">' + escHtml(name) + '</span>' +
       (strat ? '<span class="rpnl-strat">' + escHtml(strat) + '</span>' : '') +
       '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
     '<div class="p-val" style="color:' + mainCol + '">' + rpnlPillValInner(r) + '</div>' +
     (maxBit ? '<div class="p-max">' + escHtml(maxBit) + '</div>' : '') +
     (walletBit ? '<div class="p-bal">' + escHtml(walletBit) + '</div>' : '') +
-    (mode ? '<div class="p-mode">' + escHtml(mode) + '</div>' : '') +
+    (mode ? '<div class="p-mode' + modeCls + '">' + escHtml(mode) + '</div>' : '') +
     '</button>';
 }
 
@@ -1075,6 +1119,9 @@ function renderRpnlSummary(rows, hours) {
       if (!r) return;
       el.classList.toggle('active', el.dataset.rpnlKey === cur);
       el.classList.toggle('live', !!r.live);
+      const st = rpnlDashStatus(r.settings);
+      el.classList.toggle('stopped', st.key === 'stopped');
+      el.classList.toggle('flattening', st.key === 'flattening');
       const val = el.querySelector('.p-val');
       const main = rpnlPillMain(r);
       if (val) {
@@ -1086,9 +1133,9 @@ function renderRpnlSummary(rows, hours) {
       if (mode) {
         if (!modeEl) {
           modeEl = document.createElement('div');
-          modeEl.className = 'p-mode';
           el.appendChild(modeEl);
         }
+        modeEl.className = 'p-mode' + (st.tone ? ' ' + st.tone : '');
         modeEl.textContent = mode;
       } else if (modeEl) {
         modeEl.remove();
@@ -1124,8 +1171,14 @@ function renderRpnlSummary(rows, hours) {
       const nameEl = el.querySelector('.p-name');
       if (nameEl) {
         const dot = nameEl.querySelector('.p-live');
-        if (r.live && !dot) nameEl.insertAdjacentHTML('afterbegin', '<span class="p-live" title="live"></span>');
-        if (!r.live && dot) dot.remove();
+        if (r.live) {
+          const stDot = rpnlDashStatus(r.settings);
+          if (!dot) nameEl.insertAdjacentHTML('afterbegin', rpnlLiveDot(r));
+          else {
+            dot.className = 'p-live' + (stDot.key ? ' ' + stDot.key : '');
+            dot.title = stDot.label || 'Live';
+          }
+        } else if (dot) dot.remove();
         let stratEl = nameEl.querySelector('.rpnl-strat');
         if (r.strategy) {
           if (!stratEl) {
