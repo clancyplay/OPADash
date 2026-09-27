@@ -18,7 +18,7 @@ body:has(#rpnl.visible) {
 #rpnl.page.visible {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   width: 100%;
   max-width: 100%;
   height: calc(100svh - var(--nav-h) - var(--safe-t));
@@ -28,16 +28,28 @@ body:has(#rpnl.visible) {
   min-height: 0;
 }
 #rpnl.page.visible.logs-open {
-  grid-template-rows: auto minmax(0, 1fr) auto minmax(200px, 40vh);
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .rp-top,
+.rp-scroll,
 .rp-charts,
 .rp-foot,
 .rp-logs {
   min-width: 0;
   max-width: 100%;
   width: 100%;
+}
+
+.rp-scroll {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  overflow: hidden;
+}
+#rpnl.logs-open .rp-scroll {
+  grid-template-rows: minmax(0, 1fr) auto minmax(200px, 40vh);
 }
 
 .rp-top {
@@ -565,38 +577,41 @@ body:has(#rpnl.visible) {
 #rpnlLogs[data-kind="fills"] .rp-log-cols { display: none !important; }
 
 @media (max-width: 720px) {
-  /* Normal document scroll. Charts have a real height; swipe the page to see everything. */
+  /* Freeze toolbar + pills + inspect. Only charts / dates / logs scroll. */
   html:has(#rpnl.visible),
   body:has(#rpnl.visible) {
-    overflow-x: hidden;
-    overflow-y: auto;
-    height: auto;
-    max-height: none;
-    -webkit-overflow-scrolling: touch;
+    overflow: hidden;
+    height: 100svh;
+    max-height: 100svh;
   }
   #rpnl.page.visible {
     display: flex;
     flex-direction: column;
-    height: auto;
-    max-height: none;
-    overflow: visible;
+    height: calc(100svh - var(--nav-h) - var(--safe-t));
+    max-height: calc(100dvh - var(--nav-h) - var(--safe-t));
+    overflow: hidden;
     min-height: 0;
   }
-  .rp-top,
-  .rp-foot,
-  .rp-logs {
-    max-height: none;
-    overflow: visible;
-  }
   .rp-top {
-    position: sticky;
-    top: calc(var(--nav-h) + var(--safe-t));
-    z-index: 40;
+    flex: 0 0 auto;
+    max-height: 46vh;
+    overflow: hidden;
     background: var(--bg);
     box-shadow: 0 8px 18px rgba(0, 0, 0, .45);
+    z-index: 40;
+  }
+  .rp-scroll {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
   .rpnl-inspect.open {
-    max-height: min(38vh, 260px);
+    max-height: min(32vh, 220px);
     overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
