@@ -153,19 +153,22 @@
           <label>Exchange
             <select id="opsVenue" onchange="onOpsVenueChange()"></select>
           </label>
-          <label>Subaccount
-            <select id="opsAccount" onchange="onOpsAccountChange()"></select>
-          </label>
           <label>Contract
             <input id="opsContract" type="text" list="opsContractList" autocomplete="off" placeholder="EVAAUSD" oninput="onOpsContractMeta()" />
             <datalist id="opsContractList"></datalist>
             <span class="rp-ops-meta" id="opsContractMeta"></span>
           </label>
+        </div>
+        <select id="opsAccount" class="ops-launch-only" hidden onchange="onOpsAccountChange()"></select>
+        <div class="rp-ops-acct-wrap ops-launch-only">
+          <div class="rp-ops-sub">Subaccount</div>
+          <div id="opsAccountSnap" class="rp-ops-acct-list"></div>
+        </div>
+        <div class="rp-ops-strat ops-launch-only">
           <label>Strategy
             <select id="opsStrategy" onchange="onOpsStrategyChange()"></select>
           </label>
         </div>
-        <div id="opsAccountSnap" class="rp-ops-acct-list ops-launch-only"></div>
         <div id="opsParams"></div>
         <details class="rp-ops-extra ops-launch-only" id="opsExtraWrap">
           <summary>More env</summary>

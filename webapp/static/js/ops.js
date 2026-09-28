@@ -204,7 +204,7 @@ function renderOpsAccountSnap() {
   const box = document.getElementById('opsAccountSnap');
   if (!box) return;
   if (!opsAccounts.length) {
-    box.innerHTML = '';
+    box.innerHTML = '<div class="rp-ops-empty">No keys for this exchange</div>';
     return;
   }
   const cur = (document.getElementById('opsAccount') || {}).value || '';
