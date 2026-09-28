@@ -49,7 +49,10 @@ function currentRpnlSel() {
   return parseRpnlSel((document.getElementById('rpnlSymbol') || {}).value || '');
 }
 function rpnlAccountLabel(r) {
-  return r.account || '';
+  const name = String((r && r.account_name) || '').trim();
+  const id = String((r && r.account) || '').trim();
+  if (name && name !== id) return name;
+  return name || id;
 }
 // The user's pick is kept separately from the <select>, so switching to an
 // unhedged contract can show 'quote' without losing the preference.
@@ -1236,6 +1239,12 @@ function renderRpnlSummary(rows, hours) {
             dot.title = stDot.label || 'Live';
           }
         } else if (dot) dot.remove();
+        const acct = rpnlAccountLabel(r);
+        const qsym = r.quote_symbol || r.contract;
+        const dupe = (typeof nameCount !== 'undefined') && nameCount[qsym + '|' + acct] > 1 && r.account && r.account !== acct;
+        const shown = qsym + (acct ? ' · ' + acct : '') + (dupe ? ' #' + r.account : '');
+        let symEl = nameEl.querySelector('.p-sym');
+        if (symEl) symEl.textContent = shown;
         let stratEl = nameEl.querySelector('.rpnl-strat');
         if (r.strategy) {
           if (!stratEl) {
@@ -3562,11 +3571,13 @@ function rpnlKindTitle() {
   const all = rpnlKindScopeVal() === 'all';
   const el = document.getElementById('rpnlLogsTitle');
   if (!el) return;
-  if (all) el.textContent = 'All ' + meta.label.toLowerCase();
-  else {
-    el.textContent = meta.label + ' · ' + (picked.contract || '') +
-      (picked.account ? ' · ' + picked.account : '');
+  if (all) {
+    el.textContent = 'All ' + meta.label.toLowerCase();
+    return;
   }
+  const row = currentRpnlRow();
+  const lab = row ? rpnlAccountLabel(row) : (picked.account || '');
+  el.textContent = meta.label + ' · ' + (picked.contract || '') + (lab ? ' · ' + lab : '');
 }
 
 function bindRpnlLogsScroll() {

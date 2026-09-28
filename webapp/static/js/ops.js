@@ -140,16 +140,82 @@ async function onOpsVenueChange() {
 async function loadOpsAccounts(venue) {
   const sel = document.getElementById('opsAccount');
   if (!sel) return;
+  const keep = sel.value;
   const r = await fetch('/api/ops/accounts?venue=' + encodeURIComponent(venue));
   const d = r.ok ? await r.json() : { accounts: [] };
   opsAccounts = d.accounts || [];
   if (!opsAccounts.length) {
     sel.innerHTML = '<option value="">No keys for ' + escHtml(venue) + '</option>';
+    renderOpsAccountSnap();
     return;
   }
   sel.innerHTML = opsAccounts.map(a => {
-    const lab = (a.name || a.id) + (a.id && a.name && a.name !== a.id ? ' · ' + a.id : '');
-    return '<option value="' + escHtml(a.id || a.name) + '">' + escHtml(lab) + '</option>';
+    const id = a.id || a.name || '';
+    const lab = a.name || a.id || '';
+    return '<option value="' + escHtml(id) + '">' + escHtml(lab) + '</option>';
+  }).join('');
+  if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
+  renderOpsAccountSnap();
+}
+
+function opsAccountRow() {
+  const id = (document.getElementById('opsAccount') || {}).value || '';
+  return (opsAccounts || []).find(a => a.id === id || a.name === id) || null;
+}
+
+function onOpsAccountChange() {
+  renderOpsAccountSnap();
+}
+
+function opsMoney(a) {
+  if (!a) return '';
+  const asset = String(a.asset || 'USD').toUpperCase();
+  const n = Number(a.balance);
+  const inr = Number(a.balance_inr);
+  if (isFinite(n) && a.balance != null) {
+    const d = Math.abs(n) >= 100 ? 0 : (Math.abs(n) >= 10 ? 1 : 2);
+    const unit = (asset === 'USD' || asset === 'USDT') ? '$' : (asset + ' ');
+    return unit + n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
+  if (isFinite(inr) && a.balance_inr != null && typeof inrFmt === 'function') return inrFmt(inr);
+  return '';
+}
+
+function opsRunningLine(a) {
+  const rows = (a && a.running) || [];
+  if (!rows.length) return 'idle';
+  return rows.map(x => {
+    const c = x.contract || '';
+    const s = x.strategy || '';
+    return s ? (c + ' · ' + s) : c;
+  }).filter(Boolean).join('  ·  ');
+}
+
+function renderOpsAccountSnap() {
+  const box = document.getElementById('opsAccountSnap');
+  if (!box) return;
+  if (!opsAccounts.length) {
+    box.innerHTML = '';
+    return;
+  }
+  const cur = (document.getElementById('opsAccount') || {}).value || '';
+  box.innerHTML = opsAccounts.map(a => {
+    const id = a.id || a.name || '';
+    const name = a.name || a.id || '';
+    const on = id === cur || a.name === cur;
+    const mode = String(a.margin_mode || '').trim();
+    const bal = opsMoney(a);
+    const run = opsRunningLine(a);
+    const idle = run === 'idle';
+    return '<button type="button" class="rp-ops-acct' + (on ? ' on' : '') + '" data-ops-acct="' + escHtml(id) + '">' +
+      '<div class="rp-ops-acct-h">' +
+        '<b>' + escHtml(name) + '</b>' +
+        (mode ? '<span class="rp-ops-mode ' + escHtml(mode) + '">' + escHtml(mode) + '</span>' : '') +
+        (bal ? '<span class="rp-ops-bal">' + escHtml(bal) + '</span>' : '') +
+      '</div>' +
+      '<div class="rp-ops-run' + (idle ? ' idle' : '') + '">' + escHtml(run) + '</div>' +
+      (a.error ? '<div class="aid">' + escHtml(a.error) + '</div>' : '') +
+    '</button>';
   }).join('');
 }
 
@@ -917,6 +983,17 @@ document.addEventListener('click', ev => {
   if (stop) {
     ev.preventDefault();
     stopOpsBot(stop.getAttribute('data-ops-stop'));
+    return;
+  }
+  const pick = ev.target.closest('[data-ops-acct]');
+  if (pick) {
+    ev.preventDefault();
+    const sel = document.getElementById('opsAccount');
+    const id = pick.getAttribute('data-ops-acct') || '';
+    if (sel && id && [...sel.options].some(o => o.value === id)) {
+      sel.value = id;
+      onOpsAccountChange();
+    }
     return;
   }
   const box = document.getElementById('rpOps');

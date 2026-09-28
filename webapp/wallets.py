@@ -209,6 +209,8 @@ async def _delta_wallet(client: httpx.AsyncClient, acct: dict, rate: float) -> d
         "asset": str((pick or {}).get("asset_symbol") or want).upper(),
         "uid": str(uid or ""),
         "available": _num((pick or {}).get("available_balance")),
+        "portfolio_margin": _num((pick or {}).get("portfolio_margin")),
+        "position_margin": _num((pick or {}).get("position_margin")),
     }
 
 

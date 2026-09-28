@@ -515,6 +515,7 @@ def _annotate_rpnl_row(
     row: dict,
     setups: dict[tuple[str, str], dict] | None = None,
     strategy: str = "",
+    names: dict[str, str] | None = None,
 ) -> dict:
     """Split a summary row into quote-venue vs hedge-venue rPnL."""
     counts_all = dict(row.get("venue_fills_all") or row.get("venue_fills") or {})
@@ -528,7 +529,10 @@ def _annotate_rpnl_row(
     row["hedge_rpnl"] = round(sum(v for k, v in rpnls.items() if k in _HEDGE_VENUES), 2)
     row["hedge_fills"] = sum(n for k, n in counts.items() if k in _HEDGE_VENUES)
     acct = row.get("account") or ""
-    row["label"] = meta["label"] + (f" · {acct}" if acct else "")
+    shown = (names or {}).get(acct) or (row.get("account_name") or "").strip() or acct
+    if shown:
+        row["account_name"] = shown
+    row["label"] = meta["label"] + (f" · {shown}" if shown else "")
     if row.get("strategy"):
         row["label"] = row["label"] + f" · {row['strategy']}"
     live = bool(row.get("live"))
@@ -920,12 +924,16 @@ async def rpnl_symbols(
             venue = (r["exchange"] or "delta").lower()
             entry["counts"][venue] = entry["counts"].get(venue, 0) + int(r["n"] or 0)
         out = []
+        names = dash_ops.account_names()
         for entry in merged.values():
             counts = entry["counts"]
             if not entry["account"] and counts.get("delta"):
                 continue
             meta = venue_meta(entry["contract"], entry.pop("counts"))
-            name = entry["account"]
+            aid = entry["account"]
+            name = names.get(aid) or aid
+            if name:
+                entry["account_name"] = name
             strat = entry.get("strategy") or ""
             out.append({
                 **entry,
@@ -948,10 +956,11 @@ async def rpnl_symbols(
                 if key in have:
                     continue
                 meta = venue_meta(contract, {})
-                name = account
+                name = names.get(account) or account
                 out.append({
                     "contract": contract,
                     "account": account,
+                    "account_name": name,
                     "strategy": strat,
                     "quote_venue": meta["quote_venue"],
                     "quote_label": meta["quote_label"],
@@ -1043,7 +1052,8 @@ async def rpnl_summary(
     rows = await _db.get_contract_rpnl_summary(strategy=strategy, since=since)
     setups = await _db.get_bot_setups(strategy)
     wallets = await _db.latest_account_wallets()
-    out = [_annotate_rpnl_row(r, setups, r.get("strategy") or strategy) for r in rows]
+    names = dash_ops.account_names()
+    out = [_annotate_rpnl_row(r, setups, r.get("strategy") or strategy, names) for r in rows]
     for row in out:
         settings = row.get("settings")
         if settings and settings.get("wallet_inr") is not None:
@@ -1984,7 +1994,38 @@ async def ops_strategies() -> dict:
 
 @app.get("/api/ops/accounts")
 async def ops_accounts(venue: str = Query("")) -> dict:
-    rows = dash_ops.public_accounts(venue)
+    v = (venue or "").strip().lower()
+    snaps: dict = {}
+    try:
+        snaps = await dash_ops.account_live_snaps(v)
+    except Exception as extra:
+        logger.warning("webapp: account snaps %s failed — %s", v, extra)
+    running: list[dict] = []
+    wallets_inr: dict[str, float] = {}
+    names = dash_ops.account_names()
+    if _db is not None and _db.pool:
+        try:
+            live_keys = await _db.get_live_ping_keys("all")
+            setups = await _db.get_bot_setups("all")
+            for contract, account, strat in await _db.get_live_bots("all"):
+                running.append({
+                    "contract": contract, "account": account, "strategy": strat,
+                    "account_name": names.get(account) or "",
+                })
+            for aid, (inr, _exch) in _live_wallet_map(setups, live_keys).items():
+                wallets_inr[aid] = float(inr)
+        except Exception as extra:
+            logger.debug("webapp: ops live overlay failed — %s", extra)
+    for bot in dash_launch.list_bots():
+        if not bot.get("alive"):
+            continue
+        running.append({
+            "contract": bot.get("contract") or "",
+            "account": bot.get("account") or "",
+            "account_name": bot.get("account_name") or "",
+            "strategy": bot.get("strategy") or "",
+        })
+    rows = dash_ops.enrich_accounts(v, snaps=snaps, running=running, wallets_inr=wallets_inr)
     return {"accounts": rows, "count": len(rows)}
 
 

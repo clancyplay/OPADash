@@ -1,6 +1,7 @@
 """rPnL ops: accounts, products, strategy knobs, Delta sub-account transfers."""
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -9,7 +10,7 @@ from typing import Any
 import httpx
 
 from config.settings import load_env_file
-from webapp.wallets import _LABELS, _delta_headers, _num, load_wallet_accounts
+from webapp.wallets import _LABELS, _delta_headers, _delta_wallet, _num, load_wallet_accounts
 
 GEOM_LENS = [
     {
@@ -296,6 +297,201 @@ def public_accounts(venue: str = "") -> list[dict]:
             "asset": acct.get("asset") or "",
             "parent": bool(acct.get("parent")),
         })
+    return rows
+
+
+def account_names() -> dict[str, str]:
+    """Delta user id → short configured name (ARB, MAIN, …)."""
+    out: dict[str, str] = {}
+    for acct in load_wallet_accounts():
+        aid = str(acct.get("id") or "").strip()
+        name = str(acct.get("name") or "").strip()
+        if aid and name:
+            out[aid] = name
+    return out
+
+
+def _norm_margin_mode(raw) -> str:
+    mode = str(raw or "").strip().lower().replace("-", "_")
+    if mode in ("isolated", "isolated_margin"):
+        return "isolated"
+    if mode in ("portfolio", "portfolio_margin", "pm"):
+        return "portfolio"
+    if mode in ("cross", "crossed", "cross_margin"):
+        return "cross"
+    return mode if mode in ("isolated", "portfolio", "cross", "mixed") else ""
+
+
+def _mode_from_wallet(snap: dict) -> str:
+    if _num(snap.get("portfolio_margin")) > 0.0001:
+        return "portfolio"
+    if _num(snap.get("position_margin")) > 0.0001:
+        return "isolated"
+    return ""
+
+
+async def _delta_subaccount_modes(client: httpx.AsyncClient) -> dict[str, str]:
+    """Parent key → margin_mode for every sub. Empty if no parent key."""
+    key, secret = parent_delta_keys()
+    if not key or not secret:
+        return {}
+    path = "/v2/sub_accounts"
+    base = os.getenv("DELTA_REST_URL", "https://api.india.delta.exchange").rstrip("/")
+    try:
+        r = await client.get(base + path, headers=_delta_headers("GET", path, "", key, secret))
+        data: Any = r.json() if r.content else {}
+    except Exception:
+        return {}
+    rows = data.get("result") if isinstance(data, dict) else None
+    out: dict[str, str] = {}
+    if not isinstance(rows, list):
+        return out
+    for rec in rows:
+        if not isinstance(rec, dict):
+            continue
+        mode = _norm_margin_mode(rec.get("margin_mode"))
+        if not mode:
+            continue
+        aid = str(rec.get("id") or "").strip()
+        if aid:
+            out[aid] = mode
+        name = str(rec.get("account_name") or "").strip()
+        if name:
+            out[name] = mode
+    return out
+
+
+async def _delta_position_mode(client: httpx.AsyncClient, acct: dict) -> str:
+    path = "/v2/positions/margined"
+    base = os.getenv("DELTA_REST_URL", "https://api.india.delta.exchange").rstrip("/")
+    try:
+        r = await client.get(
+            base + path,
+            headers=_delta_headers("GET", path, "", acct["api_key"], acct["api_secret"]),
+        )
+        data: Any = r.json() if r.content else {}
+    except Exception:
+        return ""
+    rows = data.get("result") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return ""
+    modes = {
+        _norm_margin_mode(rec.get("margin_mode"))
+        for rec in rows
+        if isinstance(rec, dict) and rec.get("margin_mode")
+    }
+    modes.discard("")
+    if len(modes) == 1:
+        return modes.pop()
+    if len(modes) > 1:
+        return "mixed"
+    return ""
+
+
+async def _delta_acct_snap(client: httpx.AsyncClient, acct: dict, rate: float) -> dict:
+    item = {
+        "id": acct.get("id") or "",
+        "name": acct.get("name") or acct.get("id") or "",
+        "margin_mode": "",
+        "balance": None,
+        "available": None,
+        "asset": acct.get("asset") or "USD",
+        "error": "",
+    }
+    try:
+        snap, mode = await asyncio.gather(
+            _delta_wallet(client, acct, rate),
+            _delta_position_mode(client, acct),
+        )
+        item["id"] = str(snap.get("uid") or item["id"])
+        item["available"] = _num(snap.get("available"))
+        item["balance"] = _num(snap.get("native"))
+        item["asset"] = str(snap.get("asset") or item["asset"])
+        item["margin_mode"] = mode or _mode_from_wallet(snap)
+    except Exception as exc:
+        item["error"] = str(exc)[:160]
+    return item
+
+
+async def account_live_snaps(venue: str = "delta") -> dict[str, dict]:
+    """id/name → {margin_mode, balance, available, asset} for the New-contract picker."""
+    venue = str(venue or "delta").strip().lower()
+    accts = [a for a in load_wallet_accounts() if a.get("exchange") == venue]
+    if not accts:
+        return {}
+    if venue != "delta":
+        return {}
+    rate = float(os.getenv("USDINR_RATE", "87") or 87)
+    timeout = httpx.Timeout(12.0, connect=6.0)
+    async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
+        parent_modes, rows = await asyncio.gather(
+            _delta_subaccount_modes(client),
+            asyncio.gather(*[_delta_acct_snap(client, a, rate) for a in accts]),
+        )
+    out: dict[str, dict] = {}
+    for item in rows:
+        mode = parent_modes.get(str(item.get("id") or "")) or parent_modes.get(str(item.get("name") or "")) or item.get("margin_mode") or ""
+        item["margin_mode"] = _norm_margin_mode(mode)
+        for key in (item.get("id"), item.get("name")):
+            if key:
+                out[str(key)] = item
+    return out
+
+
+def _dedupe_running(rows: list[dict]) -> list[dict]:
+    seen: set[tuple[str, str]] = set()
+    out: list[dict] = []
+    for rec in rows:
+        contract = str(rec.get("contract") or "").strip()
+        strategy = str(rec.get("strategy") or "").strip()
+        if not contract:
+            continue
+        key = (contract.upper(), strategy.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"contract": contract, "strategy": strategy})
+    return out
+
+
+def enrich_accounts(
+    venue: str,
+    snaps: dict[str, dict] | None = None,
+    running: list[dict] | None = None,
+    wallets_inr: dict[str, float] | None = None,
+) -> list[dict]:
+    rows = public_accounts(venue)
+    snaps = snaps or {}
+    wallets_inr = wallets_inr or {}
+    by_acct: dict[str, list[dict]] = {}
+    for rec in running or []:
+        aid = str(rec.get("account") or "").strip()
+        name = str(rec.get("account_name") or "").strip()
+        item = {"contract": rec.get("contract") or "", "strategy": rec.get("strategy") or ""}
+        if aid:
+            by_acct.setdefault(aid, []).append(item)
+        if name and name != aid:
+            by_acct.setdefault(name, []).append(item)
+    for row in rows:
+        snap = snaps.get(row["id"]) or snaps.get(row["name"]) or {}
+        row["margin_mode"] = snap.get("margin_mode") or ""
+        bal = snap.get("balance")
+        row["balance"] = None if bal is None else _num(bal)
+        avail = snap.get("available")
+        row["available"] = None if avail is None else _num(avail)
+        row["asset"] = snap.get("asset") or row.get("asset") or ""
+        if row["balance"] is None:
+            inr = wallets_inr.get(row["id"])
+            if inr is None:
+                inr = wallets_inr.get(row["name"])
+            if inr is not None:
+                row["balance_inr"] = _num(inr)
+        else:
+            row["balance_inr"] = None
+        row["error"] = snap.get("error") or ""
+        row["running"] = _dedupe_running(
+            (by_acct.get(row["id"]) or []) + (by_acct.get(row["name"]) or [])
+        )
     return rows
 
 

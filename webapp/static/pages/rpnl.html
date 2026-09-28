@@ -154,7 +154,7 @@
             <select id="opsVenue" onchange="onOpsVenueChange()"></select>
           </label>
           <label>Subaccount
-            <select id="opsAccount"></select>
+            <select id="opsAccount" onchange="onOpsAccountChange()"></select>
           </label>
           <label>Contract
             <input id="opsContract" type="text" list="opsContractList" autocomplete="off" placeholder="EVAAUSD" oninput="onOpsContractMeta()" />
@@ -165,6 +165,7 @@
             <select id="opsStrategy" onchange="onOpsStrategyChange()"></select>
           </label>
         </div>
+        <div id="opsAccountSnap" class="rp-ops-acct-list ops-launch-only"></div>
         <div id="opsParams"></div>
         <details class="rp-ops-extra ops-launch-only" id="opsExtraWrap">
           <summary>More env</summary>

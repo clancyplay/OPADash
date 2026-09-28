@@ -1084,6 +1084,32 @@ body.ops-open { overflow: hidden; }
 .rp-ops-group .rp-ops-sub { color: #9aa3b8; }
 #opsParams [hidden] { display: none !important; }
 .rp-ops-empty { font-size: 12px; color: var(--muted); padding: 8px 0; }
+.rp-ops-acct-list {
+  display: grid; gap: 6px; margin: -4px 0 14px;
+}
+.rp-ops-acct {
+  display: block; width: 100%; text-align: left;
+  padding: 8px 10px; border-radius: 10px;
+  border: 1px solid var(--border); background: #10141e;
+  color: inherit; cursor: pointer;
+}
+.rp-ops-acct.on { border-color: var(--accent); background: rgba(41, 98, 255, .12); }
+.rp-ops-acct-h {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 12px;
+}
+.rp-ops-acct-h b { font-size: 13px; font-weight: 700; color: #fff; }
+.rp-ops-mode {
+  font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 999px; background: #1c2434; color: #c5d0e6;
+}
+.rp-ops-mode.isolated { color: #ffcc80; background: rgba(255, 167, 38, .12); }
+.rp-ops-mode.portfolio { color: #80cbc4; background: rgba(38, 166, 154, .12); }
+.rp-ops-mode.cross { color: #90caf9; background: rgba(33, 150, 243, .12); }
+.rp-ops-mode.mixed { color: #f48fb1; background: rgba(244, 143, 177, .12); }
+.rp-ops-bal { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 650; color: #fff; }
+.rp-ops-run { margin-top: 3px; font-size: 11px; color: #c5d0e6; line-height: 1.35; }
+.rp-ops-run.idle { color: var(--muted); }
 .rp-ops-bot, .rp-ops-wal {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 8px 0; border-top: 1px solid var(--border);
