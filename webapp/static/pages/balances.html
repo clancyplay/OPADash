@@ -11,12 +11,33 @@
       </label>
     </div>
     <div class="ctrl-actions">
+      <button class="btn" type="button" id="balXferBtn" onclick="toggleBalXfer()">Transfer</button>
       <button class="btn" onclick="loadBalances()">Refresh</button>
       <label class="ctrl-check"><input type="checkbox" id="balAuto" checked onchange="setupBalAuto()" /> Auto</label>
     </div>
     <span id="balCount" class="ctrl-meta"></span>
   </div>
   <div id="balances-inner" class="page-inner">
+    <div class="bal-xfer" id="balXfer" hidden>
+      <h4>Transfer USD</h4>
+      <p class="hint">Move unlocked USD between Delta subaccounts. Delta rejects subaccount trading keys — this uses the <b>parent / main</b> API key.</p>
+      <div class="bal-xfer-grid">
+        <label>From
+          <select id="balXferFrom"></select>
+        </label>
+        <label>To
+          <select id="balXferTo"></select>
+        </label>
+        <label>Amount (USD)
+          <input id="balXferAmt" type="number" min="1" step="any" inputmode="decimal" />
+        </label>
+      </div>
+      <div id="balXferWallets" class="bal-xfer-wallets"></div>
+      <div class="bal-xfer-actions">
+        <button class="btn danger" type="button" id="balXferGo" onclick="submitBalXfer()">Transfer</button>
+        <span class="bal-xfer-msg" id="balXferMsg"></span>
+      </div>
+    </div>
     <div id="balEmpty" style="display:none;color:var(--muted);padding:24px;line-height:1.6;">Loading balances…</div>
     <div id="balShell" style="display:none;">
       <div class="rpt-hero" id="balHero"></div>

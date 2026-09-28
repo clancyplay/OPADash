@@ -118,6 +118,20 @@ def parent_delta_keys() -> tuple[str, str]:
     return "", ""
 
 
+PARENT_HINT = (
+    "Delta will not transfer with a subaccount trading key. "
+    "Log into the main/parent Delta account, create an API key with wallet permission, "
+    "then set PROFIT_SWEEP_API_KEY and PROFIT_SWEEP_API_SECRET in OPADash/.env "
+    "(or add that account to config/accounts.json with parent: true, or BAL_n_PARENT=true)."
+)
+
+
+def parent_status() -> dict:
+    key, secret = parent_delta_keys()
+    ok = bool(key and secret)
+    return {"has_parent": ok, "hint": "" if ok else PARENT_HINT}
+
+
 async def list_products(venue: str) -> list[dict]:
     venue = str(venue or "delta").strip().lower()
     cached = _prod_cache.get(venue)
@@ -341,10 +355,7 @@ async def transfer_delta(src: str, dest: str, amount: float, asset: str = "USD")
         raise ValueError("amount must be > 0 and ≤ 5,000,000")
     key, secret = parent_delta_keys()
     if not key or not secret:
-        raise PermissionError(
-            "Delta parent API keys missing. Set PROFIT_SWEEP_API_KEY + PROFIT_SWEEP_API_SECRET "
-            "(main account, not a sub), or mark one accounts.json row parent=true."
-        )
+        raise PermissionError(PARENT_HINT)
     known = {str(a.get("id") or "") for a in load_wallet_accounts() if a.get("exchange") == "delta"}
     known.discard("")
     if known and (src not in known or dest not in known):

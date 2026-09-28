@@ -14,12 +14,11 @@ function opsErr(d, status) {
   return 'failed ' + status;
 }
 
-function openRpOps(tab) {
+function openRpOps() {
   const box = document.getElementById('rpOps');
   if (!box) return;
   box.hidden = false;
   document.body.classList.add('ops-open');
-  showRpOpsTab(tab || 'launch');
   bootRpOps();
 }
 
@@ -27,18 +26,6 @@ function closeRpOps() {
   const box = document.getElementById('rpOps');
   if (box) box.hidden = true;
   document.body.classList.remove('ops-open');
-}
-
-function showRpOpsTab(tab) {
-  const launch = tab !== 'cash';
-  const paneL = document.getElementById('rpOpsLaunch');
-  const paneC = document.getElementById('rpOpsCash');
-  if (paneL) paneL.hidden = !launch;
-  if (paneC) paneC.hidden = launch;
-  document.querySelectorAll('.rp-ops-tab').forEach(el => {
-    el.classList.toggle('on', el.getAttribute('data-ops-tab') === (launch ? 'launch' : 'cash'));
-  });
-  if (!launch) loadOpsCash();
 }
 
 async function bootRpOps() {
@@ -248,77 +235,6 @@ async function stopOpsBot(id) {
     await refreshOpsBots();
   } catch (e) {
     toast(String(e), 'err');
-  }
-}
-
-async function loadOpsCash() {
-  const from = document.getElementById('opsCashFrom');
-  const to = document.getElementById('opsCashTo');
-  const box = document.getElementById('opsCashWallets');
-  if (!from || !to) return;
-  setOpsMsg('opsCashMsg', '', false);
-  try {
-    const r = await fetch('/api/ops/delta/wallets');
-    const d = r.ok ? await r.json() : { wallets: [], has_parent: false };
-    const rows = d.wallets || [];
-    if (!d.has_parent) {
-      setOpsMsg('opsCashMsg', 'Parent Delta API key missing (PROFIT_SWEEP_API_KEY)', true);
-    }
-    if (!rows.length) {
-      from.innerHTML = to.innerHTML = '<option value="">No Delta subs</option>';
-      if (box) box.innerHTML = '<div class="rp-ops-empty">Add Delta keys in accounts.json / BAL_*.</div>';
-      return;
-    }
-    const opts = rows.map(w => {
-      const av = w.available != null ? (' · ' + Number(w.available).toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ' + (w.asset || 'USD')) : '';
-      const lab = (w.name || w.id) + av;
-      return '<option value="' + escHtml(w.id) + '">' + escHtml(lab) + '</option>';
-    }).join('');
-    from.innerHTML = opts;
-    to.innerHTML = opts;
-    if (rows.length > 1) to.selectedIndex = 1;
-    if (box) {
-      box.innerHTML = rows.map(w => {
-        const av = w.available != null ? Number(w.available).toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—';
-        const err = w.error ? '<div class="aid err">' + escHtml(w.error) + '</div>' : '';
-        return '<div class="rp-ops-wal"><b>' + escHtml(w.name || w.id) + '</b>' +
-          (w.parent ? ' <span class="rpnl-strat">parent</span>' : '') +
-          '<div class="aid">' + escHtml(w.id) + ' · avail ' + av + ' ' + escHtml(w.asset || 'USD') + '</div>' + err + '</div>';
-      }).join('');
-    }
-  } catch (e) {
-    setOpsMsg('opsCashMsg', String(e), true);
-  }
-}
-
-async function submitOpsTransfer() {
-  const src = (document.getElementById('opsCashFrom') || {}).value || '';
-  const dest = (document.getElementById('opsCashTo') || {}).value || '';
-  const amount = Number((document.getElementById('opsCashAmt') || {}).value);
-  if (!src || !dest) return setOpsMsg('opsCashMsg', 'Pick from and to', true);
-  if (!(amount > 0)) return setOpsMsg('opsCashMsg', 'Amount required', true);
-  if (!confirm('Transfer ' + amount + ' USD from ' + src + ' → ' + dest + '?')) return;
-  const btn = document.getElementById('opsCashBtn');
-  if (btn) btn.disabled = true;
-  setOpsMsg('opsCashMsg', 'Sending…', false);
-  try {
-    const r = await fetch('/api/ops/transfer', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ src, dest, amount, asset: 'USD' }),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      setOpsMsg('opsCashMsg', opsErr(d, r.status), true);
-      return;
-    }
-    setOpsMsg('opsCashMsg', 'Moved ' + d.amount + ' ' + d.asset, false);
-    toast('transferred ' + d.amount + ' ' + d.asset, 'ok');
-    await loadOpsCash();
-  } catch (e) {
-    setOpsMsg('opsCashMsg', String(e), true);
-  } finally {
-    if (btn) btn.disabled = false;
   }
 }
 

@@ -319,10 +319,30 @@
     padding: 7px 12px; cursor: pointer; color: var(--text); font-size: 12px;
   }
   .bal-mover .an { font-weight: 700; }
-  .bal-detail {
+  .bal-xfer {
     background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
-    padding: 16px 18px; margin-bottom: 14px;
+    padding: 14px 16px; margin-bottom: 14px;
   }
+  .bal-xfer h4 { margin: 0 0 6px; font-size: 14px; color: #fff; }
+  .bal-xfer .hint { margin: 0 0 12px; }
+  .bal-xfer-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px 10px; margin-bottom: 10px;
+  }
+  .bal-xfer-grid label {
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 11px; font-weight: 650; color: var(--muted); min-width: 0;
+  }
+  .bal-xfer-wallets { margin-bottom: 8px; }
+  .bal-xfer-wal {
+    padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px;
+  }
+  .bal-xfer-wal .aid { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .bal-xfer-wal .aid.err { color: #f48fb1; }
+  .bal-xfer-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .bal-xfer-msg { font-size: 12px; color: var(--muted); line-height: 1.45; max-width: 52ch; }
+  .bal-xfer-msg.err { color: #f48fb1; }
+  .bal-xfer .btn.danger { color: #f07178; }
+  .bal-xfer .btn:disabled { opacity: .45; cursor: not-allowed; }
   .bal-detail-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
   .bal-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .bal-detail h4 { margin: 4px 0 0; font-size: 20px; color: #fff; }
@@ -863,6 +883,7 @@
 
     .rpt-hero { padding: 16px; border-radius: 12px; }
     .rpt-hero .hero-bal { font-size: 28px; word-break: break-word; }
+    .bal-xfer-grid { grid-template-columns: 1fr; }
     .rpt-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .rpt-kpi .v { font-size: 16px; }
     .rpt-acct-h { grid-template-columns: 1fr auto; gap: 8px; padding: 12px; }

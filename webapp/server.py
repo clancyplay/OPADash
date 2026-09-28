@@ -1880,7 +1880,7 @@ async def ops_strategies() -> dict:
         "venues": list(dash_ops.QUOTE_VENUES),
         "strategies": dash_ops.strategy_catalog(),
         "opa6": str(dash_launch.opa6_root()),
-        "has_parent": bool(dash_ops.parent_delta_keys()[0]),
+        **dash_ops.parent_status(),
     }
 
 
@@ -1948,7 +1948,7 @@ async def ops_bot_stop(req: LaunchStopRequest) -> dict:
 @app.get("/api/ops/delta/wallets")
 async def ops_delta_wallets() -> dict:
     rows = await dash_ops.delta_wallet_rows()
-    return {"wallets": rows, "has_parent": bool(dash_ops.parent_delta_keys()[0])}
+    return {"wallets": rows, **dash_ops.parent_status()}
 
 
 @app.post("/api/ops/transfer")
