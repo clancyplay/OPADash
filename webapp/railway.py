@@ -20,12 +20,19 @@ GQL_URLS = (
     "https://backboard.railway.app/graphql/v2",
 )
 
-_SKIP_COPY = {
-    "RAILWAY_TOKEN", "RAILWAY_API_TOKEN", "DASHBOARD_PASSWORD", "DASHBOARD_USERNAME",
-    "DASHBOARD_SECRET", "DASHBOARD_COOKIE_DAYS", "PORT", "OPA6_ROOT", "OPA6_RAILWAY_SERVICE",
-    "OPA6_GITHUB_REPO", "PATH", "PYTHONPATH", "PYTHONHOME", "HOME", "USER",
+_INFRA_KEYS = (
+    "DATABASE_URL", "USDINR_RATE",
+    "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_ALERT_CHAT_ID", "ALERT_RPNL_INR",
+    "REPORT_SECS", "MAX_AGE_DELTA_MS", "IGNORE_MIN_SIZE",
+)
+_VENUE_INFRA = {
+    "delta": ("DELTA_REST_URL", "DELTA_WS_URL", "DELTA_PRIVATE_WS_URL", "DELTA_WALLET_ASSET"),
+    "binance": ("BINANCE_REST_URL", "BINANCE_WS_URL", "BINANCE_WALLET_ASSET"),
+    "bybit": ("BYBIT_REST_URL", "BYBIT_WS_URL"),
+    "kucoin": ("KUCOIN_REST_URL", "KUCOIN_WS_URL"),
+    "coinbase": ("COINBASE_REST_URL", "COINBASE_INTX_URL"),
+    "aster": ("ASTER_REST_URL",),
 }
-_SKIP_PREFIX = ("RAILWAY_", "BAL_")
 
 
 def _token() -> str:
@@ -171,15 +178,43 @@ def _variables(service_id: str) -> dict[str, str]:
     return out
 
 
-def _keep_var(name: str) -> bool:
-    n = name.upper()
-    if n in _SKIP_COPY or n.startswith(_SKIP_PREFIX):
-        return False
-    if n.endswith("_API_KEY") or n.endswith("_API_SECRET") or n.endswith("_PASSPHRASE"):
-        return False
-    if "PASSWORD" in n or "SECRET" in n or "TOKEN" in n:
-        return False
-    return True
+def _pick_infra(name: str, template: dict[str, str]) -> str:
+    val = (os.getenv(name) or "").strip()
+    if val:
+        return val
+    return str(template.get(name) or "").strip()
+
+
+def _infra_env(venue: str, template: dict[str, str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    names = list(_INFRA_KEYS) + list(_VENUE_INFRA.get(venue, ()))
+    for name in names:
+        val = _pick_infra(name, template)
+        if val:
+            out[name] = val
+    return out
+
+
+def _slim_knobs(knobs: dict[str, str]) -> dict[str, str]:
+    """Keep form knobs. Ticks win — drop the unused % (or unused 0 ticks)."""
+    out = dict(knobs)
+    for ticks, pct in (
+        ("HEM_TICKS", "HEM_PCT"),
+        ("SPAN_TICKS", "SPAN_PCT"),
+        ("STEP_TICKS", "STEP_PCT"),
+        ("K_TICKS", "K_PCT"),
+        ("TAIL_TICKS", "TAIL_PCT"),
+    ):
+        raw = out.get(ticks)
+        try:
+            n = int(float(raw)) if raw not in (None, "") else 0
+        except (TypeError, ValueError):
+            n = 0
+        if n > 0:
+            out.pop(pct, None)
+        else:
+            out.pop(ticks, None)
+    return {k: v for k, v in out.items() if v is not None and str(v) != ""}
 
 
 def _template_service(proj: dict) -> dict | None:
@@ -286,6 +321,26 @@ def _upsert_vars(service_id: str, knobs: dict[str, str]) -> None:
         )
 
 
+def _enable_static_ip(service_id: str) -> str:
+    """Turn on Railway static outbound IP. Empty string if the plan/API refuses."""
+    try:
+        data = _gql(
+            """
+            mutation ($input: EgressGatewayCreateInput!) {
+              egressGatewayAssociationCreate(input: $input) { ipv4 region }
+            }
+            """,
+            {"input": {"environmentId": _env_id(), "serviceId": service_id}},
+        )
+        rows = data.get("egressGatewayAssociationCreate") or []
+        if isinstance(rows, list) and rows:
+            ip = str((rows[0] or {}).get("ipv4") or "").strip()
+            return ip
+    except RuntimeError:
+        pass
+    return ""
+
+
 def _set_start(service_id: str, cmd: str) -> None:
     _gql(
         """
@@ -385,16 +440,11 @@ def _bot_env(venue: str, contract: str, strategy: str, account: dict, knobs: dic
     env: dict[str, str] = {
         "STRATEGY": strategy,
         "QUOTE_VENUE": venue,
-        "PYTHONUNBUFFERED": "1",
-        "DASH_KIND": "opadash",
-        "DASH_STRATEGY": strategy,
-        "DASH_VENUE": venue,
-        "DASH_CONTRACT": contract,
-        "DASH_ACCOUNT": str(account.get("id") or account.get("name") or ""),
     }
     env[keys[0]] = account["api_key"]
     env[keys[1]] = account["api_secret"]
-    env[keys[2]] = argv_tail[0] if strategy == "pair" else contract
+    symbol = argv_tail[0] if strategy == "pair" else contract
+    env[keys[2]] = symbol.upper() if strategy != "pair" or symbol[:2] not in ("C-", "P-") else symbol
     extra_pw = keys[3]
     if extra_pw:
         phrase = account.get("passphrase") or os.getenv(extra_pw) or ""
@@ -402,33 +452,14 @@ def _bot_env(venue: str, contract: str, strategy: str, account: dict, knobs: dic
             env[extra_pw] = phrase
     if strategy == "pair":
         opts = [t for t in argv_tail if t[:2] in ("C-", "P-")]
-        env["PAIR_SYMBOL"] = ",".join(opts)
+        if opts:
+            env["PAIR_SYMBOL"] = ",".join(opts)
         if argv_tail and argv_tail[0][:2] not in ("C-", "P-"):
             env["CROP"] = argv_tail[0]
             if len(argv_tail) > 1:
                 env["EXPIRY"] = argv_tail[1]
-    for name, val in knobs.items():
-        env[name] = val
-    db = (os.getenv("DATABASE_URL") or "").strip()
-    if db:
-        env.setdefault("DATABASE_URL", db)
-    rate = (os.getenv("USDINR_RATE") or "").strip()
-    if rate:
-        env.setdefault("USDINR_RATE", rate)
+    env.update(_slim_knobs(knobs))
     return env
-
-
-def _merge_template_vars(template_id: str, overlay: dict[str, str]) -> dict[str, str]:
-    out: dict[str, str] = {}
-    try:
-        copied = _variables(template_id)
-    except RuntimeError:
-        copied = {}
-    for name, val in copied.items():
-        if _keep_var(name) and val != "":
-            out[name] = val
-    out.update(overlay)
-    return out
 
 
 def launch(
@@ -481,19 +512,30 @@ def launch(
         source = {"repo": repo, "branch": "main"}
 
     overlay = _bot_env(venue, contract, strategy, account, knobs, argv_tail)
-    env = _merge_template_vars(str(tmpl["id"]), overlay) if tmpl else overlay
+    copied = {}
+    if tmpl:
+        try:
+            copied = _variables(str(tmpl["id"]))
+        except RuntimeError:
+            copied = {}
+    env = _infra_env(venue, copied)
+    env.update(overlay)
 
     created = None
+    static_ip = ""
     try:
         created = _create_empty(name)
         sid = str(created["id"])
         _upsert_vars(sid, env)
         _set_start(sid, "python3 run.py")
+        static_ip = _enable_static_ip(sid)
         _connect(sid, source)
         try:
             _deploy(sid)
         except RuntimeError:
             pass
+        if not static_ip:
+            static_ip = _enable_static_ip(sid)
     except Exception:
         if created and created.get("id"):
             try:
@@ -516,6 +558,7 @@ def launch(
         "log": "",
         "params": knobs,
         "service": created.get("name") or name,
+        "static_ip": static_ip,
     }
 
 

@@ -880,6 +880,47 @@ function fillOpsFromSetup(s) {
   syncOpsDependentFields();
 }
 
+async function waitForRpnlPill(contract, account, strategy, rail) {
+  const c = String(contract || '').trim();
+  const wants = [c + '::' + account + '::' + strategy, c.toUpperCase() + '::' + account + '::' + strategy];
+  const sel = document.getElementById('rpnlSymbol');
+  if (sel && wants[1]) {
+    if (![...sel.options].some(o => o.value === wants[1])) {
+      const opt = document.createElement('option');
+      opt.value = wants[1];
+      opt.textContent = '● ' + c.toUpperCase() + ' · starting…';
+      sel.appendChild(opt);
+    }
+    sel.value = wants[1];
+    if (typeof rpnlForceKeepSel !== 'undefined') rpnlForceKeepSel = true;
+  }
+  const tries = rail ? 50 : 12;
+  const gap = rail ? 4000 : 2000;
+  for (let i = 0; i < tries; i++) {
+    await new Promise(r => setTimeout(r, gap));
+    if (typeof loadRpnl === 'function') {
+      try { await loadRpnl(true); } catch (e) {}
+    }
+    const box = document.getElementById('rpnlSymbol');
+    if (!box) continue;
+    const hit = [...box.options].find(o =>
+      wants.some(w => o.value === w || (typeof rpnlSelMatch === 'function' && rpnlSelMatch(o.value, w)))
+    );
+    if (hit && (hit.textContent || '').indexOf('starting') < 0) {
+      box.value = hit.value;
+      if (typeof loadRpnl === 'function') {
+        try { await loadRpnl(false); } catch (e) {}
+      }
+      if (typeof closeRpOps === 'function') closeRpOps();
+      toast('live · ' + strategy + ' ' + c.toUpperCase(), 'ok');
+      return;
+    }
+    const left = Math.max(0, Math.round(((tries - i - 1) * gap) / 1000));
+    setOpsMsg('opsLaunchMsg', 'Waiting for rPnL pill… Railway deploy can take a minute (' + left + 's left)', false);
+  }
+  setOpsMsg('opsLaunchMsg', 'Service created. Open rPnL after the Railway deploy goes live if the pill is not here yet.', false);
+}
+
 async function submitOpsLaunch() {
   if (opsEdit) return submitOpsEdit();
   const venue = opsVenue();
@@ -912,10 +953,13 @@ async function submitOpsLaunch() {
       return;
     }
     const bot = d.bot || {};
-    setOpsMsg('opsLaunchMsg', 'Started pid ' + (bot.pid || '') + ' — watch the rPnL pill', false);
+    const rail = bot.kind === 'railway' || (opsCatalog && opsCatalog.launch === 'railway');
+    setOpsMsg('opsLaunchMsg', rail
+      ? ('Railway service ' + (bot.service || bot.id || '') + ' — waiting for the rPnL pill…')
+      : ('Started pid ' + (bot.pid || '') + ' — waiting for the rPnL pill…'), false);
     toast('started ' + strategy + ' ' + contract, 'ok');
     await refreshOpsBots();
-    setTimeout(() => { if (typeof loadRpnl === 'function') loadRpnl(true); }, 2500);
+    waitForRpnlPill(contract, account, strategy, rail);
   } catch (e) {
     setOpsMsg('opsLaunchMsg', String(e), true);
   } finally {
