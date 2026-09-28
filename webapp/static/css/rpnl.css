@@ -289,8 +289,19 @@ body:has(#rpnl.visible) {
   font-size: 12px; font-weight: 700; line-height: 1;
 }
 .rpnl-inspect .p-acts button.go { color: #8bd98b; }
-.rpnl-inspect .p-acts button.edit {
+.rpnl-inspect .p-acts button.orders {
   margin-left: auto;
+  color: #c5cdd8;
+}
+.rpnl-inspect .p-acts button.orders.open {
+  background: rgba(38, 166, 154, .16);
+  color: #9ee4d8;
+  border-color: rgba(38, 166, 154, .4);
+}
+.rpnl-inspect .p-acts button.orders .ri-orders-n {
+  margin-left: 1px;
+}
+.rpnl-inspect .p-acts button.edit {
   color: #9ecbff;
 }
 .rpnl-inspect .p-acts button.danger { color: #f48fb1; }
@@ -304,29 +315,14 @@ body:has(#rpnl.visible) {
 }
 .rpnl-inspect .p-acts button:disabled { opacity: .4; cursor: default; }
 .rpnl-inspect .ri-orders {
-  display: flex;
+  display: none;
   flex-direction: column;
   min-width: 0;
+}
+.rpnl-inspect .ri-orders.open {
+  display: flex;
   padding-top: 4px;
 }
-.rpnl-inspect .ri-orders-tog {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 28px;
-  padding: 0 8px;
-  border-radius: 7px;
-  cursor: pointer;
-  border: 1px solid var(--border2);
-  background: rgba(255, 255, 255, .04);
-  color: #c5cdd8;
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 650;
-  text-align: left;
-}
-.rpnl-inspect .ri-orders-tog span:first-child { flex: 1 1 auto; }
 .rpnl-inspect .ri-orders-n {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
@@ -336,18 +332,13 @@ body:has(#rpnl.visible) {
   min-width: 18px;
   padding: 1px 6px;
   text-align: center;
+  font-size: 10px;
+  line-height: 1.3;
 }
 .rpnl-inspect .ri-orders-n.zero {
   color: var(--muted);
   background: rgba(255, 255, 255, .06);
 }
-.rpnl-inspect .ri-orders-chev {
-  color: var(--muted);
-  font-size: 11px;
-  transform: rotate(-90deg);
-  transition: transform .15s ease;
-}
-.rpnl-inspect .ri-orders.open .ri-orders-chev { transform: rotate(0deg); }
 .rpnl-inspect .ri-orders-scrim { display: none; }
 .rpnl-inspect .ri-orders-grab { display: none; }
 .rpnl-inspect .ri-orders-x { display: none; }
@@ -843,7 +834,11 @@ body:has(#rpnl.visible) {
   .rpnl-inspect .p-acts button {
     height: 30px; min-height: 30px; padding: 0 8px; font-size: 11px;
   }
-  .rpnl-inspect .ri-orders-tog { min-height: 30px; }
+  .rpnl-inspect .ri-orders.open {
+    padding-top: 0;
+    height: 0;
+    overflow: visible;
+  }
   .rpnl-inspect .ri-orders-scrim {
     display: none;
     position: fixed;

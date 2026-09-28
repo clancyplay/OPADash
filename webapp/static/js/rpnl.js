@@ -632,8 +632,20 @@ function rpnlMarkPairHedges(rows) {
   });
 }
 
+function rpnlOrdersBtnHtml(r) {
+  const n = openOrdersForInspect(r).length;
+  return '<button type="button" class="orders' + (riOrdersOpen ? ' open' : '') + '"' +
+    ' data-ri-orders="toggle" title="Open orders" aria-label="Open orders" aria-expanded="' +
+    (riOrdersOpen ? 'true' : 'false') + '" aria-controls="riOrdersBody">' +
+    '<span class="act-ico" aria-hidden="true">≡</span>Orders' +
+    '<span class="ri-orders-n' + (n ? '' : ' zero') + '">' + n + '</span></button>';
+}
+
 function rpnlActsHtml(r) {
-  if (rpnlIsPairHedge(r) || !r.live) return '';
+  const ordersBtn = rpnlOrdersBtnHtml(r);
+  if (rpnlIsPairHedge(r) || !r.live) {
+    return '<div class="p-acts">' + ordersBtn + '</div>';
+  }
   const s = r.settings || {};
   const mode = String(s.mode || '').trim().toLowerCase();
   const flattening = mode === 'flattening';
@@ -655,6 +667,7 @@ function rpnlActsHtml(r) {
   if (hasQuotes) html += act('cancel', '✕', 'Cancel');
   if (paused) html += act('clear', '↺', 'Clear');
   html += act('flatten', '×', 'Close', 'danger' + (flattening ? ' on' : ''));
+  html += ordersBtn;
   if (!flattening) {
     html += '<button type="button" class="edit" data-rp-edit="1" title="Edit settings" aria-label="Edit">' +
       '<span class="act-ico" aria-hidden="true">✎</span>Edit</button>';
@@ -943,13 +956,16 @@ function setRiOrdersOpen(on) {
   const wrap = box && box.querySelector('.ri-orders');
   if (wrap) {
     wrap.classList.toggle('open', riOrdersOpen);
-    const tog = wrap.querySelector('.ri-orders-tog');
-    if (tog) tog.setAttribute('aria-expanded', riOrdersOpen ? 'true' : 'false');
     const body = wrap.querySelector('.ri-orders-body');
     if (body) {
       if (riOrdersOpen) body.removeAttribute('hidden');
       else body.setAttribute('hidden', '');
     }
+  }
+  const tog = box && box.querySelector('[data-ri-orders="toggle"]');
+  if (tog) {
+    tog.setAttribute('aria-expanded', riOrdersOpen ? 'true' : 'false');
+    tog.classList.toggle('open', riOrdersOpen);
   }
   if (typeof resizeRpnlCharts === 'function') {
     requestAnimationFrame(function () { resizeRpnlCharts(); });
@@ -957,7 +973,7 @@ function setRiOrdersOpen(on) {
 }
 
 function rpnlOrdersHtml(row, rows) {
-  if (!row || !row.live) return '';
+  if (!row) return '';
   const orders = openOrdersForInspect(row, rows);
   const n = orders.length;
   const rowsHtml = n
@@ -977,12 +993,6 @@ function rpnlOrdersHtml(row, rows) {
       }).join('')
     : '<li class="ri-ord empty">No working quotes</li>';
   return '<div class="ri-orders' + (riOrdersOpen ? ' open' : '') + '">' +
-    '<button type="button" class="ri-orders-tog" data-ri-orders="toggle" aria-expanded="' +
-      (riOrdersOpen ? 'true' : 'false') + '" aria-controls="riOrdersBody">' +
-      '<span>Open orders</span>' +
-      '<span class="ri-orders-n' + (n ? '' : ' zero') + '">' + n + '</span>' +
-      '<span class="ri-orders-chev" aria-hidden="true">▾</span>' +
-    '</button>' +
     '<div class="ri-orders-scrim" data-ri-orders="close"></div>' +
     '<div class="ri-orders-body" id="riOrdersBody" role="dialog" aria-label="Open orders"' +
       (riOrdersOpen ? '' : ' hidden') + '>' +
@@ -1172,10 +1182,7 @@ function renderRpnlInspect(row) {
             (hedged ? ' · ' + escHtml(hlab) + ' ' + (row.hedge_fills || 0) : '') + '</span>' +
         '</div>' +
       '</div>' +
-      (function () {
-        const tools = rpnlActsHtml(row);
-        return tools ? '<div class="ri-row ri-tools">' + tools + '</div>' : '';
-      })() +
+      '<div class="ri-row ri-tools">' + rpnlActsHtml(row) + '</div>' +
       rpnlOrdersHtml(row) +
     '</div>';
   const page = document.getElementById('rpnl');
@@ -2783,16 +2790,16 @@ function initRpnl() {
       const px = (quotes || []).map(q => Number(q.price)).filter(p => isFinite(p) && p > 0);
       const base = typeof original === 'function' ? original() : null;
       if (!px.length) return base;
-      const lo = Math.min.apply(null, px);
-      const hi = Math.max.apply(null, px);
-      const pad = Math.max((hi - lo) * 0.08, Math.abs(hi) * 0.004, 0.02);
-      let min = lo - pad;
-      let max = hi + pad;
+      let min = Math.min.apply(null, px);
+      let max = Math.max.apply(null, px);
       if (base && base.priceRange) {
         min = Math.min(min, base.priceRange.minValue);
         max = Math.max(max, base.priceRange.maxValue);
       }
-      return { priceRange: { minValue: min, maxValue: max } };
+      const mid = (min + max) / 2 || max || 1;
+      const span = Math.max(max - min, Math.abs(mid) * 0.003);
+      const pad = Math.max(span * 0.12, Math.abs(mid) * 0.002);
+      return { priceRange: { minValue: Math.max(0, min - pad), maxValue: max + pad } };
     },
   });
   ohlcHedgeMarkerSeries = ohlcChart.addLineSeries({
