@@ -69,20 +69,8 @@ _ORDERS = {"key": "ORDERS", "label": "Orders / side", "type": "int", "default": 
 _DRY = {"key": "DRY_RUN", "label": "Dry run", "type": "bool", "default": False, "group": "risk"}
 
 
-def _max(label="Max", default="10000", usd=True):
-    """Max number + USD/lots unit. Pair stays coin-only and does not use this."""
-    return [{
-        "key": "MAX_POSITION",
-        "label": label,
-        "type": "max",
-        "default": default,
-        "group": "size",
-        "unit": "usd" if usd else "lots",
-        "units": [
-            {"id": "usd", "label": "USD"},
-            {"id": "lots", "label": "lots"},
-        ],
-    }]
+def _max(label="Max $", default="10000"):
+    return [{"key": "MAX_POSITION", "label": label, "type": "number", "default": default, "group": "size"}]
 
 
 def _geom(lenses, hint="", defaults=None):

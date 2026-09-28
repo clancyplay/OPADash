@@ -252,8 +252,8 @@ def launch(
 
     knobs = _pin_geom(_scrub_params(params))
     if strategy == "pair":
-        if knobs.get("MAX_POSITION") and "PAIR_MAX" not in knobs:
-            knobs["PAIR_MAX"] = knobs["MAX_POSITION"]
+        if knobs.get("MAX_POSITION"):
+            knobs.setdefault("PAIR_MAX", knobs["MAX_POSITION"])
         knobs.setdefault("PAIR_HEDGE", "true")
     env = os.environ.copy()
     env["QUOTE_VENUE"] = venue

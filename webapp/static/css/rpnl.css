@@ -915,16 +915,6 @@ body.ops-open { overflow: hidden; }
   min-height: 32px;
 }
 .rp-ops-check input { width: 16px; height: 16px; accent-color: var(--accent); }
-.rp-ops-max {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) auto;
-  gap: 3px 8px;
-  align-items: center;
-  margin-bottom: 2px;
-}
-.rp-ops-max .rp-ops-len-lab { font-size: 12px; font-weight: 700; color: #fff; }
-.rp-ops-max input { width: 100%; }
 .rp-ops-geom {
   grid-column: 1 / -1;
   padding: 8px 10px 10px;
