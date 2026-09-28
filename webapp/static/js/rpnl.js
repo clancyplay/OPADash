@@ -753,6 +753,8 @@ function rpnlSetupBits(s) {
   if (s.spread_pad != null && Number(s.spread_pad) > 0) bits.push('pad ' + fmtG(s.spread_pad) + '%');
   if (s.fit_auto != null) bits.push('fit auto ' + (on(s.fit_auto) ? 'on' : 'off'));
   if (s.span_spread != null) bits.push('span spread ' + (on(s.span_spread) ? 'on' : 'off'));
+  if (s.quote_ms != null) bits.push('quote ' + fmtG(s.quote_ms) + 'ms');
+  if (s.place_secs != null) bits.push('place ' + fmtG(s.place_secs) + 's');
   if (s.vol_gate != null) bits.push('vol gate ' + (on(s.vol_gate) ? 'on' : 'off'));
   if (s.flow_gate != null) bits.push('flow gate ' + (on(s.flow_gate) ? 'on' : 'off'));
   if (s.flatten != null) bits.push('flatten ' + fmtG(s.flatten) + '%');

@@ -656,6 +656,8 @@ function renderOpsGlossary() {
     else if (p.key === 'GRIND_USD') add('grind', 'Grind $', 'Pause if window rPnL is this negative.');
     else if (p.key === 'VOL_GATE') add('vol', 'Vol gate', 'Only quote while the tape is busy.');
     else if (p.key === 'DRY_RUN') add('dry', 'Dry run', 'Log quotes. Do not send orders.');
+    else if (p.key === 'QUOTE_MS') add('qms', 'Quote ms', 'Min milliseconds between edits of the same order.');
+    else if (p.key === 'PLACE_SECS') add('place', 'Place secs', 'After a full fill, wait this long before quoting that rung again.');
     else if (p.key === 'PAIR_HEDGE') add('ph', 'Hedge', 'Hedge option delta with the perpetual.');
     else if (p.key === 'PAIR_HEDGE_LOT') add('hl', 'Hedge lot', 'Min contracts off-target before a hedge order.');
     else if (p.key === 'BID_TICKS') add('bt', 'Bid +ticks', 'How many ticks above the bid you buy.');
@@ -672,7 +674,7 @@ function renderOpsParams() {
   if (!box) return;
   const spec = opsStrategySpec();
   const params = spec.params || [];
-  const titles = { size: 'Size', book: 'Book', geometry: 'Geometry', quote: 'Quote', risk: 'Risk', hedge: 'Hedge' };
+    const titles = { size: 'Size', book: 'Book', geometry: 'Geometry', quote: 'Quote', pace: 'Pace', risk: 'Risk', hedge: 'Hedge' };
   const groups = [];
   params.forEach(p => {
     const id = p.group || '';
@@ -817,6 +819,8 @@ function fillOpsFromSetup(s) {
   setNum('opsP_FATE_USD', s.fate);
   setNum('opsP_GRIND_USD', s.grind);
   if (s.dry_run != null) setChk('opsP_DRY_RUN', s.dry_run, true);
+  setNum('opsP_QUOTE_MS', s.quote_ms);
+  setNum('opsP_PLACE_SECS', s.place_secs);
   setNum('opsP_BID_TICKS', s.bid_ticks);
   setNum('opsP_ASK_TICKS', s.ask_ticks);
   setNum('opsP_STEP_PCT', s.step);

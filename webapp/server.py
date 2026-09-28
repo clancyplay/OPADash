@@ -391,6 +391,7 @@ _SETUP_KEYS = (
     "fit_auto", "span_spread", "vol_gate", "vol_stable",
     "orders", "live_orders", "max_pos", "max_usd", "ignore", "ignore_usd",
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
+    "quote_ms", "place_secs",
     "mode", "mode_why", "pause_left", "size_pct",
     "min_spread", "spread_pad",
     "role", "pair_hedge", "hedge_of", "hedge_via", "hedge_target", "hedge_pct", "hedge_lot",
@@ -1817,7 +1818,7 @@ _SETUP_PAYLOAD_KEYS = frozenset({
     "HEM_PCT", "SPAN_PCT", "STEP_PCT", "TAIL_PCT", "K_PCT", "EDGE_PCT",
     "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS", "K_TICKS", "TAILS",
     "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",
-    "FATE_USD", "GRIND_USD",
+    "FATE_USD", "GRIND_USD", "QUOTE_MS", "PLACE_SECS",
     "FIT_AUTO", "SPAN_SPREAD", "VOL_GATE", "STEP_AUTO", "DRY_RUN", "MAX_IN_USD",
     "HOOK", "STEP_MULT", "MAX_POSITION", "PAIR_HEDGE", "PAIR_HEDGE_LOT", "FLIP", "EDGE_VENUE",
     "MOVE_PCT", "MOVE_SECS", "RISK_REWARD",
@@ -1829,11 +1830,12 @@ _SETUP_BOOL = frozenset({
 })
 _SETUP_INT = frozenset({
     "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS", "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",
-    "K_TICKS", "TAILS", "PAIR_HEDGE_LOT",
+    "K_TICKS", "TAILS", "PAIR_HEDGE_LOT", "QUOTE_MS",
 })
 _SETUP_NUM = frozenset({
     "HEM_PCT", "SPAN_PCT", "STEP_PCT", "TAIL_PCT", "K_PCT", "EDGE_PCT",
     "FATE_USD", "GRIND_USD", "MAX_POSITION", "max_usd", "max_pos",
+    "PLACE_SECS",
     "MOVE_PCT", "MOVE_SECS", "RISK_REWARD",
     "MOM_PCT", "MOM_SLOW_PCT", "CLIP_PCT", "TRAIL_PCT", "MOM_STOP_PCT",
 })
@@ -1878,7 +1880,7 @@ def _setup_payload(payload: dict | None) -> dict:
                 raise HTTPException(status_code=400, detail=f"{name} invalid")
             if n < 0:
                 raise HTTPException(status_code=400, detail=f"{name} must be ≥ 0")
-            if name in ("ORDERS", "PAIR_HEDGE_LOT") and n < 1:
+            if name in ("ORDERS", "PAIR_HEDGE_LOT", "QUOTE_MS") and n < 1:
                 raise HTTPException(status_code=400, detail=f"{name} must be ≥ 1")
             out[name] = n
             continue

@@ -71,6 +71,22 @@ _ORDERS = {"key": "ORDERS", "label": "Orders / side", "type": "int", "default": 
 _DRY = {"key": "DRY_RUN", "label": "Dry run", "type": "bool", "default": False, "group": "risk"}
 
 
+def _pace(*, quote_ms="150", place_secs=None):
+    """Edit wait (QUOTE_MS) and post-fill recreate wait (PLACE_SECS)."""
+    rows = [{
+        "key": "QUOTE_MS", "label": "Quote ms", "type": "int", "default": str(quote_ms),
+        "group": "pace", "min": 1,
+        "hint": "Min milliseconds between edits of the same order.",
+    }]
+    if place_secs is not None:
+        rows.append({
+            "key": "PLACE_SECS", "label": "Place secs", "type": "number", "default": str(place_secs),
+            "group": "pace", "min": 0,
+            "hint": "After a full fill, wait this many seconds before quoting that rung again.",
+        })
+    return rows
+
+
 def _max(label="Max", default="10000"):
     """Max number + USD/lots unit. Pair stays coin-only and does not use this."""
     return [{
@@ -101,7 +117,7 @@ def _fate():
     ]
 
 
-def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=False, fate=True, hook=True):
+def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=False, fate=True, hook=True, quote_ms="150", place_secs="20"):
     """Hem/span/step makers: stack, clip, chop, fade, flip."""
     rows = _max() + [_ORDERS]
     if hook:
@@ -115,7 +131,7 @@ def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=
         rows.append({"key": "FIT_AUTO", "label": "Fit auto", "type": "bool", "default": fit_default, "group": "geometry"})
     if span_spread:
         rows.append({
-            "key": "SPAN_SPREAD", "label": "Span spread", "type": "bool", "default": True, "group": "geometry",
+            "key": "SPAN_SPREAD", "label": "Span spread", "type": "bool", "default": False, "group": "geometry",
             "hint": "When the live bid–ask is wider than span, hang inner quotes on the spread.",
         })
     if touch:
@@ -125,6 +141,7 @@ def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=
             "show_if_any": ["SPAN_SPREAD", "FIT_AUTO"],
             "hint": "How far inside the BBO when span follows the spread. 0 joins the touch.",
         })
+    rows.extend(_pace(quote_ms=quote_ms, place_secs=place_secs))
     if fate:
         rows.extend(_fate())
     rows.append({"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": vol, "group": "risk"})
@@ -144,6 +161,7 @@ def _touch_like(*, k_default="0", step_default="0.05"):
         {"key": "STEP_AUTO", "label": "Fit step", "type": "bool", "default": True, "group": "geometry"},
         {"key": "STEP_PCT", "label": "Step %", "type": "number", "default": step_default, "group": "geometry"},
         _MULT,
+        *_pace(place_secs="60"),
         *_fate(),
         {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
         _DRY,
@@ -152,6 +170,7 @@ def _touch_like(*, k_default="0", step_default="0.05"):
 
 PAIR_PARAMS = [
     {"key": "MAX_POSITION", "label": "Max coin", "type": "number", "default": "2", "group": "size"},
+    *_pace(quote_ms="250"),
     {"key": "PAIR_HEDGE", "label": "Hedge with perpetual", "type": "bool", "default": True, "group": "hedge"},
     {
         "key": "PAIR_HEDGE_LOT", "label": "Hedge lot", "type": "int", "default": "1", "group": "hedge",
@@ -180,7 +199,7 @@ STRATEGIES = [
     {
         "id": "chop", "label": "Chop",
         "blurb": "Hem/span ladder; span stays at env width.",
-        "params": _ladder(vol=True),
+        "params": _ladder(vol=True, place_secs="60"),
     },
     {
         "id": "fade", "label": "Fade",
@@ -200,6 +219,7 @@ STRATEGIES = [
             _HOOK,
             _geom(["hem", "span", "step"], "Each edge is % of price, or whole ticks. Ticks win."),
             _MULT,
+            *_pace(quote_ms="500", place_secs="60"),
             _DRY,
         ],
     },
@@ -216,6 +236,7 @@ STRATEGIES = [
             _HOOK,
             _geom(["hem", "span", "tail"], "Hem and span are the two edges. Tail is the stack behind them."),
             _MULT,
+            *_pace(place_secs="60"),
             *_fate(),
             {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
             _DRY,
@@ -235,6 +256,7 @@ STRATEGIES = [
             {"key": "CLIP_PCT", "label": "Clip %", "type": "number", "default": "25", "group": "size"},
             {"key": "TRAIL_PCT", "label": "Trail %", "type": "number", "default": "0.35", "group": "quote"},
             {"key": "MOM_STOP_PCT", "label": "Stop %", "type": "number", "default": "0.50", "group": "risk"},
+            *_pace(place_secs="8"),
             *_fate(),
             {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
             _DRY,
@@ -248,6 +270,7 @@ STRATEGIES = [
             {"key": "MOVE_SECS", "label": "Move secs", "type": "number", "default": "30", "group": "quote"},
             {"key": "RISK_REWARD", "label": "Risk:reward", "type": "number", "default": "2", "group": "risk"},
             {"key": "FLIP", "label": "Flip side", "type": "bool", "default": False, "group": "quote"},
+            *_pace(place_secs="0"),
             _DRY,
         ],
     },
@@ -264,6 +287,7 @@ STRATEGIES = [
             {"key": "STEP_AUTO", "label": "Fit step", "type": "bool", "default": True, "group": "geometry"},
             {"key": "STEP_PCT", "label": "Step %", "type": "number", "default": "0.1", "group": "geometry"},
             _MULT,
+            *_pace(place_secs="60"),
             *_fate(),
             {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
             _DRY,
