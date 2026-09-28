@@ -35,6 +35,8 @@ from utils.events_db import (
 )
 from utils.logger import start_db_log_forwarder
 from webapp.wallets import fetch_idle_wallets
+from webapp import launch as dash_launch
+from webapp import ops as dash_ops
 
 logger = logging.getLogger("webapp")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -386,7 +388,7 @@ _SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold", "wallet_exch", 
 _SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr"}
 _SETUP_KEYS = (
     "hook", "hem", "span", "step", "hem_ticks", "span_ticks", "step_ticks", "step_mult",
-    "hem_flip", "fit_auto", "span_spread", "vol_gate", "vol_stable",
+    "fit_auto", "span_spread", "vol_gate", "vol_stable",
     "orders", "live_orders", "max_pos", "max_usd", "ignore", "ignore_usd",
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
     "mode", "mode_why", "pause_left", "size_pct",
@@ -1837,6 +1839,116 @@ async def bot_command(
         raise HTTPException(status_code=500, detail="failed to queue command")
     logger.info("webapp: bot command %s %s %s %s id=%s", cmd, tag, contract, req.account or "-", cmd_id)
     return {"ok": True, "id": cmd_id, "cmd": cmd, "strategy": tag, "contract": contract, "account": req.account or ""}
+
+
+class LaunchRequest(BaseModel):
+    venue: str
+    account: str
+    contract: str
+    strategy: str
+    params: dict | None = None
+
+
+class LaunchStopRequest(BaseModel):
+    id: str
+
+
+class TransferRequest(BaseModel):
+    src: str
+    dest: str
+    amount: float
+    asset: str = "USD"
+
+
+@app.get("/api/ops/strategies")
+async def ops_strategies() -> dict:
+    return {
+        "venues": list(dash_ops.QUOTE_VENUES),
+        "strategies": dash_ops.strategy_catalog(),
+        "opa6": str(dash_launch.opa6_root()),
+        "has_parent": bool(dash_ops.parent_delta_keys()[0]),
+    }
+
+
+@app.get("/api/ops/accounts")
+async def ops_accounts(venue: str = Query("")) -> dict:
+    rows = dash_ops.public_accounts(venue)
+    return {"accounts": rows, "count": len(rows)}
+
+
+@app.get("/api/ops/products")
+async def ops_products(venue: str = Query("delta")) -> dict:
+    v = (venue or "delta").strip().lower()
+    if v not in dash_ops.QUOTE_VENUES:
+        raise HTTPException(status_code=400, detail=f"unsupported venue '{venue}'")
+    try:
+        rows = await dash_ops.list_products(v)
+    except Exception as extra:
+        logger.warning("webapp: products %s failed — %s", v, extra)
+        raise HTTPException(status_code=502, detail=f"could not list {v} contracts")
+    return {"venue": v, "products": rows}
+
+
+@app.get("/api/ops/bots")
+async def ops_bots() -> dict:
+    return {"bots": dash_launch.list_bots()}
+
+
+@app.post("/api/ops/launch")
+async def ops_launch(req: LaunchRequest) -> dict:
+    venue = (req.venue or "").strip().lower()
+    strategy = (req.strategy or "").strip().lower()
+    contract = (req.contract or "").strip()
+    if venue not in dash_ops.QUOTE_VENUES:
+        raise HTTPException(status_code=400, detail=f"unsupported venue '{req.venue}'")
+    acct = dash_ops.find_account(venue, req.account)
+    if acct is None:
+        raise HTTPException(status_code=400, detail="unknown account — add it in config/accounts.json or BAL_* keys")
+    try:
+        rec = dash_launch.launch(
+            venue=venue, contract=contract, strategy=strategy, account=acct, params=req.params,
+        )
+    except ValueError as extra:
+        raise HTTPException(status_code=400, detail=str(extra))
+    except FileNotFoundError as extra:
+        raise HTTPException(status_code=500, detail=str(extra))
+    except Exception as extra:
+        logger.exception("webapp: launch failed")
+        raise HTTPException(status_code=500, detail=str(extra)[:200])
+    logger.info("webapp: launched %s %s:%s pid=%s", strategy, venue, contract, rec.get("pid"))
+    return {"ok": True, "bot": rec}
+
+
+@app.post("/api/ops/bots/stop")
+async def ops_bot_stop(req: LaunchStopRequest) -> dict:
+    try:
+        rec = dash_launch.stop(req.id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="bot not found")
+    except (ValueError, RuntimeError) as extra:
+        raise HTTPException(status_code=400, detail=str(extra))
+    logger.info("webapp: stopped dash bot %s pid=%s", rec.get("id"), rec.get("pid"))
+    return {"ok": True, "bot": rec}
+
+
+@app.get("/api/ops/delta/wallets")
+async def ops_delta_wallets() -> dict:
+    rows = await dash_ops.delta_wallet_rows()
+    return {"wallets": rows, "has_parent": bool(dash_ops.parent_delta_keys()[0])}
+
+
+@app.post("/api/ops/transfer")
+async def ops_transfer(req: TransferRequest) -> dict:
+    try:
+        rec = await dash_ops.transfer_delta(req.src, req.dest, req.amount, req.asset)
+    except PermissionError as extra:
+        raise HTTPException(status_code=400, detail=str(extra))
+    except ValueError as extra:
+        raise HTTPException(status_code=400, detail=str(extra))
+    except RuntimeError as extra:
+        raise HTTPException(status_code=502, detail=str(extra))
+    logger.info("webapp: delta transfer %s → %s %s %s", rec["from"], rec["to"], rec["amount"], rec["asset"])
+    return rec
 
 
 class DepositWithdrawalRequest(BaseModel):

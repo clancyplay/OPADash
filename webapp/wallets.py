@@ -74,6 +74,8 @@ def load_wallet_accounts() -> list[dict]:
         if fp in seen:
             return
         seen.add(fp)
+        role = _clean(item.get("role")).lower()
+        parent = item.get("parent") is True or role == "parent" or str(item.get("parent") or "").lower() in ("1", "true", "yes", "on")
         rows.append({
             "exchange": exch,
             "id": _clean(item.get("id") or item.get("account") or item.get("uid")),
@@ -83,6 +85,7 @@ def load_wallet_accounts() -> list[dict]:
             "passphrase": _clean(item.get("passphrase") or item.get("api_passphrase")),
             "asset": _clean(item.get("asset")).upper(),
             "strategy": _clean(item.get("strategy")),
+            "parent": parent,
         })
 
     raw = _clean(os.getenv("BALANCE_ACCOUNTS"))
@@ -132,6 +135,8 @@ def load_wallet_accounts() -> list[dict]:
             "passphrase": os.getenv(p + "PASSPHRASE") or os.getenv(p + "API_PASSPHRASE"),
             "asset": os.getenv(p + "ASSET"),
             "strategy": os.getenv(p + "STRATEGY"),
+            "parent": os.getenv(p + "PARENT"),
+            "role": os.getenv(p + "ROLE"),
         })
 
     # Single leftover keys from .env when nobody listed numbered accounts.

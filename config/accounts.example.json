@@ -4,7 +4,16 @@
     "id": "22354431",
     "name": "ARBUSD",
     "api_key": "REPLACE",
-    "api_secret": "REPLACE"
+    "api_secret": "REPLACE",
+    "parent": false
+  },
+  {
+    "exchange": "delta",
+    "id": "PARENT_USER_ID",
+    "name": "Delta main",
+    "api_key": "REPLACE",
+    "api_secret": "REPLACE",
+    "parent": true
   },
   {
     "exchange": "binance",

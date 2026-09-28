@@ -5,5 +5,7 @@ __pycache__/
 .env.*
 !.env.example
 config/accounts.json
+config/launches.json
+config/launches.lock
 logs/
 fills_export/

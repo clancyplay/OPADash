@@ -23,6 +23,8 @@
           <option value="quote">Quote</option>
           <option value="hedge">Hedge</option>
         </select>
+        <button class="btn" type="button" onclick="openRpOps('launch')">New</button>
+        <button class="btn" type="button" onclick="openRpOps('cash')">Cash</button>
         <button class="btn" type="button" onclick="loadRpnlFresh()">Refresh</button>
         <label class="rp-check"><input type="checkbox" id="rpnlAuto" onchange="setupRpnlAuto()" checked /> Auto</label>
       </div>
@@ -131,5 +133,66 @@
       <div class="dbt-peek" id="rpnlLgPeek" hidden></div>
     </div>
   </div>
+  </div>
+</div>
+
+<div id="rpOps" class="rp-ops" hidden>
+  <div class="rp-ops-panel" role="dialog" aria-labelledby="rpOpsTitle">
+    <div class="rp-ops-h">
+      <div class="rp-ops-tabs">
+        <button type="button" class="rp-ops-tab on" data-ops-tab="launch" onclick="showRpOpsTab('launch')">New contract</button>
+        <button type="button" class="rp-ops-tab" data-ops-tab="cash" onclick="showRpOpsTab('cash')">Transfer</button>
+      </div>
+      <button type="button" class="btn" onclick="closeRpOps()">Close</button>
+    </div>
+    <div class="rp-ops-body">
+      <section id="rpOpsLaunch" class="rp-ops-pane">
+        <p class="rp-ops-lead">Start an OPA6 process with this subaccount’s keys. Same contract + account + strategy cannot run twice.</p>
+        <div class="rp-ops-grid">
+          <label>Exchange
+            <select id="opsVenue" onchange="onOpsVenueChange()"></select>
+          </label>
+          <label>Subaccount
+            <select id="opsAccount"></select>
+          </label>
+          <label>Contract
+            <input id="opsContract" type="text" list="opsContractList" autocomplete="off" placeholder="EVAAUSD" />
+            <datalist id="opsContractList"></datalist>
+          </label>
+          <label>Strategy
+            <select id="opsStrategy" onchange="renderOpsParams()"></select>
+          </label>
+        </div>
+        <div class="rp-ops-params" id="opsParams"></div>
+        <label class="rp-ops-extra">Extra env
+          <textarea id="opsExtra" rows="2" placeholder="STEP_MULT=2&#10;HEM_TICKS=4"></textarea>
+        </label>
+        <div class="rp-ops-actions">
+          <button class="btn" type="button" id="opsLaunchBtn" onclick="submitOpsLaunch()">Start</button>
+          <span class="rp-ops-msg" id="opsLaunchMsg"></span>
+        </div>
+        <h4 class="rp-ops-sub">Dash-started</h4>
+        <div id="opsBots" class="rp-ops-bots"></div>
+      </section>
+      <section id="rpOpsCash" class="rp-ops-pane" hidden>
+        <p class="rp-ops-lead">Move unlocked USD between Delta subaccounts. Needs the <b>parent / main</b> API key (PROFIT_SWEEP_API_KEY or parent=true in accounts.json).</p>
+        <div class="rp-ops-grid">
+          <label>From
+            <select id="opsCashFrom"></select>
+          </label>
+          <label>To
+            <select id="opsCashTo"></select>
+          </label>
+          <label>Amount (USD)
+            <input id="opsCashAmt" type="number" min="1" step="any" inputmode="decimal" />
+          </label>
+        </div>
+        <div id="opsCashWallets" class="rp-ops-wallets"></div>
+        <div class="rp-ops-actions">
+          <button class="btn danger" type="button" id="opsCashBtn" onclick="submitOpsTransfer()">Transfer</button>
+          <span class="rp-ops-msg" id="opsCashMsg"></span>
+        </div>
+      </section>
+    </div>
   </div>
 </div>

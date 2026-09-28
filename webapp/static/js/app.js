@@ -87,6 +87,7 @@ function showPage(name) {
     document.getElementById(NAV_IDS[p]).classList.toggle('active', p === name);
   });
   lsSet(LS_PAGE, name);
+  if (name !== 'rpnl' && typeof closeRpOps === 'function') closeRpOps();
   if (name === 'rpnl'      && !rpnlReady) { initRpnl();      rpnlReady = true; }
   if (name === 'balances') {
     if (!balancesReady) { initBalances(); balancesReady = true; }
