@@ -299,26 +299,15 @@ def _set_start(service_id: str, cmd: str) -> None:
 
 def _connect(service_id: str, source: dict) -> None:
     repo = source["repo"]
-    payload = {"repo": repo}
-    try:
-        _gql(
-            """
-            mutation ($id: String!, $input: ServiceSourceInput!) {
-              serviceConnect(id: $id, input: $input) { id }
-            }
-            """,
-            {"id": service_id, "input": payload},
-        )
-    except RuntimeError:
-        payload["branch"] = source.get("branch") or "main"
-        _gql(
-            """
-            mutation ($id: String!, $input: ServiceSourceInput!) {
-              serviceConnect(id: $id, input: $input) { id }
-            }
-            """,
-            {"id": service_id, "input": payload},
-        )
+    branch = source.get("branch") or "main"
+    _gql(
+        """
+        mutation ($id: String!, $input: ServiceConnectInput!) {
+          serviceConnect(id: $id, input: $input) { id }
+        }
+        """,
+        {"id": service_id, "input": {"repo": repo, "branch": branch}},
+    )
 
 
 def _deploy(service_id: str) -> None:
