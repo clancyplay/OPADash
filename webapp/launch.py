@@ -29,6 +29,7 @@ BOTS = {
     "flip": "flip.py",
     "lean": "lean.py",
     "momentum": "momentum.py",
+    "pair": "pair.py",
     "plain": "plain.py",
     "stack": "stack.py",
     "surge": "surge.py",
@@ -168,6 +169,21 @@ def _pin_geom(knobs: dict[str, str]) -> dict[str, str]:
     return knobs
 
 
+def _pair_argv(contract: str) -> list[str]:
+    """`C-BTC-…`, `C-…,P-…`, or `BTC 250926` → pair.py argv."""
+    out = []
+    for part in str(contract or "").replace(",", " ").split():
+        tok = part.strip()
+        if tok:
+            out.append(tok.upper() if tok[:2].upper() in ("C-", "P-") else tok.upper() if tok.isalpha() else tok)
+    if not out:
+        raise ValueError("pair needs an option symbol or crop + expiry, e.g. C-BTC-120000-250926 or BTC 250926")
+    joined = " ".join(out)
+    if len(joined) > 96:
+        raise ValueError("pair contract too long")
+    return out
+
+
 def _scrub_params(raw: dict | None) -> dict[str, str]:
     out: dict[str, str] = {}
     if not isinstance(raw, dict):
@@ -208,7 +224,12 @@ def launch(
         raise ValueError(f"unknown strategy '{strategy}'")
     if venue not in VENUE_ENV:
         raise ValueError(f"unsupported venue '{venue}'")
-    if not contract or len(contract) > 40:
+    if strategy == "pair" and venue != "delta":
+        raise ValueError("pair quotes Delta options")
+    argv_tail = _pair_argv(contract) if strategy == "pair" else [contract]
+    if strategy != "pair" and (not contract or len(contract) > 40):
+        raise ValueError("contract required")
+    if not argv_tail:
         raise ValueError("contract required")
     keys = VENUE_ENV[venue]
     if not (account.get("api_key") and account.get("api_secret")):
@@ -230,13 +251,17 @@ def launch(
             raise ValueError(f"{strategy} {venue}:{contract} already running (pid {rec.get('pid')})")
 
     knobs = _pin_geom(_scrub_params(params))
+    if strategy == "pair":
+        if knobs.get("MAX_POSITION") and "PAIR_MAX" not in knobs:
+            knobs["PAIR_MAX"] = knobs["MAX_POSITION"]
+        knobs.setdefault("PAIR_HEDGE", "true")
     env = os.environ.copy()
     env["QUOTE_VENUE"] = venue
     env["STRATEGY"] = strategy
     env["PYTHONUNBUFFERED"] = "1"
     env[keys[0]] = account["api_key"]
     env[keys[1]] = account["api_secret"]
-    env[keys[2]] = contract
+    env[keys[2]] = argv_tail[0] if strategy == "pair" else contract
     extra_pw = keys[3]
     if extra_pw:
         phrase = account.get("passphrase") or env.get(extra_pw) or ""
@@ -244,6 +269,8 @@ def launch(
             env[extra_pw] = phrase
     for name, val in knobs.items():
         env[name] = val
+    if strategy == "pair":
+        env["PAIR_SYMBOL"] = ",".join(t for t in argv_tail if t[:2] in ("C-", "P-")) or env.get("PAIR_SYMBOL", "")
 
     logs = root / "logs"
     logs.mkdir(exist_ok=True)
@@ -256,7 +283,7 @@ def launch(
 
     py = _python(root)
     proc = subprocess.Popen(
-        [py, str(path), contract],
+        [py, str(path), *argv_tail],
         cwd=str(root),
         env=env,
         stdout=log_fh,

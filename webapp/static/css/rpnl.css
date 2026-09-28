@@ -189,11 +189,6 @@ body:has(#rpnl.visible) {
   overflow: hidden;
 }
 .rpnl-inspect.open { display: flex; }
-.rpnl-inspect.open:not(.folded) {
-  flex: 0 1 auto;
-  max-height: 30vh;
-  overflow: auto;
-}
 .rpnl-inspect .ri-bar {
   display: flex;
   flex-direction: column;
@@ -271,15 +266,15 @@ body:has(#rpnl.visible) {
 .rpnl-inspect .p-cfg.none { color: var(--muted); font-size: 11px; }
 .rpnl-inspect .p-acts { display: flex; flex-wrap: nowrap; gap: 4px; flex: 1 1 auto; align-items: center; }
 .rpnl-inspect .p-acts button {
+  display: inline-flex; align-items: center; gap: 5px;
   font-size: 11px; font-weight: 650;
   padding: 0 9px; height: 28px; border-radius: 7px; cursor: pointer;
   border: 1px solid var(--border2); background: rgba(255, 255, 255, .06);
   color: #c5cdd8; font-family: inherit;
   min-height: 28px; flex: 0 0 auto; white-space: nowrap; line-height: 1;
 }
-.rpnl-inspect .p-acts button.ico {
-  width: 28px; min-width: 28px; padding: 0;
-  font-size: 13px; font-weight: 700; letter-spacing: 0;
+.rpnl-inspect .p-acts .act-ico {
+  font-size: 12px; font-weight: 700; line-height: 1;
 }
 .rpnl-inspect .p-acts button.go { color: #8bd98b; }
 .rpnl-inspect .p-acts button.edit {
@@ -310,17 +305,6 @@ body:has(#rpnl.visible) {
 .rpnl-inspect .ri-gate .wait { color: #ffb74d; font-weight: 650; }
 .rpnl-inspect .ri-gate .bad { color: var(--red); font-weight: 650; }
 .rpnl-inspect .ri-gate .then { color: #6b7385; font-weight: 650; }
-.ri-fold {
-  display: inline-flex;
-  flex: 0 0 auto;
-  width: 24px; height: 24px;
-  align-items: center; justify-content: center;
-  border: 1px solid var(--border2); border-radius: 5px;
-  background: rgba(255, 255, 255, .06); color: var(--muted);
-  cursor: pointer; font-size: 11px; line-height: 1;
-}
-.rpnl-inspect.folded .ri-extra { display: none; }
-.rpnl-inspect.folded .ri-fold { transform: rotate(-90deg); }
 
 /* Charts fill leftover height */
 .rp-charts {
@@ -670,12 +654,6 @@ body:has(#rpnl.visible) {
     overscroll-behavior: contain;
   }
   .rpnl-inspect.open { max-height: none; overflow: hidden; }
-  .rpnl-inspect.open:not(.folded) {
-    max-height: min(28vh, 200px);
-    overflow-x: hidden;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-  }
 
   #rpnl select, #rpnl button.btn, #rpnl input[type="datetime-local"] {
     min-height: 32px;
@@ -747,13 +725,9 @@ body:has(#rpnl.visible) {
   .rpnl-inspect .ri-sym { font-size: 11px; }
   .rpnl-inspect .ri-pos { font-size: 11px; }
   .rpnl-inspect .ri-chip { font-size: 10px; }
-  .ri-fold { width: 22px; height: 22px; font-size: 10px; }
   .rpnl-inspect .p-acts { gap: 3px; }
   .rpnl-inspect .p-acts button {
-    height: 30px; min-height: 30px; padding: 0 7px; font-size: 10px;
-  }
-  .rpnl-inspect .p-acts button.ico {
-    width: 30px; min-width: 30px; font-size: 14px;
+    height: 30px; min-height: 30px; padding: 0 8px; font-size: 11px;
   }
 
   .rp-pane-lab { right: 48px; top: 6px; font-size: 9px; }
@@ -890,8 +864,13 @@ body.ops-open { overflow: hidden; }
   min-height: 14px;
 }
 .rp-ops-params {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-bottom: 10px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px;
 }
+#opsParams { margin-bottom: 10px; }
+.rp-ops-blurb { margin: 0 0 10px; }
+.rp-ops-group { margin-bottom: 12px; }
+.rp-ops-group .rp-ops-sub { margin: 0 0 8px; }
+.rp-ops-group:last-child { margin-bottom: 4px; }
 .rp-ops-params .rp-ops-check {
   flex-direction: row; align-items: center; gap: 8px;
   font-weight: 500; color: var(--text);

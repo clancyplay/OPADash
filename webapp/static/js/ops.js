@@ -47,6 +47,7 @@ function openRpOps() {
   bootRpOps().then(() => {
     fillOpsStrategies();
     renderOpsParams();
+    onOpsStrategyChange();
     setOpsMsg('opsLaunchMsg', '', false);
   });
 }
@@ -172,10 +173,11 @@ async function loadOpsProducts(venue) {
 function onOpsContractMeta() {
   const el = document.getElementById('opsContractMeta');
   if (!el) return;
+  const pair = opsIsPair();
   const sy = ((document.getElementById('opsContract') || {}).value || '').trim().toUpperCase();
   const p = (opsProducts || []).find(x => String(x.symbol || '').toUpperCase() === sy);
   if (!p) {
-    el.textContent = '';
+    el.textContent = pair ? 'Option C-/P- symbol, call+put, or crop + expiry (BTC 250926)' : '';
     return;
   }
   const bits = [];
@@ -184,16 +186,51 @@ function onOpsContractMeta() {
   el.textContent = bits.join(' · ');
 }
 
+function opsIsPair() {
+  const id = (opsEdit && opsEdit.strategy) || (document.getElementById('opsStrategy') || {}).value || '';
+  return id === 'pair';
+}
+
+function onOpsStrategyChange() {
+  renderOpsParams();
+  const pair = opsIsPair();
+  const venue = document.getElementById('opsVenue');
+  if (venue && !opsEdit) {
+    venue.disabled = pair;
+    if (pair && venue.value !== 'delta') {
+      venue.value = 'delta';
+      onOpsVenueChange();
+    }
+  }
+  const inp = document.getElementById('opsContract');
+  if (inp && !opsEdit) inp.placeholder = pair ? 'C-BTC-120000-250926 or BTC 250926' : 'EVAAUSD';
+  onOpsContractMeta();
+}
+
 function opsStrategySpec() {
   const id = (opsEdit && opsEdit.strategy) || (document.getElementById('opsStrategy') || {}).value || '';
   if (id === 'pair') {
-    return { id: 'pair', label: 'Pair', params: (opsCatalog && opsCatalog.pair_params) || [] };
+    const fromCat = ((opsCatalog && opsCatalog.strategies) || []).find(s => s.id === 'pair');
+    return fromCat || { id: 'pair', label: 'Pair', params: (opsCatalog && opsCatalog.pair_params) || [] };
   }
   return ((opsCatalog && opsCatalog.strategies) || []).find(s => s.id === id) || { params: [] };
 }
 
+function opsGeomParam() {
+  return ((opsStrategySpec().params) || []).find(p => p.type === 'geom') || null;
+}
+
 function opsGeomLens() {
-  return (opsCatalog && Array.isArray(opsCatalog.geom)) ? opsCatalog.geom : [];
+  const all = (opsCatalog && Array.isArray(opsCatalog.geom)) ? opsCatalog.geom : [];
+  const p = opsGeomParam();
+  if (!p) return [];
+  const want = Array.isArray(p.lenses) && p.lenses.length ? p.lenses : null;
+  const extras = p.lens_defaults && typeof p.lens_defaults === 'object' ? p.lens_defaults : {};
+  return all.filter(g => !want || want.indexOf(g.id) >= 0).map(g => Object.assign({}, g, extras[g.id] || {}));
+}
+
+function opsGeomDef(id) {
+  return opsGeomLens().find(g => g.id === id) || {};
 }
 
 function opsGeomState() {
@@ -241,8 +278,12 @@ function setOpsGeomUnit(id, unit) {
     b.classList.toggle('on', b.getAttribute('data-unit') === unit);
   });
   inp.step = unit === 'ticks' ? '1' : 'any';
-  inp.min = unit === 'ticks' ? '1' : '0';
-  const next = unit === 'ticks' ? (row.dataset.ticks || '4') : (row.dataset.pct || '0.1');
+  const g = opsGeomDef(id);
+  const tickMin = g.allow_zero ? '0' : '1';
+  inp.min = unit === 'ticks' ? tickMin : '0';
+  const next = unit === 'ticks'
+    ? (row.dataset.ticks || g.ticks_default || '4')
+    : (row.dataset.pct || g.pct_default || '0.1');
   inp.value = next;
   persistOpsGeom();
   updateOpsGeomSum();
@@ -271,15 +312,18 @@ function renderOpsGeom() {
   const lens = opsGeomLens();
   if (!lens.length) return '';
   const saved = opsGeomState();
+  const spec = opsGeomParam() || {};
+  const hint = spec.hint || 'Each edge is % of price, or whole ticks. Ticks win.';
   const rows = lens.map(g => {
     const st = saved[g.id] || {};
     const unit = st.unit === 'ticks' ? 'ticks' : 'pct';
     const pct = st.pct != null && st.pct !== '' ? st.pct : g.pct_default;
     const ticks = st.ticks != null && st.ticks !== '' ? st.ticks : g.ticks_default;
     const val = unit === 'ticks' ? ticks : pct;
+    const tickMin = g.allow_zero ? '0' : '1';
     return '<div class="rp-ops-len" data-geom="' + escHtml(g.id) + '" data-pct="' + escHtml(pct) + '" data-ticks="' + escHtml(ticks) + '">' +
       '<span class="rp-ops-len-lab">' + escHtml(g.label) + '</span>' +
-      '<input id="opsG_' + escHtml(g.id) + '" type="number" min="' + (unit === 'ticks' ? '1' : '0') +
+      '<input id="opsG_' + escHtml(g.id) + '" type="number" min="' + (unit === 'ticks' ? tickMin : '0') +
         '" step="' + (unit === 'ticks' ? '1' : 'any') + '" inputmode="decimal" value="' + escHtml(val) +
         '" oninput="onOpsGeomInput(\'' + escHtml(g.id) + '\')" />' +
       '<div class="rp-ops-unit" role="group" aria-label="' + escHtml(g.label) + ' unit">' +
@@ -292,8 +336,7 @@ function renderOpsGeom() {
     '</div>';
   }).join('');
   return '<div class="rp-ops-geom" id="opsGeom">' +
-    '<div class="rp-ops-sub">Geometry</div>' +
-    '<p class="rp-ops-hint">Each edge is % of price, or whole ticks. Ticks win. Fit auto will not overwrite a tick lock.</p>' +
+    '<p class="rp-ops-hint">' + escHtml(hint) + '</p>' +
     rows +
     '<div class="rp-ops-geom-sum" id="opsGeomSum"></div>' +
     '</div>';
@@ -329,7 +372,21 @@ function renderOpsParams() {
   const box = document.getElementById('opsParams');
   if (!box) return;
   const spec = opsStrategySpec();
-  box.innerHTML = (spec.params || []).map(renderOpsParam).join('');
+  const params = spec.params || [];
+  const titles = { size: 'Size', geometry: 'Geometry', quote: 'Quote', risk: 'Risk', hedge: 'Hedge' };
+  const groups = [];
+  params.forEach(p => {
+    const id = p.group || '';
+    const last = groups[groups.length - 1];
+    if (!last || last.id !== id) groups.push({ id: id, items: [p] });
+    else last.items.push(p);
+  });
+  const blurb = spec.blurb ? '<p class="rp-ops-hint rp-ops-blurb">' + escHtml(spec.blurb) + '</p>' : '';
+  box.innerHTML = blurb + groups.map(g => {
+    const h = titles[g.id] ? '<div class="rp-ops-sub">' + titles[g.id] + '</div>' : '';
+    return '<div class="rp-ops-group">' + h +
+      '<div class="rp-ops-params">' + g.items.map(renderOpsParam).join('') + '</div></div>';
+  }).join('');
   updateOpsGeomSum();
 }
 
@@ -350,7 +407,8 @@ function collectOpsGeom(out) {
       out[g.ticks_key] = '0';
     }
   });
-  out.TAIL_TICKS = '0';
+  const ids = opsGeomLens().map(g => g.id);
+  if (ids.indexOf('step') >= 0 || ids.indexOf('tail') >= 0) out.TAIL_TICKS = out.STEP_TICKS || '0';
 }
 
 function validateOpsGeom() {
@@ -359,7 +417,11 @@ function validateOpsGeom() {
     const inp = document.getElementById('opsG_' + g.id);
     const n = Number(inp && inp.value);
     const unit = opsGeomRowUnit(g.id);
-    if (!isFinite(n) || !(n > 0)) return g.label + ' must be > 0';
+    if (g.allow_zero) {
+      if (!isFinite(n) || n < 0) return g.label + ' must be ≥ 0';
+    } else if (!isFinite(n) || !(n > 0)) {
+      return g.label + ' must be > 0';
+    }
     if (unit === 'ticks' && n !== Math.round(n)) return g.label + ' ticks must be a whole number';
   }
   return '';
@@ -439,9 +501,30 @@ function fillOpsFromSetup(s) {
   setNum('opsP_BID_TICKS', s.bid_ticks);
   setNum('opsP_ASK_TICKS', s.ask_ticks);
   setNum('opsP_STEP_PCT', s.step);
+  setNum('opsP_TOUCH_TICKS', s.touch_ticks);
+  setNum('opsP_EDGE_PCT', s.edge);
+  setSel('opsP_EDGE_VENUE', s.edge_venue);
+  setNum('opsP_MOVE_PCT', s.move_pct);
+  setNum('opsP_MOVE_SECS', s.move_secs);
+  setNum('opsP_RISK_REWARD', s.risk_reward);
+  setNum('opsP_MOM_PCT', s.mom_pct);
+  setNum('opsP_MOM_SLOW_PCT', s.mom_slow_pct);
+  setNum('opsP_CLIP_PCT', s.clip_pct);
+  setNum('opsP_TRAIL_PCT', s.trail_pct);
+  setNum('opsP_MOM_STOP_PCT', s.mom_stop_pct);
+  if (s.flip != null) setChk('opsP_FLIP', s.flip, true);
+  if (s.tails != null) setNum('opsP_TAILS', s.tails);
+  else if (opsEdit && opsEdit.strategy === 'belt' && s.orders != null) {
+    setNum('opsP_TAILS', Math.max(0, Number(s.orders) - 1));
+  }
+  if (s.pair_hedge != null) setChk('opsP_PAIR_HEDGE', s.pair_hedge, true);
+  else if (s.hedge_via) setChk('opsP_PAIR_HEDGE', true, true);
+  else if (opsEdit && opsEdit.strategy === 'pair') setChk('opsP_PAIR_HEDGE', false, true);
   opsGeomLens().forEach(g => {
-    const ticks = s[g.id + '_ticks'];
-    const pct = s[g.id];
+    const ticksKey = g.id === 'k' ? 'k_ticks' : (g.id === 'tail' ? 'step_ticks' : g.id + '_ticks');
+    const pctKey = g.id === 'k' ? 'k' : (g.id === 'tail' ? 'step' : g.id);
+    const ticks = s[ticksKey] != null ? s[ticksKey] : s[g.id + '_ticks'];
+    const pct = s[pctKey] != null ? s[pctKey] : s[g.id];
     const row = document.querySelector('#opsGeom [data-geom="' + g.id + '"]');
     const inp = document.getElementById('opsG_' + g.id);
     if (!row || !inp) return;
@@ -452,7 +535,7 @@ function fillOpsFromSetup(s) {
       b.classList.toggle('on', b.getAttribute('data-unit') === (useTicks ? 'ticks' : 'pct'));
     });
     inp.step = useTicks ? '1' : 'any';
-    inp.min = useTicks ? '1' : '0';
+    inp.min = useTicks ? (g.allow_zero ? '0' : '1') : '0';
     inp.value = useTicks ? String(ticks) : (pct != null && pct !== '' ? String(pct) : inp.value);
   });
   updateOpsGeomSum();
@@ -468,6 +551,10 @@ async function submitOpsLaunch() {
   if (!contract) return setOpsMsg('opsLaunchMsg', 'Contract required', true);
   const geomErr = validateOpsGeom();
   if (geomErr) return setOpsMsg('opsLaunchMsg', geomErr, true);
+  if (strategy === 'edge') {
+    const ref = ((document.getElementById('opsP_EDGE_VENUE') || {}).value || '').toLowerCase();
+    if (ref && ref === venue) return setOpsMsg('opsLaunchMsg', 'Ref venue must differ from the quoting exchange', true);
+  }
   const sum = ((document.getElementById('opsGeomSum') || {}).textContent || '').trim();
   const line = strategy + ' · ' + venue + ':' + contract + (sum ? '\n' + sum : '');
   if (!confirm('Start ' + line + '?')) return;

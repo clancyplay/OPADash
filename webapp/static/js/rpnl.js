@@ -637,17 +637,19 @@ function rpnlActsHtml(r) {
   );
   const liveOrders = Number(s.live_orders);
   const hasQuotes = quoting && (!isFinite(liveOrders) || liveOrders > 0);
-  const ico = (cmd, glyph, title, cls) =>
-    '<button type="button" class="ico' + (cls ? ' ' + cls : '') +
-    '" data-bot-cmd="' + cmd + '" title="' + title + '" aria-label="' + title + '">' + glyph + '</button>';
+  const act = (cmd, glyph, label, cls) =>
+    '<button type="button"' + (cls ? ' class="' + cls + '"' : '') +
+    ' data-bot-cmd="' + cmd + '" title="' + label + '" aria-label="' + label + '">' +
+    '<span class="act-ico" aria-hidden="true">' + glyph + '</span>' + label + '</button>';
   let html = '<div class="p-acts">';
-  if (quoting) html += ico('stop', '■', 'Stop quoting');
-  if (held) html += ico('resume', '▶', 'Resume quoting', 'go');
-  if (hasQuotes) html += ico('cancel', '✕', 'Cancel open quotes');
-  if (paused) html += ico('clear', '↺', 'Clear pause and limits');
-  html += ico('flatten', '×', 'Close position', 'danger' + (flattening ? ' on' : ''));
+  if (quoting) html += act('stop', '■', 'Stop');
+  if (held) html += act('resume', '▶', 'Resume', 'go');
+  if (hasQuotes) html += act('cancel', '✕', 'Cancel');
+  if (paused) html += act('clear', '↺', 'Clear');
+  html += act('flatten', '×', 'Close', 'danger' + (flattening ? ' on' : ''));
   if (!flattening) {
-    html += '<button type="button" class="ico edit" data-rp-edit="1" title="Edit settings" aria-label="Edit settings">✎</button>';
+    html += '<button type="button" class="edit" data-rp-edit="1" title="Edit settings" aria-label="Edit">' +
+      '<span class="act-ico" aria-hidden="true">✎</span>Edit</button>';
   }
   html += '</div>';
   return html;
@@ -1003,9 +1005,7 @@ function renderRpnlInspect(row) {
   const pairHedge = rpnlIsPairHedge(row);
   const hedgeOf = rpnlHedgeOf(row);
   const via = s && s.hedge_via;
-  const wasOpen = box.classList.contains('open');
-  const wasFolded = box.classList.contains('folded');
-  box.className = 'rpnl-inspect open' + ((wasFolded || !wasOpen) ? ' folded' : '') + (pairHedge ? ' hedge' : '');
+  box.className = 'rpnl-inspect open' + (pairHedge ? ' hedge' : '');
   box.dataset.contract = row.contract || '';
   box.dataset.account = row.account || '';
   box.dataset.strategy = row.strategy || '';
@@ -1016,7 +1016,6 @@ function renderRpnlInspect(row) {
   box.innerHTML =
     '<div class="ri-bar">' +
       '<div class="ri-row ri-info">' +
-        '<button type="button" class="ri-fold" title="Contract setup" onclick="toggleRpnlInspectFold()">▾</button>' +
         '<div class="ri-stats">' +
           '<span class="ri-sym">' + escHtml(qsym) + '</span>' +
           rpnlPosHtml(s, 'ri-pos', row.quote_venue) +
@@ -1032,17 +1031,6 @@ function renderRpnlInspect(row) {
         const tools = rpnlActsHtml(row);
         return tools ? '<div class="ri-row ri-tools">' + tools + '</div>' : '';
       })() +
-    '</div>' +
-    '<div class="ri-extra">' +
-    '<div class="ri-setup">' +
-      '<div class="ri-setup-h">Contract setup</div>' +
-      (hedged
-        ? '<div class="ri-split"><span style="color:#26a69a">' + escHtml(qlab) + ' ' + inrFmt(quote) +
-          '</span><span style="color:#ff9800">' + escHtml(hlab) + ' ' + inrFmt(hedge) + '</span></div>'
-        : '') +
-      rpnlCfgHtml(s) +
-    '</div>' +
-    (pairHedge ? '' : rpnlGatesHtml(s)) +
     '</div>';
   if (!box.dataset.bound) {
     box.dataset.bound = '1';
@@ -2753,12 +2741,6 @@ function toggleRpnlExports() {
     const page = document.getElementById('rpnl');
     if (page && page.classList.contains('more-open')) toggleRpnlMore();
   }
-}
-function toggleRpnlInspectFold() {
-  const box = document.getElementById('rpnlInspect');
-  if (!box || !box.classList.contains('open')) return;
-  box.classList.toggle('folded');
-  requestAnimationFrame(resizeRpnlCharts);
 }
 function closeRpnlPopovers(ev) {
   const page = document.getElementById('rpnl');

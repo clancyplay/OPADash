@@ -1803,25 +1803,32 @@ _BOT_CMDS = {
 _MAX_POS_ABS_CAP = 50_000_000.0
 
 _SETUP_KEYS = frozenset({
-    "HEM_PCT", "SPAN_PCT", "STEP_PCT",
-    "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS",
+    "HEM_PCT", "SPAN_PCT", "STEP_PCT", "TAIL_PCT", "K_PCT", "EDGE_PCT",
+    "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS", "K_TICKS", "TAILS",
     "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",
     "FATE_USD", "GRIND_USD",
     "FIT_AUTO", "SPAN_SPREAD", "VOL_GATE", "STEP_AUTO", "DRY_RUN", "MAX_IN_USD",
-    "HOOK", "STEP_MULT", "MAX_POSITION",
+    "HOOK", "STEP_MULT", "MAX_POSITION", "PAIR_HEDGE", "FLIP", "EDGE_VENUE",
+    "MOVE_PCT", "MOVE_SECS", "RISK_REWARD",
+    "MOM_PCT", "MOM_SLOW_PCT", "CLIP_PCT", "TRAIL_PCT", "MOM_STOP_PCT",
     "max_usd", "max_pos",
 })
 _SETUP_BOOL = frozenset({
-    "FIT_AUTO", "SPAN_SPREAD", "VOL_GATE", "STEP_AUTO", "DRY_RUN", "MAX_IN_USD",
+    "FIT_AUTO", "SPAN_SPREAD", "VOL_GATE", "STEP_AUTO", "DRY_RUN", "MAX_IN_USD", "PAIR_HEDGE", "FLIP",
 })
 _SETUP_INT = frozenset({
     "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS", "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",
+    "K_TICKS", "TAILS",
 })
 _SETUP_NUM = frozenset({
-    "HEM_PCT", "SPAN_PCT", "STEP_PCT", "FATE_USD", "GRIND_USD", "MAX_POSITION", "max_usd", "max_pos",
+    "HEM_PCT", "SPAN_PCT", "STEP_PCT", "TAIL_PCT", "K_PCT", "EDGE_PCT",
+    "FATE_USD", "GRIND_USD", "MAX_POSITION", "max_usd", "max_pos",
+    "MOVE_PCT", "MOVE_SECS", "RISK_REWARD",
+    "MOM_PCT", "MOM_SLOW_PCT", "CLIP_PCT", "TRAIL_PCT", "MOM_STOP_PCT",
 })
 _SETUP_HOOK = frozenset({"position", "liquidity", "bid", "ask"})
 _SETUP_MULT = frozenset({"1", "2", "3", "log", "log2", "log10", "ln", "e"})
+_SETUP_VENUE = frozenset({"delta", "binance", "bybit", "kucoin", "coinbase", "aster"})
 
 
 def _max_payload(payload: dict | None) -> dict:
@@ -1886,6 +1893,12 @@ def _setup_payload(payload: dict | None) -> dict:
             if t.lower() not in _SETUP_MULT:
                 raise HTTPException(status_code=400, detail="STEP_MULT invalid")
             out[name] = t
+            continue
+        if name == "EDGE_VENUE":
+            v = str(val).strip().lower()
+            if v not in _SETUP_VENUE:
+                raise HTTPException(status_code=400, detail="EDGE_VENUE invalid")
+            out[name] = v
             continue
     if not out:
         raise HTTPException(status_code=400, detail="setup payload required")

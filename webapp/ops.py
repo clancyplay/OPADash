@@ -30,78 +30,222 @@ GEOM_LENS = [
         "pct_key": "STEP_PCT", "ticks_key": "STEP_TICKS",
         "pct_default": "0.1", "ticks_default": "4",
     },
+    {
+        "id": "tail", "label": "Tail",
+        "hint": "Same-side gaps behind both edges",
+        "pct_key": "TAIL_PCT", "ticks_key": "STEP_TICKS",
+        "pct_default": "0.1", "ticks_default": "4",
+    },
+    {
+        "id": "k", "label": "K",
+        "hint": "Offset from the touch. 0 joins BBO",
+        "pct_key": "K_PCT", "ticks_key": "K_TICKS",
+        "pct_default": "0", "ticks_default": "0",
+        "allow_zero": True,
+    },
 ]
 
-GEOM_PARAMS = [
-    {"key": "MAX_POSITION", "label": "Max", "type": "number", "default": "10000"},
-    {"key": "MAX_IN_USD", "label": "Max is USD", "type": "bool", "default": True},
-    {"key": "ORDERS", "label": "Orders / side", "type": "int", "default": "3"},
-    {"key": "HOOK", "label": "Hook", "type": "select", "default": "position",
-     "options": ["position", "liquidity", "bid", "ask"]},
-    {"key": "GEOM", "type": "geom"},
-    {"key": "STEP_MULT", "label": "Step ×", "type": "select", "default": "1",
-     "options": [
-         {"value": "1", "label": "1 · equal gaps"},
-         {"value": "2", "label": "2 · double"},
-         {"value": "3", "label": "3 · triple"},
-         {"value": "log", "label": "log · ×e"},
-         {"value": "log2", "label": "log2 · ×2,×4"},
-         {"value": "log10", "label": "log10 · ×10,×100"},
-     ]},
-    {"key": "FIT_AUTO", "label": "Fit auto", "type": "bool", "default": False},
-    {"key": "SPAN_SPREAD", "label": "Span spread", "type": "bool", "default": True},
-    {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": False},
-    {"key": "FATE_USD", "label": "Fate $", "type": "number", "default": "10"},
-    {"key": "GRIND_USD", "label": "Grind $", "type": "number", "default": "10"},
-    {"key": "DRY_RUN", "label": "Dry run", "type": "bool", "default": False},
-]
+_HOOK = {
+    "key": "HOOK", "label": "Hook", "type": "select", "default": "position", "group": "quote",
+    "options": [
+        {"value": "position", "label": "position · inventory"},
+        {"value": "liquidity", "label": "liquidity · heavier book"},
+        {"value": "bid", "label": "bid"},
+        {"value": "ask", "label": "ask"},
+    ],
+}
+_MULT = {
+    "key": "STEP_MULT", "label": "Step ×", "type": "select", "default": "1", "group": "geometry",
+    "options": [
+        {"value": "1", "label": "1 · equal gaps"},
+        {"value": "2", "label": "2 · double"},
+        {"value": "3", "label": "3 · triple"},
+        {"value": "log", "label": "log · ×e"},
+        {"value": "log2", "label": "log2 · ×2,×4"},
+        {"value": "log10", "label": "log10 · ×10,×100"},
+    ],
+}
+_ORDERS = {"key": "ORDERS", "label": "Orders / side", "type": "int", "default": "3", "group": "size"}
+_DRY = {"key": "DRY_RUN", "label": "Dry run", "type": "bool", "default": False, "group": "risk"}
 
-LEAN_PARAMS = [
-    {"key": "MAX_POSITION", "label": "Max", "type": "number", "default": "10000"},
-    {"key": "MAX_IN_USD", "label": "Max is USD", "type": "bool", "default": True},
-    {"key": "ORDERS", "label": "Orders / side", "type": "int", "default": "3"},
-    {"key": "STEP_AUTO", "label": "Fit step", "type": "bool", "default": True},
-    {"key": "STEP_PCT", "label": "Step %", "type": "number", "default": "0.05"},
-    {"key": "STEP_MULT", "label": "Step ×", "type": "select", "default": "1",
-     "options": [
-         {"value": "1", "label": "1 · equal gaps"},
-         {"value": "2", "label": "2 · double"},
-         {"value": "3", "label": "3 · triple"},
-         {"value": "log", "label": "log · ×e"},
-         {"value": "log2", "label": "log2 · ×2,×4"},
-         {"value": "log10", "label": "log10 · ×10,×100"},
-     ]},
-    {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": False},
-    {"key": "FATE_USD", "label": "Fate $", "type": "number", "default": "10"},
-    {"key": "GRIND_USD", "label": "Grind $", "type": "number", "default": "10"},
-    {"key": "DRY_RUN", "label": "Dry run", "type": "bool", "default": False},
-]
 
-SIZE_PARAMS = [
-    {"key": "MAX_POSITION", "label": "Max USD", "type": "number", "default": "10000"},
-    {"key": "MAX_IN_USD", "label": "Max is USD", "type": "bool", "default": True},
-    {"key": "DRY_RUN", "label": "Dry run", "type": "bool", "default": False},
+def _max(label="Max", default="10000", usd=True):
+    rows = [{"key": "MAX_POSITION", "label": label, "type": "number", "default": default, "group": "size"}]
+    if usd is not None:
+        rows.append({"key": "MAX_IN_USD", "label": "Max is USD", "type": "bool", "default": usd, "group": "size"})
+    return rows
+
+
+def _geom(lenses, hint="", defaults=None):
+    row = {"key": "GEOM", "type": "geom", "lenses": list(lenses), "group": "geometry", "hint": hint}
+    if defaults:
+        row["lens_defaults"] = defaults
+    return row
+
+
+def _fate():
+    return [
+        {"key": "FATE_USD", "label": "Fate $", "type": "number", "default": "10", "group": "risk"},
+        {"key": "GRIND_USD", "label": "Grind $", "type": "number", "default": "10", "group": "risk"},
+    ]
+
+
+def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=False, fate=True, hook=True):
+    """Hem/span/step makers: stack, clip, chop, fade, flip."""
+    rows = _max() + [_ORDERS]
+    if hook:
+        rows.append(_HOOK)
+    rows.append(_geom(
+        ["hem", "span", "step"],
+        "Each edge is % of price, or whole ticks. Ticks win. Fit auto will not overwrite a tick lock.",
+    ))
+    rows.append(_MULT)
+    if fit:
+        rows.append({"key": "FIT_AUTO", "label": "Fit auto", "type": "bool", "default": fit_default, "group": "geometry"})
+    if span_spread:
+        rows.append({"key": "SPAN_SPREAD", "label": "Span spread", "type": "bool", "default": True, "group": "geometry"})
+    if touch:
+        rows.append({"key": "TOUCH_TICKS", "label": "Touch ticks", "type": "int", "default": "1", "group": "quote"})
+    rows.append({"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": vol, "group": "risk"})
+    if fate:
+        rows.extend(_fate())
+    rows.append(_DRY)
+    return rows
+
+
+def _touch_like(*, k_default="0", step_default="0.05"):
+    """Join BBO (touch / lean): k + step, no hem/span."""
+    return _max() + [
+        _ORDERS,
+        _geom(
+            ["k"],
+            "Offset from the touch. 0 joins BBO. Ticks win over %.",
+            defaults={"k": {"pct_default": k_default}},
+        ),
+        {"key": "STEP_AUTO", "label": "Fit step", "type": "bool", "default": True, "group": "geometry"},
+        {"key": "STEP_PCT", "label": "Step %", "type": "number", "default": step_default, "group": "geometry"},
+        _MULT,
+        {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
+        *_fate(),
+        _DRY,
+    ]
+
+
+PAIR_PARAMS = [
+    {"key": "MAX_POSITION", "label": "Max coin", "type": "number", "default": "2", "group": "size"},
+    {"key": "PAIR_HEDGE", "label": "Hedge with perpetual", "type": "bool", "default": True, "group": "hedge"},
+    {"key": "BID_TICKS", "label": "Bid +ticks", "type": "int", "default": "1", "group": "quote"},
+    {"key": "ASK_TICKS", "label": "Ask −ticks", "type": "int", "default": "1", "group": "quote"},
 ]
 
 STRATEGIES = [
-    {"id": "stack", "label": "Stack", "params": GEOM_PARAMS},
-    {"id": "clip", "label": "Clip", "params": GEOM_PARAMS},
-    {"id": "chop", "label": "Chop", "params": GEOM_PARAMS},
-    {"id": "fade", "label": "Fade", "params": GEOM_PARAMS},
-    {"id": "flip", "label": "Flip", "params": GEOM_PARAMS},
-    {"id": "plain", "label": "Plain", "params": GEOM_PARAMS},
-    {"id": "lean", "label": "Lean", "params": LEAN_PARAMS},
-    {"id": "belt", "label": "Belt", "params": GEOM_PARAMS},
-    {"id": "touch", "label": "Touch", "params": SIZE_PARAMS},
-    {"id": "momentum", "label": "Momentum", "params": SIZE_PARAMS},
-    {"id": "surge", "label": "Surge", "params": SIZE_PARAMS},
-    {"id": "edge", "label": "Edge", "params": SIZE_PARAMS},
-]
-
-PAIR_PARAMS = [
-    {"key": "MAX_POSITION", "label": "Max coin", "type": "number", "default": "2"},
-    {"key": "BID_TICKS", "label": "Bid +ticks", "type": "int", "default": "1"},
-    {"key": "ASK_TICKS", "label": "Ask −ticks", "type": "int", "default": "1"},
+    {
+        "id": "stack", "label": "Stack",
+        "blurb": "Hem/span ladder hung off the hook.",
+        "params": _ladder(span_spread=True, touch=True, vol=False),
+    },
+    {
+        "id": "pair", "label": "Pair",
+        "blurb": "Delta options: buy above bid, sell under ask. Optional perp hedge.",
+        "params": PAIR_PARAMS,
+    },
+    {
+        "id": "clip", "label": "Clip",
+        "blurb": "Hem/span ladder with clip-sized rungs.",
+        "params": _ladder(vol=True),
+    },
+    {
+        "id": "chop", "label": "Chop",
+        "blurb": "Hem/span ladder; span stays at env width.",
+        "params": _ladder(vol=True),
+    },
+    {
+        "id": "fade", "label": "Fade",
+        "blurb": "Hem/span ladder that fades tape bursts.",
+        "params": _ladder(vol=True),
+    },
+    {
+        "id": "flip", "label": "Flip",
+        "blurb": "Hem/span ladder; fit auto and touch clamp on.",
+        "params": _ladder(fit_default=True, touch=True, vol=True),
+    },
+    {
+        "id": "plain", "label": "Plain",
+        "blurb": "Hem/span/step only — no vol, fate, or fit auto.",
+        "params": _max() + [
+            {**_ORDERS, "default": "4"},
+            _HOOK,
+            _geom(["hem", "span", "step"], "Each edge is % of price, or whole ticks. Ticks win."),
+            _MULT,
+            _DRY,
+        ],
+    },
+    {
+        "id": "lean", "label": "Lean",
+        "blurb": "Join the touch when flat; cover-only with inventory. No hem/span.",
+        "params": _touch_like(k_default="0.05"),
+    },
+    {
+        "id": "belt", "label": "Belt",
+        "blurb": "Two edges off the hook, tails behind both. No step ladder.",
+        "params": _max() + [
+            {"key": "TAILS", "label": "Tails / side", "type": "int", "default": "2", "group": "size"},
+            _HOOK,
+            _geom(["hem", "span", "tail"], "Hem and span are the two edges. Tail is the stack behind them."),
+            _MULT,
+            {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
+            *_fate(),
+            _DRY,
+        ],
+    },
+    {
+        "id": "touch", "label": "Touch",
+        "blurb": "Join best bid/ask. No hem/span.",
+        "params": _touch_like(),
+    },
+    {
+        "id": "momentum", "label": "Momentum",
+        "blurb": "Ride a one-way tape, trail out. No maker ladder.",
+        "params": _max() + [
+            {"key": "MOM_PCT", "label": "Burst %", "type": "number", "default": "0.18", "group": "quote"},
+            {"key": "MOM_SLOW_PCT", "label": "Slow %", "type": "number", "default": "0.40", "group": "quote"},
+            {"key": "CLIP_PCT", "label": "Clip %", "type": "number", "default": "25", "group": "size"},
+            {"key": "TRAIL_PCT", "label": "Trail %", "type": "number", "default": "0.35", "group": "quote"},
+            {"key": "MOM_STOP_PCT", "label": "Stop %", "type": "number", "default": "0.50", "group": "risk"},
+            {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
+            *_fate(),
+            _DRY,
+        ],
+    },
+    {
+        "id": "surge", "label": "Surge",
+        "blurb": "Burst clip with 1:2 stop/take. No maker ladder.",
+        "params": _max() + [
+            {"key": "MOVE_PCT", "label": "Move %", "type": "number", "default": "0.5", "group": "quote"},
+            {"key": "MOVE_SECS", "label": "Move secs", "type": "number", "default": "30", "group": "quote"},
+            {"key": "RISK_REWARD", "label": "Risk:reward", "type": "number", "default": "2", "group": "risk"},
+            {"key": "FLIP", "label": "Flip side", "type": "bool", "default": False, "group": "quote"},
+            _DRY,
+        ],
+    },
+    {
+        "id": "edge", "label": "Edge",
+        "blurb": "Quote vs a second venue’s book. No hem/span.",
+        "params": _max() + [
+            _ORDERS,
+            {
+                "key": "EDGE_VENUE", "label": "Ref venue", "type": "select", "default": "binance", "group": "quote",
+                "options": ["delta", "binance", "bybit", "kucoin", "coinbase", "aster"],
+            },
+            {"key": "EDGE_PCT", "label": "Edge %", "type": "number", "default": "0.1", "group": "geometry"},
+            {"key": "STEP_AUTO", "label": "Fit step", "type": "bool", "default": True, "group": "geometry"},
+            {"key": "STEP_PCT", "label": "Step %", "type": "number", "default": "0.1", "group": "geometry"},
+            _MULT,
+            {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
+            *_fate(),
+            _DRY,
+        ],
+    },
 ]
 
 QUOTE_VENUES = ("delta", "binance", "bybit", "kucoin", "coinbase", "aster")

@@ -159,10 +159,10 @@
             <span class="rp-ops-meta" id="opsContractMeta"></span>
           </label>
           <label>Strategy
-            <select id="opsStrategy" onchange="renderOpsParams()"></select>
+            <select id="opsStrategy" onchange="onOpsStrategyChange()"></select>
           </label>
         </div>
-        <div class="rp-ops-params" id="opsParams"></div>
+        <div id="opsParams"></div>
         <details class="rp-ops-extra ops-launch-only" id="opsExtraWrap">
           <summary>More env</summary>
           <textarea id="opsExtra" rows="2" placeholder="TOUCH_TICKS=1"></textarea>
