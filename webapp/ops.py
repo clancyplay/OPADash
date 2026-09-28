@@ -130,7 +130,7 @@ def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=
     rows.append(_IGNORE)
     rows.append(_geom(
         ["hem", "span", "step"],
-        "Each edge is % of price, or whole ticks. Ticks win. Fit auto takes hem/step from the live book — you cannot type them while it is on.",
+        "Each edge is % of price, or whole ticks. Ticks win. Fit auto takes hem/span/step from the live book — you cannot type them while it is on. Span spread is only for when Fit auto is off.",
     ))
     rows.append(_MULT)
     if fit:
@@ -138,14 +138,15 @@ def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=
     if span_spread:
         rows.append({
             "key": "SPAN_SPREAD", "label": "Span spread", "type": "bool", "default": False, "group": "geometry",
-            "hint": "When the live bid–ask is wider than span, hang inner quotes on the spread.",
+            "hide_if_any": ["FIT_AUTO"],
+            "hint": "Only when Fit auto is off. If the live bid–ask is wider than span, hang inner quotes on the spread.",
         })
     if touch:
         rows.append({
             "key": "TOUCH_TICKS", "label": "Touch ticks", "type": "int", "default": "1", "group": "geometry",
             "min": 0,
             "show_if_any": ["SPAN_SPREAD", "FIT_AUTO"],
-            "hint": "How far inside the BBO when span follows the spread. 0 joins the touch.",
+            "hint": "How far inside the BBO when quotes follow the spread. 0 joins the touch.",
         })
     rows.extend(_pace(quote_ms=quote_ms, place_secs=place_secs))
     if fate:

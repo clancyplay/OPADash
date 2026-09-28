@@ -409,13 +409,13 @@ function openDbTable(name, opts) {
     return;
   }
   if (!same) {
-    dbtOffset = 0;
-    dbtSort = '';
-    dbtDir = 'desc';
-    dbtPeekIdx = -1;
+  dbtOffset = 0;
+  dbtSort = '';
+  dbtDir = 'desc';
+  dbtPeekIdx = -1;
     dbtSel = new Set();
     dbtAnchor = -1;
-    dbtClearFilterInputs();
+  dbtClearFilterInputs();
     document.getElementById('dbtPeek').hidden = true;
     if (typeof strategyIsAll === 'function' && !strategyIsAll(currentStrategy)) {
       const strat = document.getElementById('dbtStrategy');
@@ -905,14 +905,14 @@ function fillPeekHtml(rows, meta) {
   }
   if (rows.length === 1) {
     const row = rows[0];
-    const lines = Object.entries(row).map(([k, v]) => {
-      let shown = v;
+  const lines = Object.entries(row).map(([k, v]) => {
+    let shown = v;
       if (v == null) shown = '—';
       else if (k === 'rpnl') return fillPeekRowHtml(k, dbtRpnlHtml(v, row), true);
       else if (k === 'fee') return fillPeekRowHtml(k, dbtFeeHtml(v, row), true);
       else if (typeof dbtIsTime === 'function' && dbtIsTime(k) && typeof v === 'number') shown = fmtISTs(v);
-      else if (typeof v === 'string' && (v.startsWith('{') || v.startsWith('['))) {
-        try { shown = JSON.stringify(JSON.parse(v), null, 2); } catch {}
+    else if (typeof v === 'string' && (v.startsWith('{') || v.startsWith('['))) {
+      try { shown = JSON.stringify(JSON.parse(v), null, 2); } catch {}
       } else if (typeof v === 'boolean') shown = v ? 'true' : 'false';
       return fillPeekRowHtml(k, shown);
     });
@@ -2193,7 +2193,7 @@ async function loadLogsX(reset) {
       lines = (await r.json()).filter(l => l.id > lgLastId);
       if (!lines.length) return;
       lgRows.push(...lines);
-      lgLastId = Math.max(lgLastId, ...lines.map(l => l.id));
+    lgLastId = Math.max(lgLastId, ...lines.map(l => l.id));
       lgAppendRows(lines, 'end');
       lgTrimLive();
       lgPaintChrome();

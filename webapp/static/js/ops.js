@@ -402,6 +402,18 @@ function onOpsGeomInput(id) {
 function updateOpsGeomSum() {
   const el = document.getElementById('opsGeomSum');
   if (!el) return;
+  const fit = document.getElementById('opsP_FIT_AUTO');
+  const fitOn = !!(fit && fit.checked);
+  if (fitOn && !opsEdit) {
+    el.classList.add('is-note');
+    el.textContent = 'Hem / span / step will be calculated from the live book after this contract starts. Open Edit on the rPnL card to see the runtime values.';
+    return;
+  }
+  el.classList.remove('is-note');
+  if (fitOn && opsEdit) {
+    el.textContent = '';
+    return;
+  }
   const bits = opsGeomLens().map(g => {
     const inp = document.getElementById('opsG_' + g.id);
     const n = inp ? inp.value : '';
@@ -524,9 +536,14 @@ function renderOpsParam(p) {
   if (p.type === 'max') return renderOpsMax(p);
   const id = 'opsP_' + p.key;
   const extraCls = (p.wide ? ' rp-ops-wide' : '');
-  const showIf = Array.isArray(p.show_if_any) && p.show_if_any.length
-    ? ' data-show-if="' + escHtml(p.show_if_any.join(',')) + '"'
-    : '';
+  const cond = [];
+  if (Array.isArray(p.show_if_any) && p.show_if_any.length) {
+    cond.push('data-show-if="' + escHtml(p.show_if_any.join(',')) + '"');
+  }
+  if (Array.isArray(p.hide_if_any) && p.hide_if_any.length) {
+    cond.push('data-hide-if="' + escHtml(p.hide_if_any.join(',')) + '"');
+  }
+  const showIf = cond.length ? ' ' + cond.join(' ') : '';
   const title = p.hint ? ' title="' + escHtml(p.hint) + '"' : '';
   if (p.type === 'bool') {
     const on = p.default === true || p.default === 'true';
@@ -548,12 +565,21 @@ function renderOpsParam(p) {
 }
 
 function syncOpsDependentFields() {
+  const fit = document.getElementById('opsP_FIT_AUTO');
+  const spread = document.getElementById('opsP_SPAN_SPREAD');
+  if (fit && spread && fit.checked) spread.checked = false;
   document.querySelectorAll('#opsParams [data-show-if]').forEach(el => {
     const keys = (el.getAttribute('data-show-if') || '').split(',').map(s => s.trim()).filter(Boolean);
     const boxes = keys.map(k => document.getElementById('opsP_' + k)).filter(Boolean);
     el.hidden = boxes.length ? !boxes.some(b => b.checked) : false;
   });
+  document.querySelectorAll('#opsParams [data-hide-if]').forEach(el => {
+    const keys = (el.getAttribute('data-hide-if') || '').split(',').map(s => s.trim()).filter(Boolean);
+    const boxes = keys.map(k => document.getElementById('opsP_' + k)).filter(Boolean);
+    el.hidden = boxes.length ? boxes.some(b => b.checked) : false;
+  });
   syncOpsFitLock();
+  updateOpsGeomSum();
 }
 
 function opsFitAutoOn() {
@@ -640,14 +666,14 @@ function paintOpsGeomLive() {
   if (!el) return;
   const s = opsLiveSetup();
   const bits = opsGeomLiveBits(s);
-  if (bits.length) {
+  if (opsEdit && bits.length) {
     el.innerHTML = '<b>Current live</b>  ' + escHtml(bits.join(' · '));
     applyLiveToGeomInputs(s);
+    updateOpsGeomSum();
     return;
   }
-  el.textContent = opsFitAutoOn()
-    ? 'Fit auto will keep hem / span / step from the live book after start.'
-    : '';
+  el.textContent = '';
+  updateOpsGeomSum();
 }
 
 function refreshOpsLiveGeom() {
@@ -677,10 +703,10 @@ function renderOpsGlossary() {
     } else if (p.key === 'ORDERS') add('orders', 'Orders / side', 'How many quotes hang on each side.');
     else if (p.key === 'HOOK') add('hook', 'Hook', 'What the ladder hangs off — mid, inventory, or last.');
     else if (p.key === 'STEP_MULT') add('sm', 'Step ×', 'How the step grows down the ladder.');
-    else if (p.key === 'FIT_AUTO') add('fit', 'Fit auto', 'Keeps hem and step matched to the live book. You cannot type them while this is on.');
+    else if (p.key === 'FIT_AUTO') add('fit', 'Fit auto', 'Keeps hem and step matched to the live book, and follows a wide bid–ask. You cannot type hem / span / step while this is on.');
     else if (p.key === 'STEP_AUTO') add('fstep', 'Fit step', 'Keeps step matched to the live book.');
-    else if (p.key === 'SPAN_SPREAD') add('ss', 'Span spread', 'If the live bid–ask is wider than span, inner quotes sit on the spread.');
-    else if (p.key === 'TOUCH_TICKS') add('touch', 'Touch ticks', 'How far inside the BBO when span follows the spread. 0 joins the touch.');
+    else if (p.key === 'SPAN_SPREAD') add('ss', 'Span spread', 'Only when Fit auto is off. If the live bid–ask is wider than span, inner quotes sit on the spread.');
+    else if (p.key === 'TOUCH_TICKS') add('touch', 'Touch ticks', 'How far inside the BBO when quotes follow the spread (Fit auto or Span spread). 0 joins the touch.');
     else if (p.key === 'FATE_USD') add('fate', 'Fate $', 'Pause if rPnL drops this far from the peak.');
     else if (p.key === 'GRIND_USD') add('grind', 'Grind $', 'Pause if window rPnL is this negative.');
     else if (p.key === 'VOL_GATE') add('vol', 'Vol gate', 'Only quote while the tape is busy.');
@@ -727,10 +753,17 @@ function collectOpsGeom(out) {
   if (!document.getElementById('opsGeom')) return;
   if (opsEdit && opsFitAutoOn()) return;
   persistOpsGeom();
+  const fitEl = document.getElementById('opsP_FIT_AUTO');
+  const fitSeed = !opsEdit && !!(fitEl && fitEl.checked);
   opsGeomLens().forEach(g => {
     const row = document.querySelector('#opsGeom [data-geom="' + g.id + '"]');
     const inp = document.getElementById('opsG_' + g.id);
     if (!row || !inp) return;
+    if (fitSeed) {
+      out[g.pct_key] = row.dataset.pct || g.pct_default || '0.1';
+      out[g.ticks_key] = '0';
+      return;
+    }
     const unit = opsGeomRowUnit(g.id);
     if (unit === 'ticks') {
       const t = Math.max(0, Math.round(Number(inp.value) || 0));
@@ -768,6 +801,8 @@ function validateOpsParams() {
     if (p.type !== 'int' && p.type !== 'number' && p.type !== 'max') continue;
     const el = document.getElementById('opsP_' + p.key);
     if (!el || el.value === '' || el.value == null) continue;
+    const host = el.closest('label');
+    if (host && host.hidden) continue;
     const n = Number(el.value);
     if (!isFinite(n)) return p.label + ' is invalid';
     if (p.type === 'int' && n !== Math.round(n)) return p.label + ' must be a whole number';
@@ -795,6 +830,11 @@ function collectOpsParams() {
     if (p.type === 'geom' || p.type === 'max') return;
     const el = document.getElementById('opsP_' + p.key);
     if (!el) return;
+    const host = el.closest('label');
+    if (host && host.hidden) {
+      if (p.type === 'bool') out[p.key] = false;
+      return;
+    }
     if (p.type === 'bool') out[p.key] = !!el.checked;
     else if (el.value !== '' && el.value != null) out[p.key] = el.value;
   });

@@ -1206,6 +1206,10 @@ body.ops-open { overflow: hidden; }
   margin-top: 4px; font-size: 12px; font-weight: 650; color: #d7deef;
   font-variant-numeric: tabular-nums;
 }
+.rp-ops-geom-sum.is-note {
+  font-weight: 500; color: var(--muted); line-height: 1.45;
+  font-variant-numeric: normal;
+}
 .rp-ops-geom-live {
   margin-top: 8px;
   font-size: 12px; font-weight: 500; color: #c5d0e6;
