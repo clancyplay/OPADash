@@ -592,6 +592,21 @@ def parent_status() -> dict:
     return {"has_parent": ok, "hint": "" if ok else PARENT_HINT}
 
 
+def _uniq_products(rows: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    out: list[dict] = []
+    for rec in rows:
+        if not isinstance(rec, dict):
+            continue
+        key = str(rec.get("symbol") or "").strip().upper()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(rec)
+    out.sort(key=lambda r: str(r.get("symbol") or ""))
+    return out
+
+
 async def list_products(venue: str) -> list[dict]:
     venue = str(venue or "delta").strip().lower()
     cached = _prod_cache.get(venue)
@@ -615,20 +630,26 @@ async def list_products(venue: str) -> list[dict]:
         rows = cached[1] if cached else []
         if not rows:
             raise
+    rows = _uniq_products(rows)
     _prod_cache[venue] = (time.time(), rows)
     return rows
 
 
 async def _delta_products() -> list[dict]:
+    """Delta paginates with `after`, not `page`. `page` is ignored and repeats page 1."""
     base = os.getenv("DELTA_REST_URL", "https://api.india.delta.exchange").rstrip("/")
     out: list[dict] = []
+    after = None
     async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
-        page = 1
-        while page <= 6:
-            r = await client.get(
-                base + "/v2/products",
-                params={"page_size": 200, "page": page, "contract_types": "perpetual_futures"},
-            )
+        for _ in range(12):
+            params: dict[str, Any] = {
+                "page_size": 200,
+                "contract_types": "perpetual_futures",
+                "states": "live",
+            }
+            if after:
+                params["after"] = after
+            r = await client.get(base + "/v2/products", params=params)
             r.raise_for_status()
             data = r.json() if r.content else {}
             rows = data.get("result") if isinstance(data, dict) else None
@@ -657,10 +678,10 @@ async def _delta_products() -> list[dict]:
                     "tick": rec.get("tick_size"),
                     "cv": rec.get("contract_value"),
                 })
-            if len(rows) < 200:
+            meta = data.get("meta") if isinstance(data, dict) else None
+            after = (meta or {}).get("after") if isinstance(meta, dict) else None
+            if not after or len(rows) < 200:
                 break
-            page += 1
-    out.sort(key=lambda r: r["symbol"])
     return out
 
 

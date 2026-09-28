@@ -264,7 +264,13 @@ async function loadOpsProducts(venue) {
   try {
     const r = await fetch('/api/ops/products?venue=' + encodeURIComponent(venue));
     const d = r.ok ? await r.json() : { products: [] };
-    opsProducts = d.products || [];
+    const seen = {};
+    opsProducts = (d.products || []).filter(p => {
+      const s = String(p.symbol || '').toUpperCase();
+      if (!s || seen[s]) return false;
+      seen[s] = true;
+      return true;
+    });
     list.innerHTML = opsProducts.slice(0, 400).map(p =>
       '<option value="' + escHtml(p.symbol) + '">' + escHtml(p.name && p.name !== p.symbol ? p.name : '') + '</option>'
     ).join('');
