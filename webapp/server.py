@@ -384,7 +384,7 @@ def _hedge_venue_label(raw: str | None) -> str:
     return codes.get(v, codes.get(v.lower(), v))
 
 
-_SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold", "wallet_exch", "hook"}
+_SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold", "wallet_exch", "hook", "role", "hedge_of", "hedge_via"}
 _SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr"}
 _SETUP_KEYS = (
     "hook", "hem", "span", "step", "hem_ticks", "span_ticks", "step_ticks", "step_mult",
@@ -393,6 +393,7 @@ _SETUP_KEYS = (
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
     "mode", "mode_why", "pause_left", "size_pct",
     "min_spread", "spread_pad",
+    "role", "pair_hedge", "hedge_of", "hedge_via", "hedge_target", "hedge_pct",
     "pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr", "wallet_exch", "hold",
     "grind", "grind_window", "grind_rpnl", "grind_secs",
     "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "probing",
@@ -1831,6 +1832,19 @@ async def bot_command(
     tag = (req.strategy or strategy or "").strip()
     if not tag:
         raise HTTPException(status_code=400, detail="strategy required")
+    setup = _setup_public(_lookup_setup(
+        await _db.get_bot_setups(tag), contract, str(req.account or "").strip(), tag,
+    ))
+    if setup and (
+        setup.get("pair_hedge") is True
+        or str(setup.get("pair_hedge") or "").lower() in ("true", "1", "on")
+        or str(setup.get("role") or "").lower() == "hedge"
+        or str(setup.get("mode") or "").lower() == "hedge"
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="pair hedge is managed automatically — stop/max the option contracts, not " + contract,
+        )
     payload = _max_payload(req.payload) if cmd == "max" else (req.payload if isinstance(req.payload, dict) else None)
     cmd_id = await _db.insert_bot_command(
         tag, str(req.account or "").strip(), contract, cmd, created_by="dashboard", payload=payload,

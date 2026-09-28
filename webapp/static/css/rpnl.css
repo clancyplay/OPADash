@@ -165,6 +165,16 @@ body:has(#rpnl.visible) {
 .rpnl-pill .p-mode { font-size: 10px; color: #ffb74d; margin-top: 3px; }
 .rpnl-pill .p-mode.stop { color: #ffb74d; font-weight: 650; letter-spacing: .2px; }
 .rpnl-pill .p-mode.bad { color: var(--red); font-weight: 650; }
+.rpnl-pill .rpnl-hedge {
+  font-size: 9px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
+  color: #ffb74d; background: rgba(255, 183, 77, .16); border-radius: 4px;
+  padding: 1px 5px; flex-shrink: 0;
+}
+.rpnl-pill .p-hedge {
+  font-size: 10px; color: #ffb74d; margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 188px;
+}
+.rpnl-pill .p-hedge.via { color: var(--muted); }
 
 /* Inspect + setup */
 .rpnl-inspect {
@@ -236,6 +246,7 @@ body:has(#rpnl.visible) {
 .rpnl-inspect .ri-chip { color: var(--muted); font-size: 11px; flex: 0 0 auto; }
 .rpnl-inspect .ri-chip.status.stop { color: #ffb74d; font-weight: 650; }
 .rpnl-inspect .ri-chip.status.bad { color: var(--red); font-weight: 650; }
+.rpnl-inspect .ri-chip.hedge { color: #ffb74d; font-weight: 650; }
 .rpnl-inspect .ri-pos {
   font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums;
   flex: 0 0 auto;

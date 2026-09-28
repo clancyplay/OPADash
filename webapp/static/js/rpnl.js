@@ -247,6 +247,10 @@ function rpnlStatusLabel(mode) {
 
 function rpnlModeText(s, brief) {
   if (!s) return '';
+  if (s.pair_hedge === true || s.pair_hedge === 'true' || s.pair_hedge === 1 ||
+      String(s.role || '').toLowerCase() === 'hedge' || String(s.mode || '').toLowerCase() === 'hedge') {
+    return '';
+  }
   const dash = rpnlDashStatus(s);
   if (dash.label) return dash.label;
   const mode = String(s.mode || '').trim();
@@ -572,8 +576,56 @@ function rpnlWalletHtml(s) {
   return '<span class="ri-chip">wallet ' + inrFmt(n) + '</span>';
 }
 
+function rpnlLooksOption(sym) {
+  const s = String(sym || '').toUpperCase();
+  if (/^[CP]-/.test(s)) return true;
+  return /^[CP][A-Z]{2,}\d{6,}$/.test(s);
+}
+
+function rpnlHedgeOf(r) {
+  const s = (r && r.settings) || {};
+  if (s.hedge_of) return String(s.hedge_of);
+  return r && r._hedgeOf ? String(r._hedgeOf) : '';
+}
+
+function rpnlIsPairHedge(r) {
+  const s = (r && r.settings) || {};
+  if (s.pair_hedge === true || s.pair_hedge === 'true' || s.pair_hedge === 1 ||
+      String(s.role || '').toLowerCase() === 'hedge' || String(s.mode || '').toLowerCase() === 'hedge') {
+    return true;
+  }
+  return !!(r && r._pairHedge);
+}
+
+function rpnlMarkPairHedges(rows) {
+  const groups = {};
+  (rows || []).forEach(r => {
+    if (String(r.strategy || '').toLowerCase() !== 'pair') return;
+    const k = (r.account || '') + '|' + (r.strategy || '');
+    (groups[k] = groups[k] || []).push(r);
+  });
+  Object.keys(groups).forEach(k => {
+    const g = groups[k];
+    const opts = g.filter(r => rpnlLooksOption(r.quote_symbol || r.contract));
+    const perps = g.filter(r => !rpnlLooksOption(r.quote_symbol || r.contract));
+    if (!opts.length || !perps.length) return;
+    const names = opts.map(r => r.quote_symbol || r.contract).filter(Boolean);
+    const label = names.join(' · ');
+    const tagged = perps.filter(r => {
+      const s = r.settings || {};
+      return s.pair_hedge === true || s.pair_hedge === 'true' || s.pair_hedge === 1 ||
+        String(s.role || '').toLowerCase() === 'hedge' || String(s.mode || '').toLowerCase() === 'hedge';
+    });
+    const mark = tagged.length ? tagged : (perps.length === 1 ? perps : []);
+    mark.forEach(r => {
+      r._pairHedge = true;
+      if (!rpnlHedgeOf(r) && label) r._hedgeOf = label;
+    });
+  });
+}
+
 function rpnlActsHtml(r) {
-  if (!r.live) return '';
+  if (rpnlIsPairHedge(r) || !r.live) return '';
   const s = r.settings || {};
   const held = !!(s.hold || s.mode === 'stopped' || s.mode === 'flattening');
   const flattening = s.mode === 'flattening';
@@ -587,7 +639,7 @@ function rpnlActsHtml(r) {
 }
 
 function rpnlMaxHtml(r) {
-  if (!r.live) return '';
+  if (rpnlIsPairHedge(r) || !r.live) return '';
   const s = r.settings || {};
   const usd = s.max_usd != null;
   const cur = usd ? s.max_usd : s.max_pos;
@@ -607,6 +659,10 @@ async function sendBotCmd(pill, cmd) {
   const account = pill.dataset.account || '';
   const name = pill.dataset.qsym || contract;
   if (!contract || !cmd) return;
+  if (pill.dataset.hedge === '1' || rpnlIsPairHedge(currentRpnlRow())) {
+    toast('pair hedge is automatic — use the option contracts', 'err');
+    return;
+  }
   if (cmd === 'flatten' && !confirm('Close ' + name + ' with a market flatten and stop quoting?')) return;
   if (cmd === 'stop' && !confirm('Stop quoting ' + name + '? Open orders cancel; position stays.')) return;
   const body = {
@@ -654,10 +710,19 @@ function rpnlGeomBit(name, ticks, pct, extra) {
 function rpnlSetupBits(s) {
   const bits = [];
   const on = v => v === true || v === 'true' || v === 'on' || v === 1 || v === '1';
-  if (s.edge != null) bits.push('edge ' + fmtG(s.edge) + '%');
-  if (s.k_ticks != null && Number(s.k_ticks) !== 0) bits.push('k ' + fmtG(s.k_ticks) + 't');
-  else if (s.k != null) bits.push('k ' + fmtG(s.k) + '%');
-  if (s.hook) bits.push('hook ' + s.hook);
+  const hedge = on(s.pair_hedge) || s.role === 'hedge' || String(s.mode || '').toLowerCase() === 'hedge';
+  if (!hedge) {
+    if (s.edge != null) bits.push('edge ' + fmtG(s.edge) + '%');
+    if (s.k_ticks != null && Number(s.k_ticks) !== 0) bits.push('k ' + fmtG(s.k_ticks) + 't');
+    else if (s.k != null) bits.push('k ' + fmtG(s.k) + '%');
+    if (s.hook) bits.push('hook ' + s.hook);
+  }
+  if (hedge) bits.push('pair hedge');
+  if (s.hedge_of) bits.push('hedges ' + s.hedge_of);
+  if (s.hedge_via) bits.push('hedged by ' + s.hedge_via);
+  if (s.hedge_pct != null) bits.push('hedge ' + fmtG(s.hedge_pct) + '%');
+  if (s.hedge_target != null) bits.push('target ' + fmtG(s.hedge_target));
+  if (!hedge) {
   const hem = rpnlGeomBit('hem', s.hem_ticks, s.hem);
   const span = rpnlGeomBit('span', s.span_ticks, s.span);
   let stepExtra = '';
@@ -679,13 +744,14 @@ function rpnlSetupBits(s) {
   if (s.stop_pause != null) bits.push('pause ' + fmtG(s.stop_pause) + 's');
   if (s.grind != null) bits.push('grind $' + fmtG(s.grind) + (s.grind_window != null ? '/' + (fmtWinSecs(s.grind_window) || (s.grind_window + 's')) : ''));
   if (s.fate != null) bits.push('fate $' + fmtG(s.fate));
-  if (s.live_orders != null && s.orders != null) bits.push('orders ' + s.live_orders + '/' + s.orders);
-  else if (s.orders != null) bits.push('orders ' + s.orders);
-  if (s.bid_ticks != null) bits.push('bid +' + fmtG(s.bid_ticks) + 't');
-  if (s.ask_ticks != null) bits.push('ask −' + fmtG(s.ask_ticks) + 't');
-  if (s.max_usd != null) bits.push('max $' + fmtG(s.max_usd));
-  else if (s.max_pos != null) bits.push('max ' + fmtG(s.max_pos));
-  if (s.ignore != null) bits.push((s.ignore_usd ? 'ignore $' : 'ignore ') + fmtG(s.ignore));
+    if (s.live_orders != null && s.orders != null) bits.push('orders ' + s.live_orders + '/' + s.orders);
+    else if (s.orders != null) bits.push('orders ' + s.orders);
+    if (s.bid_ticks != null) bits.push('bid +' + fmtG(s.bid_ticks) + 't');
+    if (s.ask_ticks != null) bits.push('ask −' + fmtG(s.ask_ticks) + 't');
+    if (s.max_usd != null) bits.push('max $' + fmtG(s.max_usd));
+    else if (s.max_pos != null) bits.push('max ' + fmtG(s.max_pos));
+    if (s.ignore != null) bits.push((s.ignore_usd ? 'ignore $' : 'ignore ') + fmtG(s.ignore));
+  }
   return bits;
 }
 
@@ -919,6 +985,7 @@ function renderRpnlInspect(row) {
     box.className = 'rpnl-inspect';
     box.innerHTML = '';
     box.dataset.sig = '';
+    box.dataset.hedge = '';
     return;
   }
   const s = row.settings || null;
@@ -938,15 +1005,20 @@ function renderRpnlInspect(row) {
     s && s.probe_win_ok, s && s.fate_peak, s && s.grind_rpnl, s && s.pause_clock,
     s && s.probe_rpnl_ready, s && s.probe_chop_ok,
     s && s.max_usd, s && s.max_pos,
+    s && s.pair_hedge, s && s.role, s && s.hedge_of, s && s.hedge_via,
     cfgSig, modeTxt,
   ].join('|');
+  const pairHedge = rpnlIsPairHedge(row);
+  const hedgeOf = rpnlHedgeOf(row);
+  const via = s && s.hedge_via;
   const wasOpen = box.classList.contains('open');
   const wasFolded = box.classList.contains('folded');
-  box.className = 'rpnl-inspect open' + ((wasFolded || !wasOpen) ? ' folded' : '');
+  box.className = 'rpnl-inspect open' + ((wasFolded || !wasOpen) ? ' folded' : '') + (pairHedge ? ' hedge' : '');
   box.dataset.contract = row.contract || '';
   box.dataset.account = row.account || '';
   box.dataset.strategy = row.strategy || '';
   box.dataset.qsym = qsym;
+  box.dataset.hedge = pairHedge ? '1' : '';
   const maxInp = document.getElementById('rpnlMaxInput');
   const keepMax = (document.activeElement === maxInp) ? {
     value: maxInp.value,
@@ -962,14 +1034,18 @@ function renderRpnlInspect(row) {
         '<div class="ri-stats">' +
           '<span class="ri-sym">' + escHtml(qsym) + '</span>' +
           rpnlPosHtml(s, 'ri-pos', row.quote_venue) +
-          rpnlStatusChip(s) +
+          (pairHedge ? '' : rpnlStatusChip(s)) +
+          (pairHedge
+            ? '<span class="ri-chip hedge">Hedge' + (hedgeOf ? ' of ' + escHtml(hedgeOf) : '') + '</span>'
+            : (via ? '<span class="ri-chip hedge">hedged by ' + escHtml(via) + '</span>' : '')) +
           '<span class="ri-chip">' + escHtml(qlab) + ' · ' + (row.fills || 0) + ' fills' +
             (hedged ? ' · ' + escHtml(hlab) + ' ' + (row.hedge_fills || 0) : '') + '</span>' +
         '</div>' +
       '</div>' +
-      (row.live
-        ? '<div class="ri-row ri-tools">' + rpnlActsHtml(row) + rpnlMaxHtml(row) + '</div>'
-        : '') +
+      (function () {
+        const tools = rpnlActsHtml(row) + rpnlMaxHtml(row);
+        return tools ? '<div class="ri-row ri-tools">' + tools + '</div>' : '';
+      })() +
     '</div>' +
     '<div class="ri-extra">' +
     '<div class="ri-setup">' +
@@ -980,7 +1056,7 @@ function renderRpnlInspect(row) {
         : '') +
       rpnlCfgHtml(s) +
     '</div>' +
-    rpnlGatesHtml(s) +
+    (pairHedge ? '' : rpnlGatesHtml(s)) +
     '</div>';
   if (keepMax) {
     const el = document.getElementById('rpnlMaxInput');
@@ -1009,7 +1085,7 @@ function renderRpnlInspect(row) {
 
 function rpnlLiveDot(r) {
   if (!r || !r.live) return '';
-  const st = rpnlDashStatus(r.settings);
+  const st = rpnlIsPairHedge(r) ? { key: '', label: 'Hedge' } : rpnlDashStatus(r.settings);
   const cls = 'p-live' + (st.key ? ' ' + st.key : '');
   const title = st.label || 'Live';
   return '<span class="' + cls + '" title="' + escHtml(title) + '"></span>';
@@ -1052,21 +1128,28 @@ function rpnlPillHtml(r, cur, nameCount) {
   const main = rpnlPillMain(r);
   const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
   const mode = rpnlPillMode(r);
-  const maxBit = rpnlPillMax(r);
+  const maxBit = rpnlIsPairHedge(r) ? '' : rpnlPillMax(r);
   const walletBit = rpnlPillWallet(r);
   const strat = r.strategy || '';
+  const hedgeBit = rpnlIsPairHedge(r);
   const st = rpnlDashStatus(r.settings);
-  const statusCls = st.key ? ' ' + st.key : '';
+  const statusCls = hedgeBit || !st.key ? '' : ' ' + st.key;
   const modeCls = st.tone ? ' ' + st.tone : '';
-  return '<button type="button" class="rpnl-pill' + active + liveCls + statusCls + '" data-rpnl-key="' + escHtml(key) + '">' +
+  const hedgeOf = rpnlHedgeOf(r);
+  const via = r.settings && r.settings.hedge_via;
+  const shownMode = hedgeBit ? '' : mode;
+  return '<button type="button" class="rpnl-pill' + active + liveCls + statusCls + (hedgeBit ? ' hedge' : '') + '" data-rpnl-key="' + escHtml(key) + '">' +
     '<div class="p-name">' + rpnlLiveDot(r) +
       '<span class="p-sym">' + escHtml(name) + '</span>' +
       (strat ? '<span class="rpnl-strat">' + escHtml(strat) + '</span>' : '') +
+      (hedgeBit ? '<span class="rpnl-hedge">Hedge</span>' : '') +
       '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
     '<div class="p-val" style="color:' + mainCol + '">' + rpnlPillValInner(r) + '</div>' +
+    (hedgeBit && hedgeOf ? '<div class="p-hedge" title="' + escHtml(hedgeOf) + '">of ' + escHtml(hedgeOf) + '</div>' : '') +
+    (!hedgeBit && via ? '<div class="p-hedge via" title="' + escHtml(via) + '">hedged by ' + escHtml(via) + '</div>' : '') +
     (maxBit ? '<div class="p-max">' + escHtml(maxBit) + '</div>' : '') +
     (walletBit ? '<div class="p-bal">' + escHtml(walletBit) + '</div>' : '') +
-    (mode ? '<div class="p-mode' + modeCls + '">' + escHtml(mode) + '</div>' : '') +
+    (shownMode ? '<div class="p-mode' + modeCls + '">' + escHtml(shownMode) + '</div>' : '') +
     '</button>';
 }
 
@@ -1092,6 +1175,7 @@ function renderRpnlSummary(rows, hours) {
   const wrap = document.getElementById('rpnlSummaryWrap');
   if (!wrap) return;
   rows = filterRpnlWindowRows(rows);
+  rpnlMarkPairHedges(rows);
   if (!rows.length) {
     wrap.dataset.keys = '';
     wrap.innerHTML = '<div class="rpnl-empty">No live bots or fills in this window.</div>';
@@ -1119,9 +1203,10 @@ function renderRpnlSummary(rows, hours) {
       if (!r) return;
       el.classList.toggle('active', el.dataset.rpnlKey === cur);
       el.classList.toggle('live', !!r.live);
+      el.classList.toggle('hedge', rpnlIsPairHedge(r));
       const st = rpnlDashStatus(r.settings);
-      el.classList.toggle('stopped', st.key === 'stopped');
-      el.classList.toggle('flattening', st.key === 'flattening');
+      el.classList.toggle('stopped', !rpnlIsPairHedge(r) && st.key === 'stopped');
+      el.classList.toggle('flattening', !rpnlIsPairHedge(r) && st.key === 'flattening');
       const val = el.querySelector('.p-val');
       const main = rpnlPillMain(r);
       if (val) {
@@ -1140,7 +1225,7 @@ function renderRpnlSummary(rows, hours) {
       } else if (modeEl) {
         modeEl.remove();
       }
-      const maxBit = rpnlPillMax(r);
+      const maxBit = rpnlIsPairHedge(r) ? '' : rpnlPillMax(r);
       let maxEl = el.querySelector('.p-max');
       if (maxBit) {
         if (!maxEl) {
@@ -1172,7 +1257,7 @@ function renderRpnlSummary(rows, hours) {
       if (nameEl) {
         const dot = nameEl.querySelector('.p-live');
         if (r.live) {
-          const stDot = rpnlDashStatus(r.settings);
+          const stDot = rpnlIsPairHedge(r) ? { key: '', label: 'Hedge' } : rpnlDashStatus(r.settings);
           if (!dot) nameEl.insertAdjacentHTML('afterbegin', rpnlLiveDot(r));
           else {
             dot.className = 'p-live' + (stDot.key ? ' ' + stDot.key : '');
@@ -1192,6 +1277,38 @@ function renderRpnlSummary(rows, hours) {
         } else if (stratEl) {
           stratEl.remove();
         }
+        let hedgeTag = nameEl.querySelector('.rpnl-hedge');
+        if (rpnlIsPairHedge(r)) {
+          if (!hedgeTag) {
+            hedgeTag = document.createElement('span');
+            hedgeTag.className = 'rpnl-hedge';
+            hedgeTag.textContent = 'Hedge';
+            const venueEl = nameEl.querySelector('.rpnl-venue');
+            if (venueEl) nameEl.insertBefore(hedgeTag, venueEl);
+            else nameEl.appendChild(hedgeTag);
+          }
+        } else if (hedgeTag) {
+          hedgeTag.remove();
+        }
+      }
+      const hedgeOf = rpnlHedgeOf(r);
+      const via = r.settings && r.settings.hedge_via;
+      const hedgeNote = rpnlIsPairHedge(r) && hedgeOf
+        ? 'of ' + hedgeOf
+        : (!rpnlIsPairHedge(r) && via ? 'hedged by ' + via : '');
+      let hedgeLine = el.querySelector('.p-hedge');
+      if (hedgeNote) {
+        if (!hedgeLine) {
+          hedgeLine = document.createElement('div');
+          const valEl = el.querySelector('.p-val');
+          if (valEl && valEl.nextSibling) el.insertBefore(hedgeLine, valEl.nextSibling);
+          else el.appendChild(hedgeLine);
+        }
+        hedgeLine.className = 'p-hedge' + (rpnlIsPairHedge(r) ? '' : ' via');
+        hedgeLine.textContent = hedgeNote;
+        hedgeLine.title = rpnlIsPairHedge(r) ? hedgeOf : (via || '');
+      } else if (hedgeLine) {
+        hedgeLine.remove();
       }
     });
   }
