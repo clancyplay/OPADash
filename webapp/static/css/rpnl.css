@@ -607,11 +607,13 @@ body:has(#rpnl.visible) {
   flex: 1 1 auto;
   min-height: 0;
   max-height: none;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
   border: 0;
   border-radius: 0;
 }
 .rp-logs-box .log-line { padding: 3px 14px; }
-.rp-logs-box .dtable { font-size: 11px; }
+.rp-logs-box .dtable { font-size: 11px; width: max-content; min-width: 100%; }
 .rp-logs-box .dtable th { position: sticky; top: 0; background: #121722; z-index: 1; }
 .rp-logs-box td.side-buy { color: var(--green); }
 .rp-logs-box td.side-sell { color: var(--red); }
@@ -760,7 +762,22 @@ body:has(#rpnl.visible) {
     min-height: 420px;
     width: 100%;
   }
+  #rpnl.logs-open .rp-top {
+    max-height: 32vh;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  #rpnl.logs-open .rp-charts {
+    height: 22vh;
+    min-height: 140px;
+    max-height: 28vh;
+  }
+  #rpnl.logs-open .rp-scroll {
+    overflow-x: hidden;
+    padding-bottom: calc(28px + var(--safe-b));
+  }
   .rp-pane { min-height: 180px; }
+  #rpnl.logs-open .rp-pane { min-height: 90px; }
   #ohlcChart, #rpnlChart,
   #ohlcChart canvas, #rpnlChart canvas {
     touch-action: pan-y pinch-zoom;
@@ -810,8 +827,29 @@ body:has(#rpnl.visible) {
   .rp-foot .btn { min-height: 28px !important; padding: 2px 8px !important; font-size: 11px !important; }
   .rp-inspect { margin-left: 0; width: 100%; }
   #rpnl.logs-open .rp-logs {
-    height: 46vh;
-    min-height: 220px;
+    flex: 1 1 auto;
+    height: auto;
+    min-height: min(52vh, 480px);
+    max-height: none;
+    padding-bottom: calc(24px + var(--safe-b));
+  }
+  #rpnl.logs-open .rp-logs-stage {
+    flex: 1 1 auto;
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+  }
+  #rpnl.logs-open .rp-logs-box {
+    flex: 1 1 auto;
+    min-height: 180px;
+    overflow: auto !important;
+    max-height: none !important;
+  }
+  #rpnl.logs-open .rp-logs-stage #rpnlLgPeek {
+    flex: 0 0 auto;
+    max-height: 38vh;
+    border-left: 0;
+    border-top: 1px solid var(--border);
   }
 }
 

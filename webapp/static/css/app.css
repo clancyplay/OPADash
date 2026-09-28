@@ -516,7 +516,14 @@
   }
   .dbt-th { position: relative; padding-right: 12px !important; }
   .dtable tr:hover td { background: rgba(255,255,255,.025); }
-  .dtable tr.clickable { cursor: pointer; }
+  .dtable tr.clickable { cursor: pointer; user-select: none; }
+  .dtable .dbt-sel-h, .dtable td.dbt-sel {
+    width: 36px; min-width: 36px; max-width: 36px;
+    text-align: center; padding-left: 8px !important; padding-right: 4px !important;
+  }
+  .dtable .dbt-sel-h input, .dtable td.dbt-sel input {
+    width: 14px; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer;
+  }
   .dtable tr.total-row td { font-weight: 700; border-top: 2px solid var(--border2); }
   .side-buy  { color: var(--green); font-weight: 600; }
   .side-sell { color: var(--red); font-weight: 600; }
@@ -609,7 +616,7 @@
     color: var(--muted); font-size: 11px; margin-bottom: 10px; position: sticky; top: 0;
     background: #0a0d13; padding-bottom: 6px;
   }
-  .peek-acts { display: flex; gap: 6px; }
+  .peek-acts { display: flex; gap: 6px; flex-wrap: wrap; }
   .peek-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 10px; padding: 3px 0; }
   .peek-row .pk { color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
   .peek-row .pv { white-space: pre-wrap; word-break: break-word; font-variant-numeric: tabular-nums; }

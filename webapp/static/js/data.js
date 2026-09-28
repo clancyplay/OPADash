@@ -146,6 +146,8 @@ let dbtTypes = {};
 let dbtUsdInr = 87;
 let dbtPageRows = [];
 let dbtPeekIdx = -1;
+let dbtSel = new Set();
+let dbtAnchor = -1;
 let dbtGen = 0;
 let dbtTables = [];
 const dbtFacetsCache = {};
@@ -213,6 +215,7 @@ function dbtDefaultWidth(col) {
   if (c === 'account') return 96;
   if (c === 'exchange' || c === 'strategy' || c === 'service' || c === 'level') return 88;
   if (c === 'rpnl') return 168;
+  if (c === 'fee') return 148;
   if (['quantity', 'qty', 'price', 'upnl', 'fee', 'mark', 'bid', 'ask', 'spread', 'position'].includes(c)) return 84;
   if (c === 'order_id' || c === 'fill_id') return 140;
   if (c === 'message' || c === 'payload' || c === 'setup' || c === 'details') return 240;
@@ -405,6 +408,8 @@ function openDbTable(name, opts) {
     dbtSort = '';
     dbtDir = 'desc';
     dbtPeekIdx = -1;
+    dbtSel = new Set();
+    dbtAnchor = -1;
     dbtClearFilterInputs();
     document.getElementById('dbtPeek').hidden = true;
     if (typeof strategyIsAll === 'function' && !strategyIsAll(currentStrategy)) {
@@ -423,15 +428,30 @@ function openDbTable(name, opts) {
 function dbtPage(dir) {
   const limit = parseInt(document.getElementById('dbtLimit').value) || 100;
   dbtOffset = Math.max(0, dbtOffset + dir * limit);
+  dbtSel = new Set();
+  dbtPeekIdx = -1;
+  dbtAnchor = -1;
   renderDbTable();
 }
-function dbtGoto(offset) { dbtOffset = Math.max(0, offset); renderDbTable(); }
+function dbtGoto(offset) {
+  dbtOffset = Math.max(0, offset);
+  dbtSel = new Set();
+  dbtPeekIdx = -1;
+  dbtAnchor = -1;
+  renderDbTable();
+}
 function dbtLastPage() {
   const limit = parseInt(document.getElementById('dbtLimit').value) || 100;
   dbtGoto(Math.max(0, Math.floor(Math.max(dbtTotal - 1, 0) / limit) * limit));
 }
 function dbtFilterKey(ev) { if (ev.key === 'Enter') { ev.preventDefault(); dbtApply(); } }
-function dbtApply() { dbtOffset = 0; renderDbTable(); }
+function dbtApply() {
+  dbtOffset = 0;
+  dbtSel = new Set();
+  dbtPeekIdx = -1;
+  dbtAnchor = -1;
+  renderDbTable();
+}
 function dbtClearFilters() {
   dbtClearFilterInputs();
   dbtSort = '';
@@ -651,21 +671,37 @@ function dbtColTitle(col) {
 function dbtRpnlHtml(v, row) {
   const n = Number(v);
   if (!isFinite(n)) return esc(String(v));
-  const exch = String((row && row.exchange) || '').toLowerCase();
-  const rate = dbtUsdInr > 0 ? dbtUsdInr : 87;
-  const inr = exch === 'coindcx' ? n : n * rate;
-  const usd = exch === 'coindcx' ? n / rate : n;
+  const p = dbtSplitCcy(n, row);
   const inrBit = typeof inrFmtDec === 'function'
-    ? inrFmtDec(inr, Math.abs(inr) >= 100 ? 2 : 2)
-    : ((inr < 0 ? '−' : '+') + '₹' + Math.abs(inr).toFixed(2));
+    ? inrFmtDec(p.inr, Math.abs(p.inr) >= 100 ? 2 : 2)
+    : ((p.inr < 0 ? '−' : '+') + '₹' + Math.abs(p.inr).toFixed(2));
   const usdBit = typeof usdFmtDec === 'function'
-    ? usdFmtDec(usd, Math.abs(usd) >= 10 ? 2 : 4)
-    : ((usd < 0 ? '−' : '+') + '$' + Math.abs(usd).toFixed(4));
+    ? usdFmtDec(p.usd, Math.abs(p.usd) >= 10 ? 2 : 4)
+    : ((p.usd < 0 ? '−' : '+') + '$' + Math.abs(p.usd).toFixed(4));
   return esc(inrBit) + ' <span class="muted">' + esc(usdBit) + '</span>';
+}
+function dbtSplitCcy(v, row) {
+  const n = Number(v);
+  const rate = dbtUsdInr > 0 ? dbtUsdInr : 87;
+  const exch = String((row && row.exchange) || '').toLowerCase();
+  if (!isFinite(n)) return { inr: 0, usd: 0, ok: false };
+  if (exch === 'coindcx') return { inr: n, usd: n / rate, ok: true };
+  return { inr: n * rate, usd: n, ok: true };
+}
+function dbtFeeHtml(v, row) {
+  if (v == null || v === '') return '<span class="muted">—</span>';
+  const p = dbtSplitCcy(v, row);
+  if (!p.ok) return esc(String(v));
+  const d = Math.abs(p.usd) >= 1 ? 4 : 6;
+  const sign = p.usd < 0 ? '−' : '';
+  const inrBit = '₹' + Math.abs(p.inr).toLocaleString('en-IN', { maximumFractionDigits: 4, minimumFractionDigits: 2 });
+  const usdBit = '$' + Math.abs(p.usd).toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: 2 });
+  return esc(sign + inrBit) + ' <span class="muted">' + esc(sign + usdBit) + '</span>';
 }
 function dbtCellHtml(col, v, row) {
   if (v == null || v === '') return '<span class="muted">—</span>';
   if (col === 'rpnl') return dbtRpnlHtml(v, row);
+  if (col === 'fee') return dbtFeeHtml(v, row);
   if (dbtIsTime(col) && typeof v === 'number') return esc(fmtISTs(v));
   if (typeof v === 'boolean') return v ? 'yes' : 'no';
   if (col === 'level') return esc(String(v));
@@ -674,61 +710,248 @@ function dbtCellHtml(col, v, row) {
     return '<span class="json-chip" title="' + esc(s).replace(/"/g, '&quot;') + '">{…}</span>';
   }
   if (s.length > 80) return '<span title="' + esc(s).replace(/"/g, '&quot;') + '">' + esc(s.slice(0, 80)) + '…</span>';
-  if (col === 'rpnl' || col === 'upnl' || col === 'fee' || col === 'cost' || col === 'net_pnl') {
+  if (col === 'upnl' || col === 'cost' || col === 'net_pnl') {
     const n = Number(v);
     if (isFinite(n)) {
       const abs = Math.abs(n);
       const d = abs >= 100 ? 2 : (abs >= 1 ? 2 : 4);
-      return (n > 0 && col !== 'fee' ? '+' : '') + n.toLocaleString('en-IN', { maximumFractionDigits: d });
+      return (n > 0 ? '+' : '') + n.toLocaleString('en-IN', { maximumFractionDigits: d });
     }
   }
   return esc(s);
 }
-function dbtShowPeek(i) {
-  dbtPeekIdx = i;
-  document.querySelectorAll('#dbtGrid tbody tr').forEach((tr, idx) => tr.classList.toggle('selected', idx === i));
-  const row = dbtPageRows[i];
+function dbtSelectedRows() {
+  return [...dbtSel].filter(i => i >= 0 && i < dbtPageRows.length).sort((a, b) => a - b).map(i => dbtPageRows[i]);
+}
+function fillCombine(rows) {
+  let feeInr = 0, feeUsd = 0, rpnlInr = 0, rpnlUsd = 0, cost = 0;
+  let qtyBuy = 0, qtySell = 0, buys = 0, sells = 0, feeN = 0, feeMiss = 0, rpnlN = 0, costN = 0;
+  const contracts = new Set(), accounts = new Set(), strategies = new Set(), exchanges = new Set();
+  let t0 = null, t1 = null;
+  (rows || []).forEach(r => {
+    const side = String((r && r.side) || '').toLowerCase();
+    const qty = Number(r && r.quantity);
+    if (side === 'buy') { buys += 1; if (isFinite(qty)) qtyBuy += qty; }
+    else if (side === 'sell') { sells += 1; if (isFinite(qty)) qtySell += qty; }
+    if (!r || r.fee == null || r.fee === '') feeMiss += 1;
+    else {
+      const p = dbtSplitCcy(r.fee, r);
+      if (p.ok) { feeInr += p.inr; feeUsd += p.usd; feeN += 1; }
+    }
+    if (r && r.rpnl != null && r.rpnl !== '') {
+      const p = dbtSplitCcy(r.rpnl, r);
+      if (p.ok) { rpnlInr += p.inr; rpnlUsd += p.usd; rpnlN += 1; }
+    }
+    const c = Number(r && r.cost);
+    if (isFinite(c)) { cost += c; costN += 1; }
+    if (r && r.contract) contracts.add(String(r.contract));
+    if (r && r.account) accounts.add(String(r.account));
+    if (r && r.strategy) strategies.add(String(r.strategy));
+    if (r && r.exchange) exchanges.add(String(r.exchange));
+    const t = Number(r && r.created_at);
+    if (isFinite(t)) {
+      if (t0 == null || t < t0) t0 = t;
+      if (t1 == null || t > t1) t1 = t;
+    }
+  });
+  return {
+    n: (rows || []).length, buys, sells, qtyBuy, qtySell,
+    feeInr, feeUsd, feeN, feeMiss, rpnlInr, rpnlUsd, rpnlN, cost, costN,
+    contracts, accounts, strategies, exchanges, t0, t1,
+  };
+}
+function fillPeekMoney(inr, usd, signed) {
+  const sInr = (signed ? (inr < 0 ? '−' : '+') : (inr < 0 ? '−' : '')) + '₹' +
+    Math.abs(inr).toLocaleString('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+  const sUsd = (signed ? (usd < 0 ? '−' : '+') : (usd < 0 ? '−' : '')) + '$' +
+    Math.abs(usd).toLocaleString('en-US', { maximumFractionDigits: Math.abs(usd) >= 1 ? 4 : 6, minimumFractionDigits: 2 });
+  return esc(sInr) + ' <span class="muted">' + esc(sUsd) + '</span>';
+}
+function fillPeekRowHtml(k, v, raw) {
+  return '<div class="peek-row"><span class="pk">' + esc(k) + '</span><span class="pv">' +
+    (raw ? v : esc(v == null || v === '' ? '—' : String(v))) + '</span></div>';
+}
+function fillPeekHtml(rows, meta) {
+  meta = meta || {};
+  const close = meta.close || 'dbtClosePeek()';
+  const copy = meta.copy || 'dbtCopyPeek()';
+  const extraActs = meta.extraActs || '';
+  if (!rows || !rows.length) {
+    return '<div class="peek-h"><span>No rows</span><span class="peek-acts">' +
+      '<button class="btn" type="button" onclick="' + close + '">Close</button></span></div>';
+  }
+  if (rows.length === 1) {
+    const row = rows[0];
+    const lines = Object.entries(row).map(([k, v]) => {
+      let shown = v;
+      if (v == null) shown = '—';
+      else if (k === 'rpnl') return fillPeekRowHtml(k, dbtRpnlHtml(v, row), true);
+      else if (k === 'fee') return fillPeekRowHtml(k, dbtFeeHtml(v, row), true);
+      else if (typeof dbtIsTime === 'function' && dbtIsTime(k) && typeof v === 'number') shown = fmtISTs(v);
+      else if (typeof v === 'string' && (v.startsWith('{') || v.startsWith('['))) {
+        try { shown = JSON.stringify(JSON.parse(v), null, 2); } catch {}
+      } else if (typeof v === 'boolean') shown = v ? 'true' : 'false';
+      return fillPeekRowHtml(k, shown);
+    });
+    const label = meta.singleLabel || ('1 row · click another with ⌘/Ctrl · Shift for a range · Esc to close');
+    return '<div class="peek-h"><span>' + esc(label) + '</span>' +
+      '<span class="peek-acts">' + extraActs +
+        '<button class="btn" type="button" onclick="' + copy + '">Copy</button>' +
+        '<button class="btn" type="button" onclick="' + close + '">Close</button>' +
+      '</span></div>' + lines.join('');
+  }
+  const s = fillCombine(rows);
+  const netQty = s.qtyBuy - s.qtySell;
+  const bits = [
+    fillPeekRowHtml('selected', String(s.n) + ' fills'),
+    fillPeekRowHtml('buys / sells', s.buys + ' / ' + s.sells),
+    fillPeekRowHtml('qty buy', s.qtyBuy.toLocaleString('en-IN', { maximumFractionDigits: 6 })),
+    fillPeekRowHtml('qty sell', s.qtySell.toLocaleString('en-IN', { maximumFractionDigits: 6 })),
+    fillPeekRowHtml('net qty', (netQty > 0 ? '+' : '') + netQty.toLocaleString('en-IN', { maximumFractionDigits: 6 })),
+    fillPeekRowHtml('sum fee', fillPeekMoney(s.feeInr, s.feeUsd, false) +
+      (s.feeMiss ? ' <span class="muted"> · ' + s.feeMiss + ' missing</span>' : ''), true),
+    fillPeekRowHtml('sum rPnL', fillPeekMoney(s.rpnlInr, s.rpnlUsd, true), true),
+    fillPeekRowHtml('sum cost', s.costN ? s.cost.toLocaleString('en-IN', { maximumFractionDigits: 4 }) : '—'),
+    fillPeekRowHtml('contracts', [...s.contracts].join(', ') || '—'),
+    fillPeekRowHtml('accounts', [...s.accounts].join(', ') || '—'),
+    fillPeekRowHtml('strategies', [...s.strategies].join(', ') || '—'),
+    fillPeekRowHtml('exchanges', [...s.exchanges].join(', ') || '—'),
+    fillPeekRowHtml('from', s.t0 != null ? fmtISTs(s.t0) : '—'),
+    fillPeekRowHtml('to', s.t1 != null ? fmtISTs(s.t1) : '—'),
+  ];
+  return '<div class="peek-h"><span>' + esc(String(s.n)) + ' rows combined · ⌘/Ctrl click to toggle · Esc to close</span>' +
+    '<span class="peek-acts">' + extraActs +
+      '<button class="btn" type="button" onclick="' + copy + '">Copy</button>' +
+      '<button class="btn" type="button" onclick="' + close + '">Close</button>' +
+    '</span></div>' + bits.join('');
+}
+function fillPeekCopyText(rows) {
+  if (!rows || !rows.length) return '';
+  if (rows.length === 1) {
+    return Object.entries(rows[0]).map(([k, v]) => {
+      let shown = v;
+      if (v == null) shown = '';
+      else if (typeof dbtIsTime === 'function' && dbtIsTime(k) && typeof v === 'number') shown = fmtISTs(v);
+      return k + ': ' + shown;
+    }).join('\n');
+  }
+  const s = fillCombine(rows);
+  return [
+    'selected: ' + s.n,
+    'buys / sells: ' + s.buys + ' / ' + s.sells,
+    'qty buy: ' + s.qtyBuy,
+    'qty sell: ' + s.qtySell,
+    'net qty: ' + (s.qtyBuy - s.qtySell),
+    'sum fee ₹: ' + s.feeInr.toFixed(4) + '  $: ' + s.feeUsd.toFixed(6) + (s.feeMiss ? '  missing=' + s.feeMiss : ''),
+    'sum rPnL ₹: ' + s.rpnlInr.toFixed(2) + '  $: ' + s.rpnlUsd.toFixed(4),
+    'sum cost: ' + s.cost,
+    'contracts: ' + [...s.contracts].join(', '),
+    'accounts: ' + [...s.accounts].join(', '),
+    'from: ' + (s.t0 != null ? fmtISTs(s.t0) : ''),
+    'to: ' + (s.t1 != null ? fmtISTs(s.t1) : ''),
+  ].join('\n');
+}
+function dbtPaintSel() {
+  document.querySelectorAll('#dbtGrid tbody tr').forEach((tr, idx) => {
+    tr.classList.toggle('selected', dbtSel.has(idx));
+    const cb = tr.querySelector('.dbt-sel input');
+    if (cb) cb.checked = dbtSel.has(idx);
+  });
+  const head = document.querySelector('#dbtGrid thead .dbt-sel-h input');
+  if (head) {
+    const n = dbtPageRows.length;
+    head.checked = n > 0 && dbtSel.size === n;
+    head.indeterminate = dbtSel.size > 0 && dbtSel.size < n;
+  }
+}
+function dbtRenderPeek() {
   const peek = document.getElementById('dbtPeek');
   if (!peek) return;
-  if (!row) { peek.hidden = true; return; }
-  const lines = Object.entries(row).map(([k, v]) => {
-    let shown = v;
-    if (v == null) shown = '—';
-    else if (dbtIsTime(k) && typeof v === 'number') shown = fmtISTs(v);
-    else if (typeof v === 'string' && (v.startsWith('{') || v.startsWith('['))) {
-      try { shown = JSON.stringify(JSON.parse(v), null, 2); } catch {}
-    } else if (typeof v === 'boolean') shown = v ? 'true' : 'false';
-    return '<div class="peek-row"><span class="pk">' + esc(k) + '</span><span class="pv">' + esc(String(shown)) + '</span></div>';
-  });
+  const rows = dbtSelectedRows();
+  if (!rows.length) { peek.hidden = true; return; }
+  const i = dbtPeekIdx;
+  const extra = dbtName === 'fills'
+    ? '<button class="btn" type="button" onclick="dbtSelPage(true)">All on page</button>'
+    : '';
   peek.hidden = false;
-  peek.innerHTML =
-    '<div class="peek-h"><span>Row ' + (dbtOffset + i + 1) + ' of ' + fmtCount(dbtTotal) +
-      ' · ↑↓ to move · Esc to close</span>' +
-      '<span class="peek-acts">' +
-        '<button class="btn" type="button" onclick="dbtCopyPeek()">Copy</button>' +
-        '<button class="btn" type="button" onclick="dbtClosePeek()">Close</button>' +
-      '</span></div>' +
-    lines.join('');
+  peek.innerHTML = fillPeekHtml(rows, {
+    close: 'dbtClosePeek()',
+    copy: 'dbtCopyPeek()',
+    extraActs: extra,
+    singleLabel: (dbtOffset + (i < 0 ? 0 : i) + 1) + ' of ' + fmtCount(dbtTotal) +
+      ' · ⌘/Ctrl click to add · Shift for a range · Esc to close',
+  });
   peek.scrollTop = 0;
+}
+function dbtOnRowClick(ev, i) {
+  if (ev.target && ev.target.closest && ev.target.closest('.dbt-sel, .lg-th-resize')) return;
+  if (ev.shiftKey && dbtAnchor >= 0) {
+    const a = Math.min(dbtAnchor, i), b = Math.max(dbtAnchor, i);
+    dbtSel = new Set();
+    for (let k = a; k <= b; k++) dbtSel.add(k);
+    dbtPeekIdx = i;
+  } else if (ev.metaKey || ev.ctrlKey) {
+    if (dbtSel.has(i)) dbtSel.delete(i);
+    else dbtSel.add(i);
+    dbtPeekIdx = i;
+    dbtAnchor = i;
+  } else {
+    dbtSel = new Set([i]);
+    dbtPeekIdx = i;
+    dbtAnchor = i;
+  }
+  if (!dbtSel.size) { dbtClosePeek(); return; }
+  dbtPaintSel();
+  dbtRenderPeek();
+}
+function dbtToggleSel(i, ev) {
+  if (ev) ev.stopPropagation();
+  if (dbtSel.has(i)) dbtSel.delete(i);
+  else dbtSel.add(i);
+  dbtPeekIdx = i;
+  dbtAnchor = i;
+  if (!dbtSel.size) { dbtClosePeek(); return; }
+  dbtPaintSel();
+  dbtRenderPeek();
+}
+function dbtSelPage(on) {
+  if (on === false) dbtSel = new Set();
+  else dbtPageRows.forEach((_, i) => dbtSel.add(i));
+  dbtPeekIdx = dbtSel.size ? 0 : -1;
+  dbtAnchor = dbtPeekIdx;
+  if (!dbtSel.size) { dbtClosePeek(); return; }
+  dbtPaintSel();
+  dbtRenderPeek();
+}
+function dbtShowPeek(i, opts) {
+  opts = opts || {};
+  if (i < 0 || i >= dbtPageRows.length) return;
+  if (opts.additive && dbtAnchor >= 0) {
+    const a = Math.min(dbtAnchor, i), b = Math.max(dbtAnchor, i);
+    dbtSel = new Set();
+    for (let k = a; k <= b; k++) dbtSel.add(k);
+  } else {
+    dbtSel = new Set([i]);
+    dbtAnchor = i;
+  }
+  dbtPeekIdx = i;
+  dbtPaintSel();
+  dbtRenderPeek();
 }
 function dbtClosePeek() {
   dbtPeekIdx = -1;
+  dbtSel = new Set();
+  dbtAnchor = -1;
   const peek = document.getElementById('dbtPeek');
   if (peek) peek.hidden = true;
-  document.querySelectorAll('#dbtGrid tbody tr.selected').forEach(tr => tr.classList.remove('selected'));
+  dbtPaintSel();
 }
 async function dbtCopyPeek() {
-  const row = dbtPageRows[dbtPeekIdx];
-  if (!row) return;
-  const text = Object.entries(row).map(([k, v]) => {
-    let shown = v;
-    if (v == null) shown = '';
-    else if (dbtIsTime(k) && typeof v === 'number') shown = fmtISTs(v);
-    return k + ': ' + shown;
-  }).join('\n');
+  const text = fillPeekCopyText(dbtSelectedRows());
+  if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
-    toast('Copied row', 'ok');
+    toast(dbtSel.size > 1 ? 'Copied ' + dbtSel.size + ' rows' : 'Copied row', 'ok');
   } catch { toast('Clipboard blocked', 'err'); }
 }
 function dbtOnKey(ev) {
@@ -743,10 +966,10 @@ function dbtOnKey(ev) {
   if (!dbtPageRows.length) return;
   if (ev.key === 'ArrowDown' || ev.key === 'j') {
     ev.preventDefault();
-    dbtShowPeek(Math.min(dbtPageRows.length - 1, (dbtPeekIdx < 0 ? 0 : dbtPeekIdx + 1)));
+    dbtShowPeek(Math.min(dbtPageRows.length - 1, (dbtPeekIdx < 0 ? 0 : dbtPeekIdx + 1)), { additive: ev.shiftKey });
   } else if (ev.key === 'ArrowUp' || ev.key === 'k') {
     ev.preventDefault();
-    dbtShowPeek(Math.max(0, (dbtPeekIdx < 0 ? 0 : dbtPeekIdx - 1)));
+    dbtShowPeek(Math.max(0, (dbtPeekIdx < 0 ? 0 : dbtPeekIdx - 1)), { additive: ev.shiftKey });
   } else if (ev.key === 'ArrowRight') {
     ev.preventDefault();
     if (!document.getElementById('dbtNext').disabled) dbtPage(1);
@@ -763,10 +986,15 @@ function dbtPaintGrid() {
     grid.innerHTML = '<div class="tbl-empty">No rows match these filters.</div>';
     return;
   }
-  const colgroup = '<colgroup>' + cols.map(c =>
+  const showSel = dbtName === 'fills';
+  const selCol = showSel ? '<col class="dbt-sel-col" style="width:36px">' : '';
+  const colgroup = '<colgroup>' + selCol + cols.map(c =>
     '<col data-col="' + esc(c) + '" style="width:' + dbtColWidth(c) + 'px">'
   ).join('') + '</colgroup>';
-  const thead = cols.map(c => {
+  const selTh = showSel
+    ? '<th class="dbt-sel-h" title="Select all on this page"><input type="checkbox" onclick="event.stopPropagation(); dbtSelPage(this.checked)"></th>'
+    : '';
+  const thead = selTh + cols.map(c => {
     const on = dbtSort === c;
     const arrow = on ? (dbtDir === 'asc' ? '▲' : '▼') : '';
     const w = dbtColWidth(c);
@@ -784,12 +1012,18 @@ function dbtPaintGrid() {
       return '<td data-col="' + esc(col) + '"' + (cls ? ' class="' + cls + '"' : '') + '>' +
         dbtCellHtml(col, row[col], row) + '</td>';
     }).join('');
-    return '<tr class="clickable' + (ri === dbtPeekIdx ? ' selected' : '') + '" onclick="dbtShowPeek(' + ri + ')">' + tds + '</tr>';
+    const selTd = showSel
+      ? '<td class="dbt-sel" onclick="event.stopPropagation()"><input type="checkbox"' +
+        (dbtSel.has(ri) ? ' checked' : '') + ' onclick="dbtToggleSel(' + ri + ', event)"></td>'
+      : '';
+    return '<tr class="clickable' + (dbtSel.has(ri) ? ' selected' : '') +
+      '" onclick="dbtOnRowClick(event, ' + ri + ')">' + selTd + tds + '</tr>';
   }).join('');
-  const sum = cols.reduce((a, c) => a + dbtColWidth(c), 0);
+  const sum = cols.reduce((a, c) => a + dbtColWidth(c), 0) + (showSel ? 36 : 0);
   grid.innerHTML = '<table class="dtable dbt-table" style="width:' + sum + 'px">' + colgroup +
     '<thead><tr>' + thead + '</tr></thead><tbody>' + body + '</tbody></table>';
   dbtEnsureGridBound();
+  dbtPaintSel();
 }
 
 function dbtPaintPager() {
@@ -872,8 +1106,11 @@ async function renderDbTable() {
     const title = document.getElementById('dbtTitle');
     if (title) title.textContent = dbtLabel(dbtName) + ' · ' + fmtCount(dbtTotal);
     if (status) status.textContent = fmtCount(dbtTotal) + ' rows' + (dbtSort ? ' · ' + dbtSort + ' ' + dbtDir : '');
-    if (dbtPeekIdx >= 0 && dbtPeekIdx < dbtPageRows.length) dbtShowPeek(dbtPeekIdx);
-    else dbtClosePeek();
+    if (dbtSel.size) {
+      dbtSel = new Set([...dbtSel].filter(i => i >= 0 && i < dbtPageRows.length));
+      if (!dbtSel.size) dbtClosePeek();
+      else { dbtPaintSel(); dbtRenderPeek(); }
+    } else dbtClosePeek();
   } catch (e) {
     if (gen !== dbtGen) return;
     if (!hadRows) grid.innerHTML = '<div class="tbl-empty" style="color:var(--red)">Error: ' + esc(e.message) + '</div>';
@@ -1972,6 +2209,11 @@ async function lgCopyPeek() {
 function lgOnKey(ev) {
   if (ev.key === 'Escape' && lgPeekId) {
     lgClosePeek();
+    ev.preventDefault();
+    return;
+  }
+  if (ev.key === 'Escape' && typeof rpnlFillClosePeek === 'function' && rpnlFillSel && rpnlFillSel.size) {
+    rpnlFillClosePeek();
     ev.preventDefault();
     return;
   }

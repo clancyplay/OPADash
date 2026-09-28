@@ -138,6 +138,9 @@ let rpnlKindOffset = 0;
 let rpnlKindTotal = 0;
 let rpnlKindNoMore = false;
 let rpnlKindCols = [];
+let rpnlKindRows = [];
+let rpnlFillSel = new Set();
+let rpnlFillAnchor = -1;
 let rpnlView         = 'cumul';
 let rpnlDrawnView    = '';
 let rpnlPtsCache     = [];
@@ -3590,6 +3593,7 @@ function openRpnlKind(kind) {
   const wasOpen = rpnlLogsOpen();
   rpnlKind = kind;
   if (kind !== 'logs' && typeof lgClosePeek === 'function' && lgPeekSrc === 'rpnl') lgClosePeek();
+  if (kind === 'logs') rpnlFillClosePeek();
   page.classList.add('logs-open');
   const panel = document.getElementById('rpnlLogs');
   if (panel) panel.hidden = false;
@@ -3616,6 +3620,7 @@ function closeRpnlKind() {
   const panel = document.getElementById('rpnlLogs');
   if (panel) panel.hidden = true;
   if (typeof lgClosePeek === 'function' && lgPeekSrc === 'rpnl') lgClosePeek();
+  rpnlFillClosePeek();
   syncRpnlKindButtons();
   requestAnimationFrame(function () {
     applyRpnlChartSize();
@@ -3645,6 +3650,97 @@ function rpnlKindLoadMore() {
 
 function exportRpnlOpenKind() {
   exportRpnlKind(rpnlKind);
+}
+
+function rpnlFillSelected() {
+  return [...rpnlFillSel].filter(function (i) { return i >= 0 && i < rpnlKindRows.length; })
+    .sort(function (a, b) { return a - b; })
+    .map(function (i) { return rpnlKindRows[i]; });
+}
+function rpnlFillPaintSel() {
+  const box = document.getElementById('rpnlLogsBox');
+  if (!box) return;
+  box.querySelectorAll('tbody tr').forEach(function (tr) {
+    const i = Number(tr.dataset.i);
+    const on = rpnlFillSel.has(i);
+    tr.classList.toggle('selected', on);
+    const cb = tr.querySelector('.dbt-sel input');
+    if (cb) cb.checked = on;
+  });
+  const head = box.querySelector('thead .dbt-sel-h input');
+  if (head) {
+    const n = rpnlKindRows.length;
+    head.checked = n > 0 && rpnlFillSel.size === n;
+    head.indeterminate = rpnlFillSel.size > 0 && rpnlFillSel.size < n;
+  }
+}
+function rpnlFillRenderPeek() {
+  const peek = document.getElementById('rpnlLgPeek');
+  if (!peek || typeof fillPeekHtml !== 'function') return;
+  const rows = rpnlFillSelected();
+  if (!rows.length) { peek.hidden = true; return; }
+  peek.hidden = false;
+  peek.innerHTML = fillPeekHtml(rows, {
+    close: 'rpnlFillClosePeek()',
+    copy: 'rpnlFillCopyPeek()',
+    extraActs: '<button class="btn" type="button" onclick="rpnlFillSelPage(true)">All loaded</button>',
+    singleLabel: rows.length === 1
+      ? 'Fill · ⌘/Ctrl click to add · Shift for a range · Esc to close'
+      : '',
+  });
+  peek.scrollTop = 0;
+}
+function rpnlFillRowClick(ev, i) {
+  if (ev.target && ev.target.closest && ev.target.closest('.dbt-sel')) return;
+  if (ev.shiftKey && rpnlFillAnchor >= 0) {
+    const a = Math.min(rpnlFillAnchor, i), b = Math.max(rpnlFillAnchor, i);
+    rpnlFillSel = new Set();
+    for (let k = a; k <= b; k++) rpnlFillSel.add(k);
+    rpnlFillAnchor = i;
+  } else if (ev.metaKey || ev.ctrlKey) {
+    if (rpnlFillSel.has(i)) rpnlFillSel.delete(i);
+    else rpnlFillSel.add(i);
+    rpnlFillAnchor = i;
+  } else {
+    rpnlFillSel = new Set([i]);
+    rpnlFillAnchor = i;
+  }
+  if (!rpnlFillSel.size) { rpnlFillClosePeek(); return; }
+  rpnlFillPaintSel();
+  rpnlFillRenderPeek();
+}
+function rpnlFillToggle(i, ev) {
+  if (ev) ev.stopPropagation();
+  if (rpnlFillSel.has(i)) rpnlFillSel.delete(i);
+  else rpnlFillSel.add(i);
+  rpnlFillAnchor = i;
+  if (!rpnlFillSel.size) { rpnlFillClosePeek(); return; }
+  rpnlFillPaintSel();
+  rpnlFillRenderPeek();
+}
+function rpnlFillSelPage(on) {
+  if (on === false) rpnlFillSel = new Set();
+  else rpnlKindRows.forEach(function (_, i) { rpnlFillSel.add(i); });
+  rpnlFillAnchor = rpnlFillSel.size ? 0 : -1;
+  if (!rpnlFillSel.size) { rpnlFillClosePeek(); return; }
+  rpnlFillPaintSel();
+  rpnlFillRenderPeek();
+}
+function rpnlFillClosePeek() {
+  rpnlFillSel = new Set();
+  rpnlFillAnchor = -1;
+  const peek = document.getElementById('rpnlLgPeek');
+  if (peek) peek.hidden = true;
+  rpnlFillPaintSel();
+}
+async function rpnlFillCopyPeek() {
+  if (typeof fillPeekCopyText !== 'function') return;
+  const text = fillPeekCopyText(rpnlFillSelected());
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(rpnlFillSel.size > 1 ? 'Copied ' + rpnlFillSel.size + ' fills' : 'Copied fill', 'ok');
+  } catch { toast('Clipboard blocked', 'err'); }
 }
 
 function rpnlKindCell(col, v, row) {
@@ -3679,6 +3775,8 @@ async function loadRpnlKindTable(reset) {
     const rows = d.rows || [];
     if (reset) {
       rpnlKindOffset = 0;
+      rpnlKindRows = [];
+      rpnlFillClosePeek();
       if (!rows.length) {
         box.innerHTML = '<div style="padding:12px;color:var(--muted);">No ' + escHtml(meta.label.toLowerCase()) +
           ' in this window.</div>';
@@ -3687,7 +3785,10 @@ async function loadRpnlKindTable(reset) {
         if (st) st.textContent = 'empty';
         return;
       }
-      box.innerHTML = '<table class="dtable"><thead><tr>' +
+      const selTh = rpnlKind === 'fills'
+        ? '<th class="dbt-sel-h"><input type="checkbox" onclick="event.stopPropagation(); rpnlFillSelPage(this.checked)"></th>'
+        : '';
+      box.innerHTML = '<table class="dtable"><thead><tr>' + selTh +
         cols.map(function (c) {
           return '<th>' + escHtml(typeof dbtColTitle === 'function' ? dbtColTitle(c) : c) + '</th>';
         }).join('') +
@@ -3701,12 +3802,16 @@ async function loadRpnlKindTable(reset) {
       return;
     }
     tb.insertAdjacentHTML('beforeend', rows.map(function (row) {
-      return '<tr>' +
+      const rec = {};
+      allCols.forEach(function (c) { rec[c] = row[idx[c]]; });
+      const i = rpnlKindRows.length;
+      rpnlKindRows.push(rec);
+      const selTd = rpnlKind === 'fills'
+        ? '<td class="dbt-sel" onclick="event.stopPropagation()"><input type="checkbox" onclick="rpnlFillToggle(' + i + ', event)"></td>'
+        : '';
+      return '<tr class="clickable" data-i="' + i + '" onclick="rpnlFillRowClick(event,' + i + ')">' + selTd +
         cols.map(function (c) {
-          const v = row[idx[c]];
-          const rec = {
-            exchange: idx.exchange != null ? row[idx.exchange] : '',
-          };
+          const v = rec[c];
           const cls = typeof dbtCellClass === 'function' ? dbtCellClass(c, v) : '';
           return '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + rpnlKindCell(c, v, rec) + '</td>';
         }).join('') +
