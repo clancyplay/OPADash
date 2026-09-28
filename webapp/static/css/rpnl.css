@@ -187,6 +187,12 @@ body:has(#rpnl.visible) {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 188px;
 }
 .rpnl-pill .p-hedge.via { color: var(--muted); }
+.rpnl-pill .p-orders {
+  display: flex; flex-wrap: wrap; gap: 4px 8px;
+  font-size: 10px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums;
+}
+.rpnl-pill .p-orders .buy { color: var(--green); }
+.rpnl-pill .p-orders .sell { color: var(--red); }
 
 /* Inspect + setup */
 .rpnl-inspect {
@@ -254,6 +260,8 @@ body:has(#rpnl.visible) {
 .rpnl-inspect .ri-chip.status.stop { color: #ffb74d; font-weight: 650; }
 .rpnl-inspect .ri-chip.status.bad { color: var(--red); font-weight: 650; }
 .rpnl-inspect .ri-chip.hedge { color: #ffb74d; font-weight: 650; }
+.rpnl-inspect .ri-chip.quote.buy { color: var(--green); font-weight: 650; }
+.rpnl-inspect .ri-chip.quote.sell { color: var(--red); font-weight: 650; }
 .rpnl-inspect .ri-pos {
   font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums;
   flex: 0 0 auto;
