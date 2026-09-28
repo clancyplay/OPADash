@@ -101,6 +101,8 @@ let ohlcMaCache = { 7: [], 25: [], 99: [] };
 let ohlcOrderLines = [];
 let ohlcOrderSig = '';
 let ohlcOrderOwner = null;
+let ohlcOrderScaleSeries = null;
+let riOrdersOpen = false;
 let ohlcHiLine = null, ohlcLoLine = null, ohlcHiLoOwner = null;
 let ohlcMarkerSig = '';
 let rpnlMarkerSig = '';
@@ -641,10 +643,8 @@ function rpnlActsHtml(r) {
     mode === 'paused' || mode === 'fill-pause' || mode === 'size-cool' ||
     mode === 'rest' || !!s.probing || Number(s.pause_left) > 0
   );
-  const nQuotes = Array.isArray(s.quotes) ? s.quotes.length : 0;
   const liveOrders = Number(s.live_orders);
-  const working = nQuotes > 0 || (isFinite(liveOrders) && liveOrders > 0);
-  const hasQuotes = quoting && (working || !isFinite(liveOrders));
+  const hasQuotes = quoting && (!isFinite(liveOrders) || liveOrders > 0);
   const act = (cmd, glyph, label, cls) =>
     '<button type="button"' + (cls ? ' class="' + cls + '"' : '') +
     ' data-bot-cmd="' + cmd + '" title="' + label + '" aria-label="' + label + '">' +
@@ -747,9 +747,7 @@ function rpnlSetupBits(s) {
   if (s.grind != null) bits.push('grind $' + fmtG(s.grind) + (s.grind_window != null ? '/' + (fmtWinSecs(s.grind_window) || (s.grind_window + 's')) : ''));
   if (s.fate != null) bits.push('fate $' + fmtG(s.fate));
     if (s.live_orders != null && s.orders != null) bits.push('orders ' + s.live_orders + '/' + s.orders);
-    else if (s.live_orders != null) bits.push('orders ' + s.live_orders);
     else if (s.orders != null) bits.push('orders ' + s.orders);
-    else if (Array.isArray(s.quotes) && s.quotes.length) bits.push('orders ' + s.quotes.length);
     if (s.bid_ticks != null) bits.push('bid +' + fmtG(s.bid_ticks) + 't');
     if (s.ask_ticks != null) bits.push('ask −' + fmtG(s.ask_ticks) + 't');
     if (s.max_usd != null) bits.push('max $' + fmtG(s.max_usd));
@@ -880,43 +878,123 @@ function syncRpnlSymbolSelect(rows) {
   return sel.value;
 }
 
-function rpnlQuoteList(s) {
-  const quotes = Array.isArray(s && s.quotes) ? s.quotes : [];
+function rpnlCanonSym(sym) {
+  return String(sym || '').toUpperCase().replace(/[-_]/g, '');
+}
+
+function pairGroupRows(row, rows) {
+  const list = rows || rpnlSummaryCache || [];
+  if (!row) return [];
+  const strat = String(row.strategy || '').toLowerCase();
+  if (strat !== 'pair') return row.live ? [row] : [];
+  const acct = row.account || '';
+  return list.filter(r =>
+    r.live &&
+    String(r.strategy || '').toLowerCase() === 'pair' &&
+    (r.account || '') === acct
+  );
+}
+
+function openOrdersForInspect(row, rows) {
+  const mine = rpnlCanonSym((row && (row.quote_symbol || row.contract)) || '');
   const out = [];
-  quotes.forEach(q => {
-    const px = Number(q.price);
-    if (!isFinite(px) || px <= 0) return;
-    const buy = String(q.side || '').toLowerCase() === 'buy';
-    const nQty = q.qty == null || q.qty === '' ? NaN : Number(q.qty);
-    const qty = isFinite(nQty) && nQty > 0 ? nQty : null;
-    out.push({
-      buy, price: px, qty, side: buy ? 'buy' : 'sell',
-      label: (buy ? 'buy' : 'sell') + (qty != null ? ' ' + fmtG(qty) : '') + ' @ ' + fmtPxFull(px),
-      short: (buy ? 'B' : 'S') + (qty != null ? ' ' + fmtG(qty) : '') + ' @ ' + fmtPxFull(px),
+  pairGroupRows(row, rows).forEach(r => {
+    if (rpnlIsPairHedge(r)) return;
+    const quotes = r.settings && Array.isArray(r.settings.quotes) ? r.settings.quotes : [];
+    const sym = r.quote_symbol || r.contract || '';
+    quotes.forEach(q => {
+      const px = Number(q.price);
+      if (!isFinite(px) || px <= 0) return;
+      const side = String(q.side || '').toLowerCase();
+      if (side !== 'buy' && side !== 'sell') return;
+      out.push({
+        side: side,
+        price: px,
+        qty: q.qty,
+        role: String(q.role || '').trim(),
+        symbol: sym,
+        mine: rpnlCanonSym(sym) === mine,
+      });
     });
   });
+  out.sort((a, b) =>
+    Number(!!b.mine) - Number(!!a.mine) ||
+    (a.side === b.side ? 0 : a.side === 'buy' ? -1 : 1) ||
+    a.price - b.price
+  );
   return out;
-}
-
-function rpnlQuotesHtml(s) {
-  return rpnlQuoteList(s).map(q =>
-    '<span class="ri-chip quote ' + (q.buy ? 'buy' : 'sell') + '">' + escHtml(q.label) + '</span>'
-  ).join('');
-}
-
-function rpnlPillOrdersHtml(r) {
-  if (rpnlIsPairHedge(r)) return '';
-  const list = rpnlQuoteList(r && r.settings);
-  if (!list.length) return '';
-  return list.map(q =>
-    '<span class="' + (q.buy ? 'buy' : 'sell') + '">' + escHtml(q.short) + '</span>'
-  ).join('');
 }
 
 function quotesForCurrentRpnl(rows) {
   const row = currentRpnlRow(rows);
-  if (!row || !row.live || !row.settings || !Array.isArray(row.settings.quotes)) return [];
+  if (!row || !row.live || rpnlIsPairHedge(row) || !row.settings || !Array.isArray(row.settings.quotes)) return [];
   return row.settings.quotes;
+}
+
+function openOrdersSig(row, rows) {
+  return JSON.stringify(openOrdersForInspect(row, rows).map(q => [q.symbol, q.side, q.price, q.qty, q.role]));
+}
+
+function setRiOrdersOpen(on) {
+  riOrdersOpen = !!on;
+  const page = document.getElementById('rpnl');
+  if (page) page.classList.toggle('orders-open', riOrdersOpen);
+  const box = document.getElementById('rpnlInspect');
+  const wrap = box && box.querySelector('.ri-orders');
+  if (wrap) {
+    wrap.classList.toggle('open', riOrdersOpen);
+    const tog = wrap.querySelector('.ri-orders-tog');
+    if (tog) tog.setAttribute('aria-expanded', riOrdersOpen ? 'true' : 'false');
+    const body = wrap.querySelector('.ri-orders-body');
+    if (body) {
+      if (riOrdersOpen) body.removeAttribute('hidden');
+      else body.setAttribute('hidden', '');
+    }
+  }
+  if (typeof resizeRpnlCharts === 'function') {
+    requestAnimationFrame(function () { resizeRpnlCharts(); });
+  }
+}
+
+function rpnlOrdersHtml(row, rows) {
+  if (!row || !row.live) return '';
+  const orders = openOrdersForInspect(row, rows);
+  const n = orders.length;
+  const rowsHtml = n
+    ? orders.map(q => {
+        const buy = q.side === 'buy';
+        const qty = q.qty != null && q.qty !== '' ? fmtG(q.qty) : '';
+        const role = q.role ? '<span class="ri-ord-role">' + escHtml(q.role) + '</span>' : '';
+        const sym = q.symbol && !q.mine ? '<span class="ri-ord-sym">' + escHtml(q.symbol) + '</span>' : '';
+        return '<li class="ri-ord ' + (buy ? 'buy' : 'sell') + (q.mine ? ' mine' : '') + '">' +
+          '<span class="ri-ord-side">' + (buy ? 'Buy' : 'Sell') + '</span>' +
+          '<span class="ri-ord-qty">' + escHtml(qty || '—') + '</span>' +
+          '<span class="ri-ord-at">@</span>' +
+          '<span class="ri-ord-px">' + escHtml(fmtPxFull(q.price)) + '</span>' +
+          role +
+          (q.mine ? '<span class="ri-ord-here">this</span>' : sym) +
+        '</li>';
+      }).join('')
+    : '<li class="ri-ord empty">No working quotes</li>';
+  return '<div class="ri-orders' + (riOrdersOpen ? ' open' : '') + '">' +
+    '<button type="button" class="ri-orders-tog" data-ri-orders="toggle" aria-expanded="' +
+      (riOrdersOpen ? 'true' : 'false') + '" aria-controls="riOrdersBody">' +
+      '<span>Open orders</span>' +
+      '<span class="ri-orders-n' + (n ? '' : ' zero') + '">' + n + '</span>' +
+      '<span class="ri-orders-chev" aria-hidden="true">▾</span>' +
+    '</button>' +
+    '<div class="ri-orders-scrim" data-ri-orders="close"></div>' +
+    '<div class="ri-orders-body" id="riOrdersBody" role="dialog" aria-label="Open orders"' +
+      (riOrdersOpen ? '' : ' hidden') + '>' +
+      '<div class="ri-orders-grab" aria-hidden="true"></div>' +
+      '<div class="ri-orders-h">' +
+        '<span>Open orders</span>' +
+        '<span class="ri-orders-n' + (n ? '' : ' zero') + '">' + n + '</span>' +
+        '<button type="button" class="ri-orders-x" data-ri-orders="close" aria-label="Close">Close</button>' +
+      '</div>' +
+      '<ul class="ri-orders-list">' + rowsHtml + '</ul>' +
+    '</div>' +
+  '</div>';
 }
 
 function currentRpnlRow(rows) {
@@ -937,34 +1015,6 @@ function clearOhlcOrderLines() {
   ohlcOrderOwner = null;
 }
 
-function ohlcQuoteAutoscale(original) {
-  let res = null;
-  try { res = original(); } catch (e) {}
-  const pxs = [];
-  quotesForCurrentRpnl().forEach(q => {
-    const px = Number(q.price);
-    if (isFinite(px) && px > 0) pxs.push(px);
-  });
-  if (!pxs.length) return res;
-  let min = pxs[0], max = pxs[0];
-  pxs.forEach(px => { min = Math.min(min, px); max = Math.max(max, px); });
-  if (res && res.priceRange) {
-    min = Math.min(min, res.priceRange.minValue);
-    max = Math.max(max, res.priceRange.maxValue);
-  }
-  const pad = (max - min) * 0.08 || Math.max(Math.abs(min) * 0.002, 0.01);
-  return Object.assign({}, res || {}, {
-    priceRange: { minValue: min - pad, maxValue: max + pad },
-  });
-}
-
-function refreshOhlcQuoteScale() {
-  [ohlcSeries, ohlcBarSeries, ohlcLineSeries, ohlcAreaSeries].forEach(s => {
-    if (!s) return;
-    try { s.applyOptions({ autoscaleInfoProvider: ohlcQuoteAutoscale }); } catch (e) {}
-  });
-}
-
 function applyOhlcOrderLines(quotes) {
   const list = Array.isArray(quotes) ? quotes : [];
   const series = ohlcActiveSeries();
@@ -976,7 +1026,7 @@ function applyOhlcOrderLines(quotes) {
   clearOhlcOrderLines();
   ohlcOrderSig = sig;
   if (!series || !list.length || !ohlcBarsCache.length) {
-    refreshOhlcQuoteScale();
+    applyOhlcOrderScale([]);
     updateRpnlPaneLabels();
     return;
   }
@@ -988,8 +1038,9 @@ function applyOhlcOrderLines(quotes) {
     const px = Number(q.price);
     if (!isFinite(px) || px <= 0) return;
     const buy = String(q.side || '').toLowerCase() === 'buy';
-    const qty = q.qty != null && Number(q.qty) > 0 ? fmtG(q.qty) : '';
-    const title = (buy ? 'B' : 'S') + (qty ? ' ' + qty : '');
+    const qty = q.qty != null && q.qty !== '' ? fmtG(q.qty) : '';
+    const role = String(q.role || '').trim();
+    const title = [qty, role || (buy ? 'B' : 'S')].filter(Boolean).join(' ');
     try {
       ohlcOrderLines.push(series.createPriceLine({
         price: px,
@@ -1001,8 +1052,26 @@ function applyOhlcOrderLines(quotes) {
       }));
     } catch (e) {}
   });
-  refreshOhlcQuoteScale();
+  applyOhlcOrderScale(list);
   updateRpnlPaneLabels();
+}
+
+function applyOhlcOrderScale(quotes) {
+  if (!ohlcOrderScaleSeries) return;
+  const bars = ohlcBarsCache || [];
+  const px = (quotes || []).map(q => Number(q.price)).filter(p => isFinite(p) && p > 0);
+  if (!bars.length || !px.length) {
+    try { ohlcOrderScaleSeries.setData([]); } catch (e) {}
+    return;
+  }
+  const lo = Math.min.apply(null, px);
+  const hi = Math.max.apply(null, px);
+  const t0 = bars[0].time;
+  const t1 = bars[bars.length - 1].time;
+  const pts = t0 === t1
+    ? [{ time: t0, value: (lo + hi) / 2 }]
+    : [{ time: t0, value: lo }, { time: t1, value: hi }];
+  try { ohlcOrderScaleSeries.setData(pts); } catch (e) {}
 }
 
 function setOhlcEmpty(show, msg) {
@@ -1053,6 +1122,9 @@ function renderRpnlInspect(row) {
     box.innerHTML = '';
     box.dataset.sig = '';
     box.dataset.hedge = '';
+    riOrdersOpen = false;
+    const page = document.getElementById('rpnl');
+    if (page) page.classList.remove('orders-open');
     return;
   }
   const s = row.settings || null;
@@ -1073,8 +1145,7 @@ function renderRpnlInspect(row) {
     s && s.probe_rpnl_ready, s && s.probe_chop_ok,
     s && s.max_usd, s && s.max_pos, s && s.live_orders,
     s && s.pair_hedge, s && s.role, s && s.hedge_of, s && s.hedge_via,
-    JSON.stringify((s && s.quotes) || []),
-    cfgSig, modeTxt,
+    cfgSig, modeTxt, openOrdersSig(row),
   ].join('|');
   const pairHedge = rpnlIsPairHedge(row);
   const hedgeOf = rpnlHedgeOf(row);
@@ -1093,7 +1164,6 @@ function renderRpnlInspect(row) {
         '<div class="ri-stats">' +
           '<span class="ri-sym">' + escHtml(qsym) + '</span>' +
           rpnlPosHtml(s, 'ri-pos', row.quote_venue) +
-          rpnlQuotesHtml(s) +
           (pairHedge ? '' : rpnlStatusChip(s)) +
           (pairHedge
             ? '<span class="ri-chip hedge">Hedge' + (hedgeOf ? ' of ' + escHtml(hedgeOf) : '') + '</span>'
@@ -1106,10 +1176,21 @@ function renderRpnlInspect(row) {
         const tools = rpnlActsHtml(row);
         return tools ? '<div class="ri-row ri-tools">' + tools + '</div>' : '';
       })() +
+      rpnlOrdersHtml(row) +
     '</div>';
+  const page = document.getElementById('rpnl');
+  if (page) page.classList.toggle('orders-open', riOrdersOpen);
   if (!box.dataset.bound) {
     box.dataset.bound = '1';
     box.addEventListener('click', ev => {
+      const ordersBtn = ev.target.closest('[data-ri-orders]');
+      if (ordersBtn) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const cmd = ordersBtn.getAttribute('data-ri-orders');
+        setRiOrdersOpen(cmd === 'toggle' ? !riOrdersOpen : false);
+        return;
+      }
       const edit = ev.target.closest('[data-rp-edit]');
       if (edit) {
         ev.preventDefault();
@@ -1122,6 +1203,9 @@ function renderRpnlInspect(row) {
       ev.preventDefault();
       ev.stopPropagation();
       sendBotCmd(act.closest('.rpnl-inspect') || box, act.getAttribute('data-bot-cmd'));
+    });
+    document.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape' && riOrdersOpen) setRiOrdersOpen(false);
     });
   }
 }
@@ -1197,10 +1281,6 @@ function rpnlPillHtml(r, cur, nameCount) {
     '<div class="p-val" style="color:' + mainCol + '">' + rpnlPillValInner(r) + '</div>' +
     (hedgeBit && hedgeOf ? '<div class="p-hedge" title="' + escHtml(hedgeOf) + '">of ' + escHtml(hedgeOf) + '</div>' : '') +
     (!hedgeBit && via ? '<div class="p-hedge via" title="' + escHtml(via) + '">hedged by ' + escHtml(via) + '</div>' : '') +
-    (function () {
-      const orders = rpnlPillOrdersHtml(r);
-      return orders ? '<div class="p-orders">' + orders + '</div>' : '';
-    })() +
     (maxBit ? '<div class="p-max">' + escHtml(maxBit) + '</div>' : '') +
     (walletBit ? '<div class="p-bal">' + escHtml(walletBit) + '</div>' : '') +
     (shownMode ? '<div class="p-mode' + modeCls + '">' + escHtml(shownMode) + '</div>' : '') +
@@ -1381,20 +1461,6 @@ function renderRpnlSummary(rows, hours) {
         hedgeLine.title = rpnlIsPairHedge(r) ? hedgeOf : (via || '');
       } else if (hedgeLine) {
         hedgeLine.remove();
-      }
-      const ordersHtml = rpnlPillOrdersHtml(r);
-      let ordersEl = el.querySelector('.p-orders');
-      if (ordersHtml) {
-        if (!ordersEl) {
-          ordersEl = document.createElement('div');
-          ordersEl.className = 'p-orders';
-          const after = el.querySelector('.p-hedge') || el.querySelector('.p-val');
-          if (after && after.nextSibling) el.insertBefore(ordersEl, after.nextSibling);
-          else el.appendChild(ordersEl);
-        }
-        ordersEl.innerHTML = ordersHtml;
-      } else if (ordersEl) {
-        ordersEl.remove();
       }
     });
   }
@@ -2682,20 +2748,17 @@ function initRpnl() {
     wickUpColor: '#26a69a', wickDownColor: '#ef5350',
     lastValueVisible: true, priceLineVisible: true,
     priceFormat: pxFmt,
-    autoscaleInfoProvider: ohlcQuoteAutoscale,
   });
   ohlcBarSeries = ohlcChart.addBarSeries({
     upColor: '#26a69a', downColor: '#ef5350',
     thinBars: false,
     lastValueVisible: false, priceLineVisible: false, visible: false,
     priceFormat: pxFmt,
-    autoscaleInfoProvider: ohlcQuoteAutoscale,
   });
   ohlcLineSeries = ohlcChart.addLineSeries({
     color: '#26a69a', lineWidth: 2,
     lastValueVisible: false, priceLineVisible: false, visible: false,
     priceFormat: pxFmt,
-    autoscaleInfoProvider: ohlcQuoteAutoscale,
   });
   ohlcAreaSeries = ohlcChart.addAreaSeries({
     topColor: 'rgba(38,166,154,0.28)',
@@ -2703,13 +2766,34 @@ function initRpnl() {
     lineColor: '#26a69a', lineWidth: 2,
     lastValueVisible: false, priceLineVisible: false, visible: false,
     priceFormat: pxFmt,
-    autoscaleInfoProvider: ohlcQuoteAutoscale,
   });
   ohlcQuoteMarkerSeries = ohlcChart.addLineSeries({
     color: 'rgba(0,0,0,0)',
     lastValueVisible: false,
     priceLineVisible: false,
     crosshairMarkerVisible: false,
+  });
+  ohlcOrderScaleSeries = ohlcChart.addLineSeries({
+    color: 'rgba(0,0,0,0)',
+    lastValueVisible: false,
+    priceLineVisible: false,
+    crosshairMarkerVisible: false,
+    autoscaleInfoProvider: function (original) {
+      const quotes = quotesForCurrentRpnl();
+      const px = (quotes || []).map(q => Number(q.price)).filter(p => isFinite(p) && p > 0);
+      const base = typeof original === 'function' ? original() : null;
+      if (!px.length) return base;
+      const lo = Math.min.apply(null, px);
+      const hi = Math.max.apply(null, px);
+      const pad = Math.max((hi - lo) * 0.08, Math.abs(hi) * 0.004, 0.02);
+      let min = lo - pad;
+      let max = hi + pad;
+      if (base && base.priceRange) {
+        min = Math.min(min, base.priceRange.minValue);
+        max = Math.max(max, base.priceRange.maxValue);
+      }
+      return { priceRange: { minValue: min, maxValue: max } };
+    },
   });
   ohlcHedgeMarkerSeries = ohlcChart.addLineSeries({
     color: 'rgba(0,0,0,0)',

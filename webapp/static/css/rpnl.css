@@ -187,12 +187,6 @@ body:has(#rpnl.visible) {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 188px;
 }
 .rpnl-pill .p-hedge.via { color: var(--muted); }
-.rpnl-pill .p-orders {
-  display: flex; flex-wrap: wrap; gap: 4px 8px;
-  font-size: 10px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums;
-}
-.rpnl-pill .p-orders .buy { color: var(--green); }
-.rpnl-pill .p-orders .sell { color: var(--red); }
 
 /* Inspect + setup */
 .rpnl-inspect {
@@ -260,8 +254,6 @@ body:has(#rpnl.visible) {
 .rpnl-inspect .ri-chip.status.stop { color: #ffb74d; font-weight: 650; }
 .rpnl-inspect .ri-chip.status.bad { color: var(--red); font-weight: 650; }
 .rpnl-inspect .ri-chip.hedge { color: #ffb74d; font-weight: 650; }
-.rpnl-inspect .ri-chip.quote.buy { color: var(--green); font-weight: 650; }
-.rpnl-inspect .ri-chip.quote.sell { color: var(--red); font-weight: 650; }
 .rpnl-inspect .ri-pos {
   font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums;
   flex: 0 0 auto;
@@ -311,6 +303,102 @@ body:has(#rpnl.visible) {
   border-color: rgba(240, 113, 120, .45);
 }
 .rpnl-inspect .p-acts button:disabled { opacity: .4; cursor: default; }
+.rpnl-inspect .ri-orders {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-top: 4px;
+}
+.rpnl-inspect .ri-orders-tog {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid var(--border2);
+  background: rgba(255, 255, 255, .04);
+  color: #c5cdd8;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  text-align: left;
+}
+.rpnl-inspect .ri-orders-tog span:first-child { flex: 1 1 auto; }
+.rpnl-inspect .ri-orders-n {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #26a69a;
+  background: rgba(38, 166, 154, .14);
+  border-radius: 999px;
+  min-width: 18px;
+  padding: 1px 6px;
+  text-align: center;
+}
+.rpnl-inspect .ri-orders-n.zero {
+  color: var(--muted);
+  background: rgba(255, 255, 255, .06);
+}
+.rpnl-inspect .ri-orders-chev {
+  color: var(--muted);
+  font-size: 11px;
+  transform: rotate(-90deg);
+  transition: transform .15s ease;
+}
+.rpnl-inspect .ri-orders.open .ri-orders-chev { transform: rotate(0deg); }
+.rpnl-inspect .ri-orders-scrim { display: none; }
+.rpnl-inspect .ri-orders-grab { display: none; }
+.rpnl-inspect .ri-orders-x { display: none; }
+.rpnl-inspect .ri-orders-body { display: none; }
+.rpnl-inspect .ri-orders.open .ri-orders-body {
+  display: block;
+  padding: 6px 2px 2px;
+}
+.rpnl-inspect .ri-orders-h {
+  display: none;
+}
+.rpnl-inspect .ri-orders-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 28vh;
+  overflow: auto;
+}
+.rpnl-inspect .ri-ord {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #c5cdd8;
+}
+.rpnl-inspect .ri-ord + .ri-ord { margin-top: 2px; }
+.rpnl-inspect .ri-ord.mine { background: rgba(255, 255, 255, .04); }
+.rpnl-inspect .ri-ord.empty { color: var(--muted); font-size: 11px; }
+.rpnl-inspect .ri-ord-side {
+  font-weight: 700;
+  min-width: 32px;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: .3px;
+}
+.rpnl-inspect .ri-ord.buy .ri-ord-side { color: #26a69a; }
+.rpnl-inspect .ri-ord.sell .ri-ord-side { color: #ef5350; }
+.rpnl-inspect .ri-ord-qty { font-weight: 650; color: #fff; }
+.rpnl-inspect .ri-ord-at { color: #4e5668; }
+.rpnl-inspect .ri-ord-px { font-weight: 700; color: #fff; }
+.rpnl-inspect .ri-ord-role { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.rpnl-inspect .ri-ord-here, .rpnl-inspect .ri-ord-sym {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+.rpnl-inspect .ri-ord-here { color: #9ecbff; }
 .rpnl-inspect .ri-max { display: none; }
 .rpnl-inspect .ri-gates {
   display: flex; flex-direction: column; gap: 2px;
@@ -676,6 +764,10 @@ body:has(#rpnl.visible) {
     overscroll-behavior: contain;
   }
   .rpnl-inspect.open { max-height: none; overflow: hidden; }
+  #rpnl.orders-open .rp-top,
+  #rpnl.orders-open .rpnl-inspect.open {
+    overflow: visible;
+  }
 
   #rpnl select, #rpnl button.btn, #rpnl input[type="datetime-local"] {
     min-height: 32px;
@@ -751,6 +843,75 @@ body:has(#rpnl.visible) {
   .rpnl-inspect .p-acts button {
     height: 30px; min-height: 30px; padding: 0 8px; font-size: 11px;
   }
+  .rpnl-inspect .ri-orders-tog { min-height: 30px; }
+  .rpnl-inspect .ri-orders-scrim {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    background: rgba(0, 0, 0, .58);
+  }
+  .rpnl-inspect .ri-orders.open .ri-orders-scrim { display: block; }
+  .rpnl-inspect .ri-orders-body {
+    display: none;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 81;
+    max-height: min(72svh, 560px);
+    padding: 0 0 var(--safe-b);
+    background: #121722;
+    border: 1px solid var(--border2);
+    border-bottom: 0;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -16px 48px rgba(0, 0, 0, .5);
+  }
+  .rpnl-inspect .ri-orders.open .ri-orders-body {
+    display: flex;
+    flex-direction: column;
+    padding: 0 0 var(--safe-b);
+  }
+  .rpnl-inspect .ri-orders-grab {
+    display: block;
+    width: 36px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .22);
+    margin: 8px auto 4px;
+    flex: 0 0 auto;
+  }
+  .rpnl-inspect .ri-orders-h {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 14px 10px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    flex: 0 0 auto;
+  }
+  .rpnl-inspect .ri-orders-h .ri-orders-n { margin-right: auto; }
+  .rpnl-inspect .ri-orders-x {
+    display: inline-flex;
+    align-items: center;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border2);
+    background: rgba(255, 255, 255, .06);
+    color: #c5cdd8;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 650;
+    cursor: pointer;
+  }
+  .rpnl-inspect .ri-orders-list {
+    max-height: none;
+    overflow: auto;
+    padding: 0 10px 10px;
+  }
+  .rpnl-inspect .ri-ord { font-size: 13px; padding: 8px 8px; }
 
   .rp-pane-lab { right: 48px; top: 6px; font-size: 9px; }
   .rp-ohlc-hud {
