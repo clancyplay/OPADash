@@ -672,6 +672,7 @@ function renderOpsGlossary() {
     else if (p.key === 'DRY_RUN') add('dry', 'Dry run', 'Log quotes. Do not send orders.');
     else if (p.key === 'QUOTE_MS') add('qms', 'Quote ms', 'Min milliseconds between edits of the same order.');
     else if (p.key === 'PLACE_SECS') add('place', 'Place secs', 'After a full fill, wait this long before quoting that rung again.');
+    else if (p.key === 'IGNORE_MIN_SIZE') add('ign', 'Ignore $', 'Skip book levels smaller than this USD notional.');
     else if (p.key === 'PAIR_HEDGE') add('ph', 'Hedge', 'Hedge option delta with the perpetual.');
     else if (p.key === 'PAIR_HEDGE_LOT') add('hl', 'Hedge lot', 'Min contracts off-target before a hedge order.');
     else if (p.key === 'BID_TICKS') add('bt', 'Bid +ticks', 'How many ticks above the bid you buy.');
@@ -835,6 +836,7 @@ function fillOpsFromSetup(s) {
   if (s.dry_run != null) setChk('opsP_DRY_RUN', s.dry_run, true);
   setNum('opsP_QUOTE_MS', s.quote_ms);
   setNum('opsP_PLACE_SECS', s.place_secs);
+  setNum('opsP_IGNORE_MIN_SIZE', s.ignore);
   setNum('opsP_BID_TICKS', s.bid_ticks);
   setNum('opsP_ASK_TICKS', s.ask_ticks);
   setNum('opsP_STEP_PCT', s.step);

@@ -69,6 +69,11 @@ _MULT = {
 }
 _ORDERS = {"key": "ORDERS", "label": "Orders / side", "type": "int", "default": "3", "group": "size"}
 _DRY = {"key": "DRY_RUN", "label": "Dry run", "type": "bool", "default": False, "group": "risk"}
+_IGNORE = {
+    "key": "IGNORE_MIN_SIZE", "label": "Ignore $", "type": "number", "default": "50",
+    "group": "book", "min": 0,
+    "hint": "Skip book levels smaller than this USD notional (size × price × cv).",
+}
 
 
 def _pace(*, quote_ms="150", place_secs=None):
@@ -122,6 +127,7 @@ def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=
     rows = _max() + [_ORDERS]
     if hook:
         rows.append(_HOOK)
+    rows.append(_IGNORE)
     rows.append(_geom(
         ["hem", "span", "step"],
         "Each edge is % of price, or whole ticks. Ticks win. Fit auto takes hem/step from the live book — you cannot type them while it is on.",
@@ -153,6 +159,7 @@ def _touch_like(*, k_default="0", step_default="0.05"):
     """Join BBO (touch / lean): k + step, no hem/span."""
     return _max() + [
         _ORDERS,
+        _IGNORE,
         _geom(
             ["k"],
             "Offset from the touch. 0 joins BBO. Ticks win over %.",
@@ -170,6 +177,7 @@ def _touch_like(*, k_default="0", step_default="0.05"):
 
 PAIR_PARAMS = [
     {"key": "MAX_POSITION", "label": "Max coin", "type": "number", "default": "2", "group": "size"},
+    _IGNORE,
     *_pace(quote_ms="250"),
     {"key": "PAIR_HEDGE", "label": "Hedge with perpetual", "type": "bool", "default": True, "group": "hedge"},
     {
@@ -217,6 +225,7 @@ STRATEGIES = [
         "params": _max() + [
             {**_ORDERS, "default": "4"},
             _HOOK,
+            _IGNORE,
             _geom(["hem", "span", "step"], "Each edge is % of price, or whole ticks. Ticks win."),
             _MULT,
             *_pace(quote_ms="500", place_secs="60"),
@@ -234,6 +243,7 @@ STRATEGIES = [
         "params": _max() + [
             {"key": "TAILS", "label": "Tails / side", "type": "int", "default": "2", "group": "size"},
             _HOOK,
+            _IGNORE,
             _geom(["hem", "span", "tail"], "Hem and span are the two edges. Tail is the stack behind them."),
             _MULT,
             *_pace(place_secs="60"),
@@ -251,6 +261,7 @@ STRATEGIES = [
         "id": "momentum", "label": "Momentum",
         "blurb": "Ride a one-way tape, trail out. No maker ladder.",
         "params": _max() + [
+            _IGNORE,
             {"key": "MOM_PCT", "label": "Burst %", "type": "number", "default": "0.18", "group": "quote"},
             {"key": "MOM_SLOW_PCT", "label": "Slow %", "type": "number", "default": "0.40", "group": "quote"},
             {"key": "CLIP_PCT", "label": "Clip %", "type": "number", "default": "25", "group": "size"},
@@ -266,6 +277,7 @@ STRATEGIES = [
         "id": "surge", "label": "Surge",
         "blurb": "Burst clip with 1:2 stop/take. No maker ladder.",
         "params": _max() + [
+            _IGNORE,
             {"key": "MOVE_PCT", "label": "Move %", "type": "number", "default": "0.5", "group": "quote"},
             {"key": "MOVE_SECS", "label": "Move secs", "type": "number", "default": "30", "group": "quote"},
             {"key": "RISK_REWARD", "label": "Risk:reward", "type": "number", "default": "2", "group": "risk"},
@@ -279,6 +291,7 @@ STRATEGIES = [
         "blurb": "Quote vs a second venue’s book. No hem/span.",
         "params": _max() + [
             _ORDERS,
+            _IGNORE,
             {
                 "key": "EDGE_VENUE", "label": "Ref venue", "type": "select", "default": "binance", "group": "quote",
                 "options": ["delta", "binance", "bybit", "kucoin", "coinbase", "aster"],
