@@ -107,7 +107,7 @@ def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=
         rows.append(_HOOK)
     rows.append(_geom(
         ["hem", "span", "step"],
-        "Each edge is % of price, or whole ticks. Ticks win. Fit auto will not overwrite a tick lock.",
+        "Each edge is % of price, or whole ticks. Ticks win. Fit auto takes hem/step from the live book — you cannot type them while it is on.",
     ))
     rows.append(_MULT)
     if fit:

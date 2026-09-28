@@ -268,6 +268,7 @@ function persistOpsGeom() {
 }
 
 function setOpsGeomUnit(id, unit) {
+  if (opsFitAutoOn()) return;
   const row = document.querySelector('#opsGeom [data-geom="' + id + '"]');
   const inp = document.getElementById('opsG_' + id);
   if (!row || !inp) return;
@@ -339,6 +340,7 @@ function renderOpsGeom() {
     '<p class="rp-ops-hint">' + escHtml(hint) + '</p>' +
     rows +
     '<div class="rp-ops-geom-sum" id="opsGeomSum"></div>' +
+    '<div class="rp-ops-geom-live" id="opsGeomLive"></div>' +
     '</div>';
 }
 
@@ -447,6 +449,147 @@ function syncOpsDependentFields() {
     const boxes = keys.map(k => document.getElementById('opsP_' + k)).filter(Boolean);
     el.hidden = boxes.length ? !boxes.some(b => b.checked) : false;
   });
+  syncOpsFitLock();
+}
+
+function opsFitAutoOn() {
+  const fit = document.getElementById('opsP_FIT_AUTO');
+  const step = document.getElementById('opsP_STEP_AUTO');
+  return !!(fit && fit.checked) || !!(step && step.checked);
+}
+
+function syncOpsFitLock() {
+  const on = opsFitAutoOn();
+  const geom = document.getElementById('opsGeom');
+  if (geom) {
+    geom.classList.toggle('is-fit-lock', on);
+    geom.querySelectorAll('input, button').forEach(el => { el.disabled = on; });
+  }
+  const stepPct = document.getElementById('opsP_STEP_PCT');
+  if (stepPct) stepPct.disabled = on;
+  paintOpsGeomLive();
+}
+
+function opsLiveSetup() {
+  if (!opsEdit) return null;
+  if (typeof currentRpnlRow === 'function') {
+    const row = currentRpnlRow();
+    const s = row && row.settings;
+    if (s && (!opsEdit.account || !row.account || row.account === opsEdit.account)) {
+      const c = opsEdit.contract || opsEdit.qsym;
+      const rc = row.contract || row.quote_symbol;
+      if (!c || rc === c || row.quote_symbol === opsEdit.qsym) return s;
+    }
+  }
+  return opsEdit.settings || null;
+}
+
+function opsFmtKnob(v) {
+  const n = Number(v);
+  if (!isFinite(n)) return String(v);
+  const s = Math.abs(n) >= 10 ? n.toFixed(2) : n.toFixed(4);
+  return s.replace(/\.?0+$/, '');
+}
+
+function opsGeomLiveBits(s) {
+  if (!s) return [];
+  return opsGeomLens().map(g => {
+    const ticksKey = g.id === 'k' ? 'k_ticks' : (g.id === 'tail' ? 'step_ticks' : g.id + '_ticks');
+    const pctKey = g.id === 'k' ? 'k' : (g.id === 'tail' ? 'step' : g.id);
+    const ticks = s[ticksKey] != null ? s[ticksKey] : s[g.id + '_ticks'];
+    const pct = s[pctKey] != null ? s[pctKey] : s[g.id];
+    const useTicks = ticks != null && Number(ticks) > 0;
+    const n = useTicks ? ticks : pct;
+    if (n == null || n === '') return '';
+    return g.label.toLowerCase() + ' ' + opsFmtKnob(n) + (useTicks ? 't' : '%');
+  }).filter(Boolean);
+}
+
+function applyLiveToGeomInputs(s) {
+  if (!s || !opsFitAutoOn()) return;
+  opsGeomLens().forEach(g => {
+    const ticksKey = g.id === 'k' ? 'k_ticks' : (g.id === 'tail' ? 'step_ticks' : g.id + '_ticks');
+    const pctKey = g.id === 'k' ? 'k' : (g.id === 'tail' ? 'step' : g.id);
+    const ticks = s[ticksKey] != null ? s[ticksKey] : s[g.id + '_ticks'];
+    const pct = s[pctKey] != null ? s[pctKey] : s[g.id];
+    const row = document.querySelector('#opsGeom [data-geom="' + g.id + '"]');
+    const inp = document.getElementById('opsG_' + g.id);
+    if (!row || !inp) return;
+    if (pct != null && pct !== '') row.dataset.pct = String(pct);
+    if (ticks != null && ticks !== '') row.dataset.ticks = String(ticks);
+    const useTicks = ticks != null && Number(ticks) > 0;
+    row.querySelectorAll('.rp-ops-unit button').forEach(b => {
+      b.classList.toggle('on', b.getAttribute('data-unit') === (useTicks ? 'ticks' : 'pct'));
+    });
+    inp.step = useTicks ? '1' : 'any';
+    inp.min = useTicks ? (g.allow_zero ? '0' : '1') : '0';
+    if (useTicks) inp.value = String(ticks);
+    else if (pct != null && pct !== '') inp.value = String(pct);
+  });
+  const stepPct = document.getElementById('opsP_STEP_PCT');
+  if (stepPct && s.step != null) stepPct.value = String(s.step);
+  updateOpsGeomSum();
+}
+
+function paintOpsGeomLive() {
+  const el = document.getElementById('opsGeomLive');
+  if (!el) return;
+  const s = opsLiveSetup();
+  const bits = opsGeomLiveBits(s);
+  if (bits.length) {
+    el.innerHTML = '<b>Current live</b>  ' + escHtml(bits.join(' · '));
+    applyLiveToGeomInputs(s);
+    return;
+  }
+  el.textContent = opsFitAutoOn()
+    ? 'Fit auto will keep hem / span / step from the live book after start.'
+    : '';
+}
+
+function refreshOpsLiveGeom() {
+  const box = document.getElementById('rpOps');
+  if (!box || box.hidden || !opsEdit) return;
+  const row = typeof currentRpnlRow === 'function' ? currentRpnlRow() : null;
+  if (row && row.settings) opsEdit.settings = row.settings;
+  paintOpsGeomLive();
+}
+
+function renderOpsGlossary() {
+  const params = opsStrategySpec().params || [];
+  const items = [];
+  const seen = new Set();
+  const add = (k, t, d) => { if (!seen.has(k)) { seen.add(k); items.push([t, d]); } };
+  params.forEach(p => {
+    if (p.type === 'max') {
+      add('max', p.label || 'Max', p.label === 'Max coin'
+        ? 'Underlying coin cap (2 = 2 of the coin), not USD.'
+        : 'Inventory cap. USD is notional; lots are venue contracts.');
+    } else if (p.type === 'geom') {
+      const lenses = p.lenses || [];
+      if (lenses.indexOf('hem') >= 0) add('hem', 'Hem', 'Cover-side edge off the hook.');
+      if (lenses.indexOf('span') >= 0) add('span', 'Span', 'Far edge, measured from the hem.');
+      if (lenses.indexOf('step') >= 0 || lenses.indexOf('tail') >= 0) add('step', 'Step', 'First same-side gap behind an edge.');
+      if (lenses.indexOf('k') >= 0) add('k', 'K', 'Offset from the touch. 0 joins the bid–ask.');
+    } else if (p.key === 'ORDERS') add('orders', 'Orders / side', 'How many quotes hang on each side.');
+    else if (p.key === 'HOOK') add('hook', 'Hook', 'What the ladder hangs off — mid, inventory, or last.');
+    else if (p.key === 'STEP_MULT') add('sm', 'Step ×', 'How the step grows down the ladder.');
+    else if (p.key === 'FIT_AUTO') add('fit', 'Fit auto', 'Keeps hem and step matched to the live book. You cannot type them while this is on.');
+    else if (p.key === 'STEP_AUTO') add('fstep', 'Fit step', 'Keeps step matched to the live book.');
+    else if (p.key === 'SPAN_SPREAD') add('ss', 'Span spread', 'If the live bid–ask is wider than span, inner quotes sit on the spread.');
+    else if (p.key === 'TOUCH_TICKS') add('touch', 'Touch ticks', 'How far inside the BBO when span follows the spread. 0 joins the touch.');
+    else if (p.key === 'FATE_USD') add('fate', 'Fate $', 'Pause if rPnL drops this far from the peak.');
+    else if (p.key === 'GRIND_USD') add('grind', 'Grind $', 'Pause if window rPnL is this negative.');
+    else if (p.key === 'VOL_GATE') add('vol', 'Vol gate', 'Only quote while the tape is busy.');
+    else if (p.key === 'DRY_RUN') add('dry', 'Dry run', 'Log quotes. Do not send orders.');
+    else if (p.key === 'PAIR_HEDGE') add('ph', 'Hedge', 'Hedge option delta with the perpetual.');
+    else if (p.key === 'PAIR_HEDGE_LOT') add('hl', 'Hedge lot', 'Min contracts off-target before a hedge order.');
+    else if (p.key === 'BID_TICKS') add('bt', 'Bid +ticks', 'How many ticks above the bid you buy.');
+    else if (p.key === 'ASK_TICKS') add('at', 'Ask −ticks', 'How many ticks under the ask you sell.');
+  });
+  if (!items.length) return '';
+  return '<div class="rp-ops-glossary"><div class="rp-ops-sub">What these mean</div><dl>' +
+    items.map(([t, d]) => '<div><dt>' + escHtml(t) + '</dt><dd>' + escHtml(d) + '</dd></div>').join('') +
+    '</dl></div>';
 }
 
 function renderOpsParams() {
@@ -467,7 +610,7 @@ function renderOpsParams() {
     const h = titles[g.id] ? '<div class="rp-ops-sub">' + titles[g.id] + '</div>' : '';
     return '<div class="rp-ops-group" data-ops-group="' + escHtml(g.id || '') + '">' + h +
       '<div class="rp-ops-params">' + g.items.map(renderOpsParam).join('') + '</div></div>';
-  }).join('');
+  }).join('') + renderOpsGlossary();
   applyOpsMaxUnitDefault();
   updateOpsGeomSum();
   syncOpsDependentFields();
@@ -475,6 +618,7 @@ function renderOpsParams() {
 
 function collectOpsGeom(out) {
   if (!document.getElementById('opsGeom')) return;
+  if (opsEdit && opsFitAutoOn()) return;
   persistOpsGeom();
   opsGeomLens().forEach(g => {
     const row = document.querySelector('#opsGeom [data-geom="' + g.id + '"]');
@@ -496,6 +640,7 @@ function collectOpsGeom(out) {
 
 function validateOpsGeom() {
   if (!document.getElementById('opsGeom')) return '';
+  if (opsFitAutoOn()) return '';
   for (const g of opsGeomLens()) {
     const inp = document.getElementById('opsG_' + g.id);
     const n = Number(inp && inp.value);

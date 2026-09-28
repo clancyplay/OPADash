@@ -1156,6 +1156,7 @@ function renderRpnlSummary(rows, hours) {
     return;
   }
   rpnlSummaryCache = rows;
+  if (typeof refreshOpsLiveGeom === 'function') refreshOpsLiveGeom();
   const cur = (document.getElementById('rpnlSymbol') || {}).value || '';
   const nameCount = {};
   rows.forEach(r => {

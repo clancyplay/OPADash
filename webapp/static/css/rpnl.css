@@ -959,7 +959,7 @@ body.ops-open { overflow: hidden; }
   min-height: 14px;
 }
 .rp-ops-params {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; align-items: end;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; align-items: start;
 }
 #opsParams { margin-bottom: 12px; }
 .rp-ops-blurb { margin: 0 0 12px; }
@@ -980,15 +980,17 @@ body.ops-open { overflow: hidden; }
   padding: 0 2px;
 }
 .rp-ops-check input { width: 16px; height: 16px; flex: 0 0 auto; accent-color: var(--accent); }
+.rp-ops-max-wrap { width: 100%; min-width: 0; }
 .rp-ops-max {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0 8px;
+  gap: 0 6px;
   align-items: stretch;
+  width: 100%;
 }
 .rp-ops-max input { width: 100%; min-height: 34px; }
-.rp-ops-max .rp-ops-unit { align-self: stretch; }
-.rp-ops-max .rp-ops-unit button { height: 100%; }
+.rp-ops-max .rp-ops-unit { grid-area: auto; align-self: stretch; }
+.rp-ops-max .rp-ops-unit button { height: 34px; min-height: 34px; }
 .rp-ops-geom {
   grid-column: 1 / -1;
   padding: 2px 0 0;
@@ -1011,8 +1013,8 @@ body.ops-open { overflow: hidden; }
 }
 .rp-ops-len-lab { grid-area: lab; font-size: 12px; font-weight: 700; color: #fff; }
 .rp-ops-len input { grid-area: inp; width: 100%; }
+.rp-ops-len .rp-ops-unit { grid-area: unit; }
 .rp-ops-unit {
-  grid-area: unit;
   display: inline-flex;
   border: 1px solid var(--border2);
   border-radius: 6px;
@@ -1034,6 +1036,32 @@ body.ops-open { overflow: hidden; }
   margin-top: 4px; font-size: 12px; font-weight: 650; color: #d7deef;
   font-variant-numeric: tabular-nums;
 }
+.rp-ops-geom-live {
+  margin-top: 8px;
+  font-size: 12px; font-weight: 500; color: #c5d0e6;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+}
+.rp-ops-geom-live b { color: #fff; font-weight: 650; }
+.rp-ops-geom.is-fit-lock input,
+.rp-ops-geom.is-fit-lock button { opacity: .55; cursor: not-allowed; }
+.rp-ops-glossary {
+  margin-top: 2px;
+  padding: 10px 12px 12px;
+  background: #1a1f2c;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.rp-ops-glossary .rp-ops-sub { margin: 0 0 10px; }
+.rp-ops-glossary dl { margin: 0; display: grid; gap: 8px; }
+.rp-ops-glossary dl > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.rp-ops-glossary dt { font-size: 11px; font-weight: 700; color: #fff; }
+.rp-ops-glossary dd { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.4; font-weight: 500; }
 .rp-ops-extra { margin-bottom: 10px; }
 .rp-ops-extra summary {
   cursor: pointer; font-size: 11px; font-weight: 650; color: var(--muted);
@@ -1070,4 +1098,5 @@ body.ops-open { overflow: hidden; }
 }
 @media (max-width: 720px) {
   .rp-ops-grid, .rp-ops-params { grid-template-columns: 1fr; }
+  .rp-ops-glossary dl > div { grid-template-columns: 1fr; gap: 2px; }
 }
