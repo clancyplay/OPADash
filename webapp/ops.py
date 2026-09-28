@@ -46,7 +46,8 @@ GEOM_LENS = [
 ]
 
 _HOOK = {
-    "key": "HOOK", "label": "Hook", "type": "select", "default": "position", "group": "quote",
+    "key": "HOOK", "label": "Hook", "type": "select", "default": "position", "group": "book",
+    "wide": True,
     "options": [
         {"value": "position", "label": "position · inventory"},
         {"value": "liquidity", "label": "liquidity · heavier book"},
@@ -69,8 +70,20 @@ _ORDERS = {"key": "ORDERS", "label": "Orders / side", "type": "int", "default": 
 _DRY = {"key": "DRY_RUN", "label": "Dry run", "type": "bool", "default": False, "group": "risk"}
 
 
-def _max(label="Max $", default="10000"):
-    return [{"key": "MAX_POSITION", "label": label, "type": "number", "default": default, "group": "size"}]
+def _max(label="Max", default="10000"):
+    """Max number + USD/lots unit. Pair stays coin-only and does not use this."""
+    return [{
+        "key": "MAX_POSITION",
+        "label": label,
+        "type": "max",
+        "default": default,
+        "group": "size",
+        "unit": "usd",
+        "units": [
+            {"id": "usd", "label": "USD"},
+            {"id": "lots", "label": "lots"},
+        ],
+    }]
 
 
 def _geom(lenses, hint="", defaults=None):
@@ -100,12 +113,20 @@ def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=
     if fit:
         rows.append({"key": "FIT_AUTO", "label": "Fit auto", "type": "bool", "default": fit_default, "group": "geometry"})
     if span_spread:
-        rows.append({"key": "SPAN_SPREAD", "label": "Span spread", "type": "bool", "default": True, "group": "geometry"})
+        rows.append({
+            "key": "SPAN_SPREAD", "label": "Span spread", "type": "bool", "default": True, "group": "geometry",
+            "hint": "When the live bid–ask is wider than span, hang inner quotes on the spread.",
+        })
     if touch:
-        rows.append({"key": "TOUCH_TICKS", "label": "Touch ticks", "type": "int", "default": "1", "group": "quote"})
-    rows.append({"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": vol, "group": "risk"})
+        rows.append({
+            "key": "TOUCH_TICKS", "label": "Touch ticks", "type": "int", "default": "1", "group": "geometry",
+            "min": 0,
+            "show_if_any": ["SPAN_SPREAD", "FIT_AUTO"],
+            "hint": "How far inside the BBO when span follows the spread. 0 joins the touch.",
+        })
     if fate:
         rows.extend(_fate())
+    rows.append({"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": vol, "group": "risk"})
     rows.append(_DRY)
     return rows
 
@@ -122,8 +143,8 @@ def _touch_like(*, k_default="0", step_default="0.05"):
         {"key": "STEP_AUTO", "label": "Fit step", "type": "bool", "default": True, "group": "geometry"},
         {"key": "STEP_PCT", "label": "Step %", "type": "number", "default": step_default, "group": "geometry"},
         _MULT,
-        {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
         *_fate(),
+        {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
         _DRY,
     ]
 
@@ -194,8 +215,8 @@ STRATEGIES = [
             _HOOK,
             _geom(["hem", "span", "tail"], "Hem and span are the two edges. Tail is the stack behind them."),
             _MULT,
-            {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
             *_fate(),
+            {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
             _DRY,
         ],
     },
@@ -213,8 +234,8 @@ STRATEGIES = [
             {"key": "CLIP_PCT", "label": "Clip %", "type": "number", "default": "25", "group": "size"},
             {"key": "TRAIL_PCT", "label": "Trail %", "type": "number", "default": "0.35", "group": "quote"},
             {"key": "MOM_STOP_PCT", "label": "Stop %", "type": "number", "default": "0.50", "group": "risk"},
-            {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
             *_fate(),
+            {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
             _DRY,
         ],
     },
@@ -242,8 +263,8 @@ STRATEGIES = [
             {"key": "STEP_AUTO", "label": "Fit step", "type": "bool", "default": True, "group": "geometry"},
             {"key": "STEP_PCT", "label": "Step %", "type": "number", "default": "0.1", "group": "geometry"},
             _MULT,
-            {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
             *_fate(),
+            {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
             _DRY,
         ],
     },

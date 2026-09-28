@@ -351,24 +351,102 @@ function opsSelectOptions(p) {
   }).join('');
 }
 
+function opsMaxParam() {
+  return ((opsStrategySpec().params) || []).find(p => p.type === 'max') || null;
+}
+
+function opsMaxUnit() {
+  const btn = document.querySelector('#opsMax .rp-ops-unit button.on');
+  const p = opsMaxParam();
+  return (btn && btn.getAttribute('data-unit')) || (p && p.unit) || 'usd';
+}
+
+function setOpsMaxUnit(unit) {
+  const row = document.getElementById('opsMax');
+  if (!row || !unit) return;
+  row.querySelectorAll('.rp-ops-unit button').forEach(b => {
+    b.classList.toggle('on', b.getAttribute('data-unit') === unit);
+  });
+  if (!opsEdit && typeof lsSet === 'function') lsSet('opadash.opsMaxUnit', unit);
+}
+
+function applyOpsMaxUnitDefault() {
+  if (opsEdit) return;
+  const p = opsMaxParam();
+  if (!p) return;
+  const saved = (typeof lsGet === 'function') ? lsGet('opadash.opsMaxUnit', '') : '';
+  const unit = (saved === 'usd' || saved === 'lots') ? saved : (p.unit || 'usd');
+  setOpsMaxUnit(unit);
+}
+
+function renderOpsMax(p) {
+  const unit = p.unit === 'lots' ? 'lots' : 'usd';
+  const units = Array.isArray(p.units) && p.units.length
+    ? p.units
+    : [{ id: 'usd', label: 'USD' }, { id: 'lots', label: 'lots' }];
+  const btns = units.map(u => {
+    const id = (u && typeof u === 'object') ? (u.id || u.value) : u;
+    const lab = (u && typeof u === 'object') ? (u.label || u.id) : u;
+    return '<button type="button" data-unit="' + escHtml(id) + '"' +
+      (String(id) === unit ? ' class="on"' : '') +
+      ' onclick="setOpsMaxUnit(\'' + escHtml(id) + '\')">' + escHtml(lab) + '</button>';
+  }).join('');
+  return '<label class="rp-ops-max-wrap">' + escHtml(p.label || 'Max') +
+    '<div class="rp-ops-max" id="opsMax">' +
+      '<input id="opsP_MAX_POSITION" type="number" step="any" min="0" value="' +
+        escHtml(p.default == null ? '' : p.default) + '" />' +
+      '<div class="rp-ops-unit" role="group" aria-label="Max unit">' + btns + '</div>' +
+    '</div></label>';
+}
+
+function collectOpsMax(out) {
+  const p = opsMaxParam();
+  if (!p) return;
+  const el = document.getElementById('opsP_MAX_POSITION');
+  if (!el || el.value === '' || el.value == null) return;
+  const usd = opsMaxUnit() === 'usd';
+  out.MAX_POSITION = el.value;
+  out.MAX_IN_USD = usd;
+  if (opsEdit) {
+    if (usd) out.max_usd = el.value;
+    else out.max_pos = el.value;
+  }
+}
+
 function renderOpsParam(p) {
   if (p.type === 'geom') return renderOpsGeom();
+  if (p.type === 'max') return renderOpsMax(p);
   const id = 'opsP_' + p.key;
+  const extraCls = (p.wide ? ' rp-ops-wide' : '');
+  const showIf = Array.isArray(p.show_if_any) && p.show_if_any.length
+    ? ' data-show-if="' + escHtml(p.show_if_any.join(',')) + '"'
+    : '';
+  const title = p.hint ? ' title="' + escHtml(p.hint) + '"' : '';
   if (p.type === 'bool') {
     const on = p.default === true || p.default === 'true';
-    return '<label class="rp-ops-check"><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + ' /> ' +
+    return '<label class="rp-ops-check' + extraCls + '"' + showIf + title + '>' +
+      '<input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + ' onchange="syncOpsDependentFields()" /> ' +
       escHtml(p.label) + '</label>';
   }
+  const cls = extraCls.trim() ? ' class="' + extraCls.trim() + '"' : '';
   if (p.type === 'select') {
-    return '<label>' + escHtml(p.label) + '<select id="' + id + '" onchange="updateOpsGeomSum()">' +
+    return '<label' + cls + showIf + title + '>' + escHtml(p.label) +
+      '<select id="' + id + '" onchange="updateOpsGeomSum();syncOpsDependentFields()">' +
       opsSelectOptions(p) + '</select></label>';
   }
   const step = p.type === 'int' ? '1' : 'any';
   const min = p.min != null ? ' min="' + escHtml(String(p.min)) + '"' : '';
-  const hint = p.hint ? ' title="' + escHtml(p.hint) + '"' : '';
-  return '<label>' + escHtml(p.label) +
-    '<input id="' + id + '" type="number" step="' + step + '"' + min + hint +
+  return '<label' + cls + showIf + title + '>' + escHtml(p.label) +
+    '<input id="' + id + '" type="number" step="' + step + '"' + min + title +
       ' value="' + escHtml(p.default == null ? '' : p.default) + '" /></label>';
+}
+
+function syncOpsDependentFields() {
+  document.querySelectorAll('#opsParams [data-show-if]').forEach(el => {
+    const keys = (el.getAttribute('data-show-if') || '').split(',').map(s => s.trim()).filter(Boolean);
+    const boxes = keys.map(k => document.getElementById('opsP_' + k)).filter(Boolean);
+    el.hidden = boxes.length ? !boxes.some(b => b.checked) : false;
+  });
 }
 
 function renderOpsParams() {
@@ -376,7 +454,7 @@ function renderOpsParams() {
   if (!box) return;
   const spec = opsStrategySpec();
   const params = spec.params || [];
-  const titles = { size: 'Size', geometry: 'Geometry', quote: 'Quote', risk: 'Risk', hedge: 'Hedge' };
+  const titles = { size: 'Size', book: 'Book', geometry: 'Geometry', quote: 'Quote', risk: 'Risk', hedge: 'Hedge' };
   const groups = [];
   params.forEach(p => {
     const id = p.group || '';
@@ -387,10 +465,12 @@ function renderOpsParams() {
   const blurb = spec.blurb ? '<p class="rp-ops-hint rp-ops-blurb">' + escHtml(spec.blurb) + '</p>' : '';
   box.innerHTML = blurb + groups.map(g => {
     const h = titles[g.id] ? '<div class="rp-ops-sub">' + titles[g.id] + '</div>' : '';
-    return '<div class="rp-ops-group">' + h +
+    return '<div class="rp-ops-group" data-ops-group="' + escHtml(g.id || '') + '">' + h +
       '<div class="rp-ops-params">' + g.items.map(renderOpsParam).join('') + '</div></div>';
   }).join('');
+  applyOpsMaxUnitDefault();
   updateOpsGeomSum();
+  syncOpsDependentFields();
 }
 
 function collectOpsGeom(out) {
@@ -433,13 +513,13 @@ function validateOpsGeom() {
 function validateOpsParams() {
   const spec = opsStrategySpec();
   for (const p of spec.params || []) {
-    if (p.type !== 'int' && p.type !== 'number') continue;
+    if (p.type !== 'int' && p.type !== 'number' && p.type !== 'max') continue;
     const el = document.getElementById('opsP_' + p.key);
     if (!el || el.value === '' || el.value == null) continue;
     const n = Number(el.value);
     if (!isFinite(n)) return p.label + ' is invalid';
     if (p.type === 'int' && n !== Math.round(n)) return p.label + ' must be a whole number';
-    if (p.key === 'MAX_POSITION' && !(n > 0)) return p.label + ' must be > 0';
+    if ((p.type === 'max' || p.key === 'MAX_POSITION') && !(n > 0)) return p.label + ' must be > 0';
     if (p.min != null && n < Number(p.min)) return p.label + ' must be ≥ ' + p.min;
   }
   return '';
@@ -460,12 +540,13 @@ function collectOpsParams() {
     });
   }
   (spec.params || []).forEach(p => {
-    if (p.type === 'geom') return;
+    if (p.type === 'geom' || p.type === 'max') return;
     const el = document.getElementById('opsP_' + p.key);
     if (!el) return;
     if (p.type === 'bool') out[p.key] = !!el.checked;
     else if (el.value !== '' && el.value != null) out[p.key] = el.value;
   });
+  collectOpsMax(out);
   collectOpsGeom(out);
   return out;
 }
@@ -499,8 +580,13 @@ function fillOpsFromSetup(s) {
     const t = String(v);
     if ([...el.options].some(o => o.value === t)) el.value = t;
   };
-  if (s.max_usd != null) setNum('opsP_MAX_POSITION', s.max_usd);
-  else if (s.max_pos != null) setNum('opsP_MAX_POSITION', s.max_pos);
+  if (s.max_usd != null) {
+    setNum('opsP_MAX_POSITION', s.max_usd);
+    setOpsMaxUnit('usd');
+  } else if (s.max_pos != null) {
+    setNum('opsP_MAX_POSITION', s.max_pos);
+    setOpsMaxUnit('lots');
+  }
   setNum('opsP_ORDERS', s.orders);
   setSel('opsP_HOOK', s.hook);
   setSel('opsP_STEP_MULT', s.step_mult);
@@ -553,6 +639,7 @@ function fillOpsFromSetup(s) {
     inp.value = useTicks ? String(ticks) : (pct != null && pct !== '' ? String(pct) : inp.value);
   });
   updateOpsGeomSum();
+  syncOpsDependentFields();
 }
 
 async function submitOpsLaunch() {
@@ -603,10 +690,6 @@ async function submitOpsEdit() {
   const geomErr = validateOpsGeom() || validateOpsParams();
   if (geomErr) return setOpsMsg('opsLaunchMsg', geomErr, true);
   const payload = collectOpsParams();
-  if (payload.MAX_POSITION != null) {
-    if (opsEdit.strategy === 'pair') payload.max_pos = payload.MAX_POSITION;
-    else payload.max_usd = payload.MAX_POSITION;
-  }
   const btn = document.getElementById('opsLaunchBtn');
   if (btn) btn.disabled = true;
   setOpsMsg('opsLaunchMsg', 'Applying…', false);
