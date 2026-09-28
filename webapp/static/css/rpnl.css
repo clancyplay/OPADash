@@ -1150,6 +1150,21 @@ body.ops-open { overflow: hidden; }
   padding: 0 2px;
 }
 .rp-ops-check input { width: 16px; height: 16px; flex: 0 0 auto; accent-color: var(--accent); }
+.rp-ops-flags {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 22px;
+  margin: 6px 0 4px;
+  min-height: 34px;
+}
+.rp-ops-flags .rp-ops-check {
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 0;
+}
+.rp-ops-flags:not(:has(> :not([hidden]))) { display: none !important; }
 .rp-ops-max-wrap { width: 100%; min-width: 0; }
 .rp-ops-max {
   display: grid;

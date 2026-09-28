@@ -725,6 +725,25 @@ function renderOpsGlossary() {
     '</dl></div>';
 }
 
+function renderOpsGroupItems(items) {
+  const html = [];
+  let bools = [];
+  const flushBools = () => {
+    if (!bools.length) return;
+    html.push('<div class="rp-ops-flags">' + bools.map(renderOpsParam).join('') + '</div>');
+    bools = [];
+  };
+  items.forEach(p => {
+    if (p.type === 'bool') bools.push(p);
+    else {
+      flushBools();
+      html.push(renderOpsParam(p));
+    }
+  });
+  flushBools();
+  return html.join('');
+}
+
 function renderOpsParams() {
   const box = document.getElementById('opsParams');
   if (!box) return;
@@ -742,7 +761,7 @@ function renderOpsParams() {
   box.innerHTML = blurb + groups.map(g => {
     const h = titles[g.id] ? '<div class="rp-ops-sub">' + titles[g.id] + '</div>' : '';
     return '<div class="rp-ops-group" data-ops-group="' + escHtml(g.id || '') + '">' + h +
-      '<div class="rp-ops-params">' + g.items.map(renderOpsParam).join('') + '</div></div>';
+      '<div class="rp-ops-params">' + renderOpsGroupItems(g.items) + '</div></div>';
   }).join('') + renderOpsGlossary();
   applyOpsMaxUnitDefault();
   updateOpsGeomSum();

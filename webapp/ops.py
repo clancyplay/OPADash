@@ -58,6 +58,7 @@ _HOOK = {
 }
 _MULT = {
     "key": "STEP_MULT", "label": "Step ×", "type": "select", "default": "1", "group": "geometry",
+    "wide": True,
     "options": [
         {"value": "1", "label": "1 · equal gaps"},
         {"value": "2", "label": "2 · double"},
@@ -132,7 +133,6 @@ def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=
         ["hem", "span", "step"],
         "Each edge is % of price, or whole ticks. Ticks win. Fit auto takes hem/span/step from the live book — you cannot type them while it is on. Span spread is only for when Fit auto is off.",
     ))
-    rows.append(_MULT)
     if fit:
         rows.append({"key": "FIT_AUTO", "label": "Fit auto", "type": "bool", "default": fit_default, "group": "geometry"})
     if span_spread:
@@ -144,10 +144,11 @@ def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=
     if touch:
         rows.append({
             "key": "TOUCH_TICKS", "label": "Touch ticks", "type": "int", "default": "1", "group": "geometry",
-            "min": 0,
+            "min": 0, "wide": True,
             "show_if_any": ["SPAN_SPREAD", "FIT_AUTO"],
             "hint": "How far inside the BBO when quotes follow the spread. 0 joins the touch.",
         })
+    rows.append(_MULT)
     rows.extend(_pace(quote_ms=quote_ms, place_secs=place_secs))
     if fate:
         rows.extend(_fate())
