@@ -19,20 +19,32 @@
   </div>
   <div id="balances-inner" class="page-inner">
     <div class="bal-xfer" id="balXfer" hidden>
-      <h4>Transfer USD</h4>
-      <p class="hint">Move unlocked USD between Delta subaccounts. Delta rejects subaccount trading keys — this uses the <b>parent / main</b> API key.</p>
-      <div class="bal-xfer-grid">
-        <label>From
-          <select id="balXferFrom"></select>
-        </label>
-        <label>To
-          <select id="balXferTo"></select>
-        </label>
-        <label>Amount (USD)
-          <input id="balXferAmt" type="number" min="1" step="any" inputmode="decimal" />
-        </label>
+      <h4>Transfer</h4>
+      <p class="hint">Move unlocked USD between Delta subaccounts. Amount can be typed in INR or USD — Delta still settles USD. This uses the <b>parent / main</b> API key.</p>
+      <div class="bal-xfer-cols">
+        <div class="bal-xfer-col">
+          <div class="rp-ops-sub">From</div>
+          <div id="balXferFromList" class="rp-ops-acct-list"></div>
+        </div>
+        <div class="bal-xfer-col">
+          <div class="rp-ops-sub">To</div>
+          <div id="balXferToList" class="rp-ops-acct-list"></div>
+        </div>
       </div>
-      <div id="balXferWallets" class="bal-xfer-wallets"></div>
+      <input id="balXferFrom" type="hidden" />
+      <input id="balXferTo" type="hidden" />
+      <div class="bal-xfer-amt">
+        <label class="rp-ops-max-wrap">Amount
+          <div class="rp-ops-max" id="balXferAmtWrap">
+            <input id="balXferAmt" type="number" min="0" step="any" inputmode="decimal" placeholder="0" oninput="paintBalXferEq()" />
+            <div class="rp-ops-unit" role="group" aria-label="Amount unit">
+              <button type="button" data-xfer-unit="inr" onclick="setBalXferUnit('inr')">INR</button>
+              <button type="button" class="on" data-xfer-unit="usd" onclick="setBalXferUnit('usd')">USD</button>
+            </div>
+          </div>
+        </label>
+        <div class="bal-xfer-eq" id="balXferEq"></div>
+      </div>
       <div class="bal-xfer-actions">
         <button class="btn danger" type="button" id="balXferGo" onclick="submitBalXfer()">Transfer</button>
         <span class="bal-xfer-msg" id="balXferMsg"></span>

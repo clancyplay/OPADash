@@ -423,6 +423,37 @@ class EventsDB:
             self.logger.debug("events_db: get_live_bots failed — %s", extra)
             return []
 
+    async def drop_live_bot(self, contract: str, account: str, strategy: str) -> None:
+        """Drop ping + setup so the rPnL pill goes away as soon as the process is gone."""
+        if not self.pool:
+            return
+        strat = str(strategy or "").strip()
+        compact = canon_contract(contract) or str(contract or "").strip()
+        if not strat or not compact:
+            return
+        aliases = [str(x).upper() for x in (contract_aliases(contract) or []) if x]
+        if compact.upper() not in aliases:
+            aliases.append(compact.upper())
+        acct = str(account or "").strip()
+        folded = compact.upper().replace("-", "").replace("_", "")
+        try:
+            async with self.pool.acquire() as conn:
+                for table in ("bot_ping", "bot_setup"):
+                    await conn.execute(
+                        f"""
+                        DELETE FROM {table}
+                        WHERE strategy::text = $1
+                          AND ($2 = '' OR COALESCE(account, '') = $2)
+                          AND (
+                            UPPER(contract::text) = ANY($3::text[])
+                            OR UPPER(REPLACE(REPLACE(contract::text, '-', ''), '_', '')) = $4
+                          )
+                        """,
+                        strat, acct, aliases, folded,
+                    )
+        except Exception as extra:
+            self.logger.warning("events_db: drop_live_bot failed — %s", extra)
+
     async def get_bot_setups(self, strategy: str) -> dict[tuple, dict]:
         """Last known knobs keyed by (contract, account) and (contract, account, strategy)."""
         if not self.pool:

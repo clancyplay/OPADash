@@ -312,6 +312,10 @@ function setBalXferMsg(text, err) {
   el.classList.toggle('err', !!err);
 }
 
+let balXferAccts = [];
+let balXferUnit = 'usd';
+let balXferRate = 87;
+
 function toggleBalXfer(force) {
   const box = document.getElementById('balXfer');
   const btn = document.getElementById('balXferBtn');
@@ -322,49 +326,93 @@ function toggleBalXfer(force) {
   if (open) loadBalXfer();
 }
 
-async function loadBalXfer() {
+function balXferFx() {
+  const n = Number(balXferRate);
+  return isFinite(n) && n > 0 ? n : 87;
+}
+
+function setBalXferUnit(unit) {
+  balXferUnit = unit === 'inr' ? 'inr' : 'usd';
+  document.querySelectorAll('#balXferAmtWrap [data-xfer-unit]').forEach(function (b) {
+    b.classList.toggle('on', b.getAttribute('data-xfer-unit') === balXferUnit);
+  });
+  paintBalXferEq();
+}
+
+function paintBalXferEq() {
+  const el = document.getElementById('balXferEq');
+  if (!el) return;
+  const amt = Number((document.getElementById('balXferAmt') || {}).value);
+  const fx = balXferFx();
+  if (!(amt > 0)) {
+    el.textContent = 'Delta moves USD. INR uses USDINR ' + fx.toLocaleString('en-IN');
+    return;
+  }
+  if (balXferUnit === 'inr') {
+    const usd = amt / fx;
+    el.textContent = 'Sends $' + usd.toLocaleString('en-US', { maximumFractionDigits: 2 }) +
+      '  ·  rate ₹' + fx.toLocaleString('en-IN') + ' / $';
+  } else {
+    const inr = amt * fx;
+    el.textContent = 'Sends $' + amt.toLocaleString('en-US', { maximumFractionDigits: 2 }) +
+      '  ·  ≈ ' + (typeof inrFmt === 'function' ? inrFmt(inr) : ('₹' + Math.round(inr).toLocaleString('en-IN')));
+  }
+}
+
+function pickBalXfer(role, id) {
   const from = document.getElementById('balXferFrom');
   const to = document.getElementById('balXferTo');
-  const box = document.getElementById('balXferWallets');
+  if (role === 'from' && from) from.value = id;
+  if (role === 'to' && to) to.value = id;
+  if (from && to && from.value && from.value === to.value) {
+    if (role === 'from') to.value = '';
+    else from.value = '';
+  }
+  paintBalXferLists();
+  paintBalXferEq();
+}
+
+function paintBalXferLists() {
+  const fromId = (document.getElementById('balXferFrom') || {}).value || '';
+  const toId = (document.getElementById('balXferTo') || {}).value || '';
+  const fromBox = document.getElementById('balXferFromList');
+  const toBox = document.getElementById('balXferToList');
+  const html = (onId, role) => {
+    if (!balXferAccts.length) return '<div class="rp-ops-empty">No Delta subs</div>';
+    return balXferAccts.map(a => {
+      const id = a.id || a.name || '';
+      return (typeof opsAcctCardHtml === 'function' ? opsAcctCardHtml : function () { return ''; })
+        (a, { on: id === onId || a.name === onId, role: role, avail: true });
+    }).join('');
+  };
+  if (fromBox) fromBox.innerHTML = html(fromId, 'from');
+  if (toBox) toBox.innerHTML = html(toId, 'to');
+}
+
+async function loadBalXfer() {
   const go = document.getElementById('balXferGo');
-  if (!from || !to) return;
   setBalXferMsg('', false);
   if (go) go.disabled = true;
   try {
-    const r = await fetch('/api/ops/delta/wallets');
-    const d = r.ok ? await r.json() : { wallets: [], has_parent: false };
-    const rows = d.wallets || [];
+    const r = await fetch('/api/ops/accounts?venue=delta');
+    const d = r.ok ? await r.json() : { accounts: [], has_parent: false };
+    balXferAccts = d.accounts || [];
+    const rate = Number((balXferAccts[0] || {}).usdinr);
+    if (isFinite(rate) && rate > 0) balXferRate = rate;
     if (!d.has_parent) {
       setBalXferMsg(d.hint || (
         'Delta will not transfer with a subaccount trading key. Create an API key on the main/parent Delta login (wallet permission), then set PROFIT_SWEEP_API_KEY and PROFIT_SWEEP_API_SECRET in OPADash/.env — or add that account to config/accounts.json with parent: true.'
       ), true);
     }
-    if (!rows.length) {
-      from.innerHTML = to.innerHTML = '<option value="">No Delta subs</option>';
-      if (box) box.innerHTML = '<div class="hint">Add Delta keys in accounts.json or BAL_*.</div>';
-      return;
+    const from = document.getElementById('balXferFrom');
+    const to = document.getElementById('balXferTo');
+    if (from && !from.value && balXferAccts[0]) from.value = balXferAccts[0].id || balXferAccts[0].name || '';
+    if (to && !to.value && balXferAccts[1]) to.value = balXferAccts[1].id || balXferAccts[1].name || '';
+    if (from && to && from.value && from.value === to.value && balXferAccts.length > 1) {
+      to.value = balXferAccts[1].id || balXferAccts[1].name || '';
     }
-    const opts = rows.map(w => {
-      const av = w.available != null ? (' · ' + balUsd(w.available) + ' ' + (w.asset || 'USD')) : '';
-      const lab = (w.name || w.id) + av;
-      return '<option value="' + escHtml(w.id) + '">' + escHtml(lab) + '</option>';
-    }).join('');
-    const keepFrom = from.value;
-    const keepTo = to.value;
-    from.innerHTML = opts;
-    to.innerHTML = opts;
-    if ([...from.options].some(o => o.value === keepFrom)) from.value = keepFrom;
-    if ([...to.options].some(o => o.value === keepTo)) to.value = keepTo;
-    else if (rows.length > 1) to.selectedIndex = Math.min(1, rows.length - 1);
-    if (box) {
-      box.innerHTML = rows.map(w => {
-        const av = w.available != null ? balUsd(w.available) : '—';
-        const err = w.error ? '<div class="aid err">' + escHtml(w.error) + '</div>' : '';
-        return '<div class="bal-xfer-wal"><b>' + escHtml(w.name || w.id) + '</b>' +
-          (w.parent ? ' <span class="rpnl-strat">parent</span>' : '') +
-          '<div class="aid">' + escHtml(w.id) + ' · avail ' + av + ' ' + escHtml(w.asset || 'USD') + '</div>' + err + '</div>';
-      }).join('');
-    }
+    paintBalXferLists();
+    paintBalXferEq();
     if (go) go.disabled = !d.has_parent;
   } catch (e) {
     setBalXferMsg(String(e), true);
@@ -374,11 +422,19 @@ async function loadBalXfer() {
 async function submitBalXfer() {
   const src = (document.getElementById('balXferFrom') || {}).value || '';
   const dest = (document.getElementById('balXferTo') || {}).value || '';
-  const amount = Number((document.getElementById('balXferAmt') || {}).value);
+  const raw = Number((document.getElementById('balXferAmt') || {}).value);
   if (!src || !dest) return setBalXferMsg('Pick from and to', true);
   if (src === dest) return setBalXferMsg('From and to must differ', true);
-  if (!(amount > 0)) return setBalXferMsg('Amount required', true);
-  if (!confirm('Transfer ' + amount + ' USD from ' + src + ' → ' + dest + '?')) return;
+  if (!(raw > 0)) return setBalXferMsg('Amount required', true);
+  const fx = balXferFx();
+  const usd = balXferUnit === 'inr' ? raw / fx : raw;
+  if (!(usd > 0)) return setBalXferMsg('Amount too small', true);
+  const srcName = ((balXferAccts.find(a => a.id === src || a.name === src) || {}).name) || src;
+  const destName = ((balXferAccts.find(a => a.id === dest || a.name === dest) || {}).name) || dest;
+  const shown = balXferUnit === 'inr'
+    ? (Math.round(raw).toLocaleString('en-IN') + ' INR  ($' + usd.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ')')
+    : ('$' + usd.toLocaleString('en-US', { maximumFractionDigits: 2 }));
+  if (!confirm('Transfer ' + shown + ' from ' + srcName + ' → ' + destName + '?')) return;
   const btn = document.getElementById('balXferGo');
   if (btn) btn.disabled = true;
   setBalXferMsg('Sending…', false);
@@ -386,7 +442,7 @@ async function submitBalXfer() {
     const r = await fetch('/api/ops/transfer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ src, dest, amount, asset: 'USD' }),
+      body: JSON.stringify({ src, dest, amount: usd, asset: 'USD' }),
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {

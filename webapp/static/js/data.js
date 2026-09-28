@@ -9,7 +9,8 @@ const LS_LG_VIEW = 'opadash.lgView';
 const LS_DBT_COLW = 'opadash.dbtColW';
 
 let dataTab = 'fills';
-let lgTimer, rsTimer;
+let lgTimer, rsTimer, dbtTimer;
+let dbtFreshIds = new Set();
 
 const DBT_HIDDEN_ALWAYS = new Set(['id', 'details']);
 const DBT_COMPACT_HIDE = {
@@ -65,6 +66,7 @@ function fmtCount(n) {
 function stopDataTimers() {
   clearInterval(lgTimer);
   clearInterval(rsTimer);
+  clearInterval(dbtTimer);
 }
 
 function bindDataKeys() {
@@ -107,6 +109,8 @@ function showDataTab(name) {
     if (tab) tab.classList.toggle('active', t === name);
   });
   stopDataTimers();
+  const liveWrap = document.getElementById('dbtLiveWrap');
+  if (liveWrap) liveWrap.hidden = name !== 'fills';
   if (name === 'fills' || name === 'tables') {
     if (typeof strategyIsAll === 'function' && !strategyIsAll(currentStrategy)) {
       const el = document.getElementById('dbtStrategy');
@@ -121,6 +125,7 @@ function showDataTab(name) {
     } else if (dbtName === 'fills') {
       dbtPaintList();
     }
+    if (name === 'fills') setupDbtLive();
   }
   if (name === 'logs') {
     if (typeof strategyIsAll === 'function' && !strategyIsAll(currentStrategy)) {
@@ -426,6 +431,11 @@ function openDbTable(name, opts) {
   renderDbTable();
 }
 function dbtPage(dir) {
+  const live = document.getElementById('dbtLive');
+  if (live && live.checked) {
+    live.checked = false;
+    setupDbtLive();
+  }
   const limit = parseInt(document.getElementById('dbtLimit').value) || 100;
   dbtOffset = Math.max(0, dbtOffset + dir * limit);
   dbtSel = new Set();
@@ -1130,6 +1140,7 @@ function dbtPaintGrid() {
         (dbtSel.has(ri) ? ' checked' : '') + ' onclick="dbtToggleSel(' + ri + ', event)"></td>'
       : '';
     return '<tr class="clickable' + (dbtSel.has(ri) ? ' selected' : '') +
+      (dbtFreshIds.has(row.id) ? ' fill-new' : '') +
       '" onclick="dbtOnRowClick(event, ' + ri + ')">' + selTd + tds + '</tr>';
   }).join('');
   const sum = cols.reduce((a, c) => a + dbtColWidth(c), 0) + (showSel ? 36 : 0);
@@ -1187,14 +1198,18 @@ async function renderDbTable() {
   const gen = ++dbtGen;
   dbtPaintList();
   dbtPaintChips();
+  const liveOn = dbtName === 'fills' && document.getElementById('dbtLive') && document.getElementById('dbtLive').checked;
+  if (liveOn) dbtOffset = 0;
+  const prevIds = new Set(dbtPageRows.map(r => r.id).filter(id => id != null));
   const limit = parseInt(document.getElementById('dbtLimit').value) || 100;
   const grid = document.getElementById('dbtGrid');
   const filters = dbtFilterParams();
+  if (liveOn) delete filters.until;
   const hadRows = dbtPageRows.length > 0;
   if (!hadRows) grid.innerHTML = '<div class="tbl-empty">Loading ' + esc(dbtLabel(dbtName)) + '…</div>';
-  else grid.classList.add('is-loading');
+  else if (!liveOn) grid.classList.add('is-loading');
   const status = document.getElementById('dbtStatus');
-  if (status) status.textContent = 'Loading ' + dbtLabel(dbtName) + '…';
+  if (status && !liveOn) status.textContent = 'Loading ' + dbtLabel(dbtName) + '…';
   try {
     const r = await fetch('/api/db/table/' + encodeURIComponent(dbtName) + '?' + qsObj({ limit, offset: dbtOffset, ...filters }));
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
@@ -1212,13 +1227,19 @@ async function renderDbTable() {
       dbtColumns.forEach((c, i) => { o[c] = row[i]; });
       return o;
     });
+    dbtFreshIds = new Set();
+    if (liveOn && prevIds.size) {
+      dbtPageRows.forEach(r => {
+        if (r.id != null && !prevIds.has(r.id)) dbtFreshIds.add(r.id);
+      });
+    }
     dbtPaintGrid();
     dbtPaintPager();
     dbtPaintStats(d.stats);
     dbtPaintChips();
     const title = document.getElementById('dbtTitle');
     if (title) title.textContent = dbtLabel(dbtName) + ' · ' + fmtCount(dbtTotal);
-    if (status) status.textContent = fmtCount(dbtTotal) + ' rows' + (dbtSort ? ' · ' + dbtSort + ' ' + dbtDir : '');
+    if (status) status.textContent = fmtCount(dbtTotal) + ' rows' + (dbtSort ? ' · ' + dbtSort + ' ' + dbtDir : '') + (liveOn ? ' · live' : '');
     if (dbtSel.size) {
       dbtSel = new Set([...dbtSel].filter(i => i >= 0 && i < dbtPageRows.length));
       if (!dbtSel.size) dbtClosePeek();
@@ -1228,7 +1249,7 @@ async function renderDbTable() {
     if (gen !== dbtGen) return;
     if (!hadRows) grid.innerHTML = '<div class="tbl-empty" style="color:var(--red)">Error: ' + esc(e.message) + '</div>';
     if (status) status.innerHTML = '<span style="color:var(--red)">' + esc(e.message) + '</span>';
-    toast(e.message, 'err');
+    if (!liveOn) toast(e.message, 'err');
   } finally {
     if (gen === dbtGen) grid.classList.remove('is-loading');
   }
@@ -2392,6 +2413,17 @@ async function exportLogsCsv() {
 function setupLgAuto() {
   clearInterval(lgTimer);
   if (document.getElementById('lgAuto').checked && dataTab === 'logs') lgTimer = setInterval(() => loadLogsX(false), 3000);
+}
+
+function setupDbtLive() {
+  clearInterval(dbtTimer);
+  const el = document.getElementById('dbtLive');
+  if (el && el.checked && dataTab === 'fills' && dbtName === 'fills') {
+    dbtTimer = setInterval(() => {
+      if (document.hidden) return;
+      renderDbTable();
+    }, 3000);
+  }
 }
 
 bindDataKeys();

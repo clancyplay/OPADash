@@ -144,6 +144,7 @@ let rpnlKindTotal = 0;
 let rpnlKindNoMore = false;
 let rpnlKindCols = [];
 let rpnlKindRows = [];
+let rpnlFillLiveAt = 0;
 let rpnlFillSel = new Set();
 let rpnlFillAnchor = -1;
 let rpnlView         = 'cumul';
@@ -1124,6 +1125,13 @@ async function refreshRpnlLive() {
     updateOhlcCountdown();
   } catch (e) {}
   if (rpnlLogsOpen() && rpnlKind === 'logs') loadRpnlLogs(false);
+  if (rpnlLogsOpen() && rpnlKind === 'fills' && rpnlFillsLiveOn()) {
+    const now = Date.now();
+    if (now - rpnlFillLiveAt > 2500) {
+      rpnlFillLiveAt = now;
+      loadRpnlKindLive();
+    }
+  }
 }
 
 function renderRpnlInspect(row) {
@@ -3657,8 +3665,8 @@ function rpnlKindScopeVal() {
   return (el && el.value) === 'all' ? 'all' : 'contract';
 }
 
-function rpnlLogWindow() {
-  if (rpnlRangePinned && rpnlPinFrom != null && rpnlPinTo != null) {
+function rpnlLogWindow(liveTail) {
+  if (rpnlRangePinned && rpnlPinFrom != null && rpnlPinTo != null && !liveTail) {
     const a = Math.min(rpnlPinFrom, rpnlPinTo);
     const b = Math.max(rpnlPinFrom, rpnlPinTo);
     if (b - a > 120) return { since: String(Math.floor(a)), until: String(Math.floor(b) + 1) };
@@ -3666,9 +3674,13 @@ function rpnlLogWindow() {
   const v = rpnlCurrentHours != null ? rpnlCurrentHours : rpnlHoursSel();
   const hours = v === 'today' ? 24 : (Number(v) || 24);
   const now = Date.now() / 1000;
+  let since = Math.floor(now - hours * 3600);
+  if (liveTail && rpnlRangePinned && rpnlPinFrom != null) {
+    since = Math.min(Math.floor(rpnlPinFrom), since);
+  }
   return {
-    since: String(Math.floor(now - hours * 3600)),
-    until: String(Math.floor(now + 60)),
+    since: String(since),
+    until: String(Math.floor(now + 120)),
   };
 }
 
@@ -3694,7 +3706,8 @@ function rpnlLogQs(extra) {
 function rpnlTableQs(extra) {
   const picked = currentRpnlSel();
   const all = rpnlKindScopeVal() === 'all';
-  const win = rpnlLogWindow();
+  const live = rpnlKind === 'fills' && rpnlFillsLiveOn();
+  const win = rpnlLogWindow(live);
   const strat = picked.strategy || (strategyIsAll(currentStrategy) ? '' : currentStrategy);
   const p = {
     since: win.since,
@@ -3757,7 +3770,7 @@ function syncRpnlKindButtons() {
     el.classList.toggle('on', open && el.getAttribute('data-rpnl-kind') === rpnlKind);
   });
   const live = document.getElementById('rpnlKindLiveWrap');
-  if (live) live.style.display = rpnlKind === 'logs' ? '' : 'none';
+  if (live) live.style.display = (rpnlKind === 'logs' || rpnlKind === 'fills') ? '' : 'none';
   const panel = document.getElementById('rpnlLogs');
   if (panel) panel.setAttribute('data-kind', rpnlKind);
   if (rpnlKind !== 'logs') {
@@ -3983,6 +3996,101 @@ function rpnlKindCell(col, v, row) {
   if (typeof dbtCellHtml === 'function') return dbtCellHtml(col, v, row);
   if (v == null || v === '') return '<span class="muted">—</span>';
   return escHtml(String(v));
+}
+
+function rpnlFillsLiveOn() {
+  const el = document.getElementById('rpnlLogsLive');
+  return !el || el.checked;
+}
+
+function rpnlKindMaxId() {
+  let max = 0;
+  rpnlKindRows.forEach(function (row) {
+    const n = Number(row && row.id);
+    if (n > max) max = n;
+  });
+  return max;
+}
+
+function rpnlFillRowHtml(rec, i, fresh) {
+  const cols = rpnlKindCols;
+  const selTd = '<td class="dbt-sel" onclick="event.stopPropagation()"><input type="checkbox" onclick="rpnlFillToggle(' + i + ', event)"></td>';
+  return '<tr class="clickable' + (fresh ? ' fill-new' : '') + '" data-i="' + i + '" onclick="rpnlFillRowClick(event,' + i + ')">' + selTd +
+    cols.map(function (c) {
+      const v = rec[c];
+      const cls = typeof dbtCellClass === 'function' ? dbtCellClass(c, v) : '';
+      return '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + rpnlKindCell(c, v, rec) + '</td>';
+    }).join('') +
+    '</tr>';
+}
+
+function rpnlFillReindex() {
+  const box = document.getElementById('rpnlLogsBox');
+  if (!box) return;
+  box.querySelectorAll('tbody tr').forEach(function (tr, i) {
+    tr.dataset.i = String(i);
+    tr.setAttribute('onclick', 'rpnlFillRowClick(event,' + i + ')');
+    const inp = tr.querySelector('input[type="checkbox"]');
+    if (inp) inp.setAttribute('onclick', 'rpnlFillToggle(' + i + ', event)');
+  });
+}
+
+async function loadRpnlKindLive() {
+  if (!rpnlLogsOpen() || rpnlKind !== 'fills' || rpnlKindBusy || !rpnlFillsLiveOn()) return;
+  if (!rpnlKindRows.length) {
+    loadRpnlKindTable(true);
+    return;
+  }
+  const after = rpnlKindMaxId();
+  if (!after) {
+    loadRpnlKindTable(true);
+    return;
+  }
+  rpnlKindBusy = true;
+  try {
+    const r = await fetch('/api/db/table/fills?' + rpnlTableQs({ offset: 0, limit: 80, after_id: after }));
+    if (!r.ok) return;
+    const d = await r.json();
+    const allCols = d.columns || [];
+    const idx = {};
+    allCols.forEach(function (c, i) { idx[c] = i; });
+    const incoming = (d.rows || []).map(function (row) {
+      const rec = {};
+      allCols.forEach(function (c) { rec[c] = row[idx[c]]; });
+      return rec;
+    }).filter(function (rec) {
+      const id = Number(rec.id);
+      return id > after && !rpnlKindRows.some(function (x) { return Number(x.id) === id; });
+    });
+    if (!incoming.length) return;
+    incoming.sort(function (a, b) { return Number(b.id) - Number(a.id); });
+    const n = incoming.length;
+    if (rpnlFillSel.size) {
+      const next = new Set();
+      rpnlFillSel.forEach(function (i) { next.add(i + n); });
+      rpnlFillSel = next;
+      if (rpnlFillAnchor >= 0) rpnlFillAnchor += n;
+    }
+    rpnlKindRows = incoming.concat(rpnlKindRows);
+    rpnlKindOffset = rpnlKindRows.length;
+    rpnlKindTotal = (d.total || 0) + (rpnlKindTotal || 0);
+    const tb = document.querySelector('#rpnlLogsBox tbody');
+    if (tb) {
+      tb.insertAdjacentHTML('afterbegin', incoming.map(function (rec, i) {
+        return rpnlFillRowHtml(rec, i, true);
+      }).join(''));
+      rpnlFillReindex();
+      rpnlFillPaintSel();
+    }
+    const st = document.getElementById('rpnlLogsStatus');
+    if (st) st.textContent = rpnlKindOffset + ' of ' + Math.max(rpnlKindTotal, rpnlKindOffset).toLocaleString() + ' · live';
+    rpnlKindTitle();
+    const box = document.getElementById('rpnlLogsBox');
+    if (box && box.scrollTop < 48) box.scrollTop = 0;
+  } catch (e) {
+  } finally {
+    rpnlKindBusy = false;
+  }
 }
 
 async function loadRpnlKindTable(reset) {

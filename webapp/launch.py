@@ -192,6 +192,75 @@ def list_bots(reap: bool = True) -> list[dict]:
     return out
 
 
+def _norm_contract(value: str) -> str:
+    return str(value or "").strip().upper().replace("-", "").replace("_", "")
+
+
+def find_bot(*, bot_id: str = "", contract: str = "", account: str = "", strategy: str = "") -> dict | None:
+    """Match a dash-started process / Railway service."""
+    rows = list_bots(reap=False)
+    want_id = str(bot_id or "").strip()
+    if want_id:
+        for rec in rows:
+            if str(rec.get("id") or "") == want_id:
+                return rec
+        return None
+    c = str(contract or "").strip()
+    a = str(account or "").strip()
+    s = str(strategy or "").strip().lower()
+    if not c or not s:
+        return None
+    cn = _norm_contract(c)
+    acct_aliases = {a}
+    try:
+        from webapp.ops import account_names
+        named = account_names()
+        if a in named:
+            acct_aliases.add(named[a])
+        for aid, nm in named.items():
+            if nm == a:
+                acct_aliases.add(aid)
+    except Exception:
+        pass
+    names: set[str] = set()
+    try:
+        from webapp.railway import _svc_name
+        for tag in list(acct_aliases) + [""]:
+            if tag:
+                names.add(_svc_name(s, c, tag))
+                names.add(_svc_name(s, c.upper(), tag))
+        for rec in rows:
+            names.add(_svc_name(s, c, rec.get("account") or ""))
+            names.add(_svc_name(s, c, rec.get("account_name") or ""))
+    except Exception:
+        pass
+    hits: list[dict] = []
+    for rec in rows:
+        if str(rec.get("strategy") or "").lower() != s:
+            continue
+        svc = str(rec.get("service") or "")
+        rc = str(rec.get("contract") or "")
+        ra = str(rec.get("account") or "")
+        rn = str(rec.get("account_name") or "")
+        name_hit = bool(svc and svc in names)
+        acct_hit = (not a) or ra in acct_aliases or rn in acct_aliases or a in (ra, rn) or (not ra and not rn)
+        c_hit = (not rc) or rc.upper() == c.upper() or _norm_contract(rc) == cn
+        if name_hit or (acct_hit and c_hit):
+            hits.append(rec)
+    if not hits:
+        return None
+    if a:
+        exact = [
+            h for h in hits
+            if a in (str(h.get("account") or ""), str(h.get("account_name") or ""))
+            or str(h.get("account") or "") in acct_aliases
+            or str(h.get("account_name") or "") in acct_aliases
+        ]
+        if exact:
+            return exact[0]
+    return hits[0]
+
+
 def _public(rec: dict) -> dict:
     return {
         "id": rec.get("id") or "",

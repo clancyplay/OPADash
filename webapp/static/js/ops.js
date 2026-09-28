@@ -23,6 +23,11 @@ function applyOpsMode() {
   if (panel) panel.classList.toggle('edit', edit);
   if (title) title.textContent = edit ? ('Edit ' + (opsEdit.qsym || opsEdit.contract || '')) : 'New contract';
   if (btn) btn.textContent = edit ? 'Apply' : 'Start';
+  const kill = document.getElementById('opsRemoveBtn');
+  if (kill) {
+    const rail = opsCatalog && opsCatalog.launch === 'railway';
+    kill.textContent = rail ? 'Remove service' : 'Kill process';
+  }
   const meta = document.getElementById('opsEditMeta');
   if (meta) {
     if (!edit) {
@@ -104,6 +109,7 @@ async function bootRpOps() {
       fillOpsVenues();
       fillOpsStrategies();
     }
+    applyOpsMode();
     if (opsEdit) return;
     await onOpsVenueChange();
     await refreshOpsBots();
@@ -181,22 +187,23 @@ function onOpsAccountChange() {
   renderOpsAccountSnap();
 }
 
-function opsMoney(a) {
+function opsMoney(a, preferAvail) {
   if (!a) return '';
   const asset = String(a.asset || 'USD').toUpperCase();
-  let usd = Number(a.balance);
+  let usd = Number(preferAvail && a.available != null ? a.available : a.balance);
   let inr = Number(a.balance_inr);
   const rate = Number(a.usdinr);
   const fx = isFinite(rate) && rate > 0 ? rate : 87;
-  if ((!isFinite(inr) || a.balance_inr == null) && isFinite(usd) && a.balance != null) inr = usd * fx;
+  if (preferAvail && a.available != null && isFinite(usd)) inr = usd * fx;
+  if ((!isFinite(inr) || a.balance_inr == null) && isFinite(usd) && (a.balance != null || a.available != null)) inr = usd * fx;
   if ((!isFinite(usd) || a.balance == null) && isFinite(inr) && a.balance_inr != null) usd = inr / fx;
   const bits = [];
-  if (isFinite(inr) && (a.balance_inr != null || a.balance != null)) {
+  if (isFinite(inr) && (a.balance_inr != null || a.balance != null || a.available != null)) {
     bits.push(typeof inrFmt === 'function'
       ? inrFmt(inr)
       : ('₹' + Math.abs(inr).toLocaleString('en-IN', { maximumFractionDigits: 0 })));
   }
-  if (isFinite(usd) && (a.balance != null || a.balance_inr != null)) {
+  if (isFinite(usd) && (a.balance != null || a.balance_inr != null || a.available != null)) {
     const d = Math.abs(usd) >= 100 ? 0 : (Math.abs(usd) >= 10 ? 1 : 2);
     const unit = (asset === 'INR') ? '' : ((asset === 'USD' || asset === 'USDT' || !asset) ? '$' : asset + ' ');
     bits.push(unit + usd.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }));
@@ -204,14 +211,36 @@ function opsMoney(a) {
   return bits.join(' · ');
 }
 
-function opsRunningLine(a) {
+function opsRunningHtml(a) {
   const rows = (a && a.running) || [];
-  if (!rows.length) return 'idle';
-  return rows.map(x => {
+  if (!rows.length) return '<div class="rp-ops-run idle">idle</div>';
+  return '<div class="rp-ops-run-list">' + rows.map(x => {
+    const s = String(x.strategy || '').toLowerCase();
     const c = x.contract || '';
-    const s = x.strategy || '';
-    return s ? (c + ' · ' + s) : c;
-  }).filter(Boolean).join('  ·  ');
+    const lab = s ? (c + ' · ' + s) : c;
+    return '<span class="rp-ops-run-chip ' + escHtml(s || 'bot') + '">' + escHtml(lab) + '</span>';
+  }).filter(Boolean).join('') + '</div>';
+}
+
+function opsAcctCardHtml(a, opts) {
+  opts = opts || {};
+  const id = a.id || a.name || '';
+  const name = a.name || a.id || '';
+  const on = !!opts.on;
+  const mode = String(a.margin_mode || '').trim();
+  const bal = opsMoney(a, !!opts.avail);
+  const parent = !!a.parent;
+  return '<button type="button" class="rp-ops-acct' + (on ? ' on' : '') + (parent ? ' parent' : '') + '" data-ops-acct="' + escHtml(id) + '"' +
+    (opts.role ? ' data-xfer-role="' + escHtml(opts.role) + '"' : '') + '>' +
+    '<div class="rp-ops-acct-h">' +
+      '<b>' + escHtml(name) + '</b>' +
+      (parent ? '<span class="rp-ops-mode parent">parent</span>' : '') +
+      (mode ? '<span class="rp-ops-mode ' + escHtml(mode) + '">' + escHtml(mode) + '</span>' : '') +
+      (bal ? '<span class="rp-ops-bal">' + escHtml(bal) + '</span>' : '') +
+    '</div>' +
+    opsRunningHtml(a) +
+    (a.error ? '<div class="aid">' + escHtml(a.error) + '</div>' : '') +
+  '</button>';
 }
 
 function renderOpsAccountSnap() {
@@ -224,21 +253,7 @@ function renderOpsAccountSnap() {
   const cur = (document.getElementById('opsAccount') || {}).value || '';
   box.innerHTML = opsAccounts.map(a => {
     const id = a.id || a.name || '';
-    const name = a.name || a.id || '';
-    const on = id === cur || a.name === cur;
-    const mode = String(a.margin_mode || '').trim();
-    const bal = opsMoney(a);
-    const run = opsRunningLine(a);
-    const idle = run === 'idle';
-    return '<button type="button" class="rp-ops-acct' + (on ? ' on' : '') + '" data-ops-acct="' + escHtml(id) + '">' +
-      '<div class="rp-ops-acct-h">' +
-        '<b>' + escHtml(name) + '</b>' +
-        (mode ? '<span class="rp-ops-mode ' + escHtml(mode) + '">' + escHtml(mode) + '</span>' : '') +
-        (bal ? '<span class="rp-ops-bal">' + escHtml(bal) + '</span>' : '') +
-      '</div>' +
-      '<div class="rp-ops-run' + (idle ? ' idle' : '') + '">' + escHtml(run) + '</div>' +
-      (a.error ? '<div class="aid">' + escHtml(a.error) + '</div>' : '') +
-    '</button>';
+    return opsAcctCardHtml(a, { on: id === cur || a.name === cur });
   }).join('');
 }
 
@@ -1005,6 +1020,41 @@ async function submitOpsEdit() {
   }
 }
 
+async function submitOpsRemove() {
+  if (!opsEdit) return;
+  const rail = opsCatalog && opsCatalog.launch === 'railway';
+  const name = opsEdit.qsym || opsEdit.contract || '';
+  if (!confirm(rail
+    ? ('Delete the Railway service for ' + name + ' and drop its rPnL card? Open quotes cancel on shutdown.')
+    : ('Kill the process for ' + name + ' and drop its rPnL card? Open quotes cancel on shutdown.'))) return;
+  const btn = document.getElementById('opsRemoveBtn');
+  if (btn) btn.disabled = true;
+  setOpsMsg('opsLaunchMsg', rail ? 'Removing service…' : 'Stopping…', false);
+  try {
+    const r = await fetch('/api/ops/bots/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contract: opsEdit.contract,
+        account: opsEdit.account,
+        strategy: opsEdit.strategy,
+      }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setOpsMsg('opsLaunchMsg', opsErr(d, r.status), true);
+      return;
+    }
+    toast((rail ? 'removed ' : 'stopped ') + name, 'ok');
+    closeRpOps();
+    if (typeof loadRpnl === 'function') loadRpnl(true);
+  } catch (e) {
+    setOpsMsg('opsLaunchMsg', String(e), true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function refreshOpsBots() {
   const box = document.getElementById('opsBots');
   if (!box) return;
@@ -1071,8 +1121,13 @@ document.addEventListener('click', ev => {
   const pick = ev.target.closest('[data-ops-acct]');
   if (pick) {
     ev.preventDefault();
-    const sel = document.getElementById('opsAccount');
+    const role = pick.getAttribute('data-xfer-role');
     const id = pick.getAttribute('data-ops-acct') || '';
+    if (role && typeof pickBalXfer === 'function') {
+      pickBalXfer(role, id);
+      return;
+    }
+    const sel = document.getElementById('opsAccount');
     if (sel && id && [...sel.options].some(o => o.value === id)) {
       sel.value = id;
       onOpsAccountChange();

@@ -328,6 +328,18 @@
   .bal-xfer-grid {
     display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px 10px; margin-bottom: 10px;
   }
+  .bal-xfer-cols {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    margin: 0 0 14px;
+  }
+  .bal-xfer-col .rp-ops-sub { margin: 0 0 6px; }
+  .bal-xfer-amt {
+    margin: 0 0 12px;
+    max-width: 420px;
+  }
+  .bal-xfer-eq {
+    margin-top: 6px; font-size: 12px; color: var(--muted); line-height: 1.4;
+  }
   .bal-xfer-grid label {
     display: flex; flex-direction: column; gap: 4px;
     font-size: 11px; font-weight: 650; color: var(--muted); min-width: 0;
@@ -517,6 +529,11 @@
   .dbt-th { position: relative; padding-right: 12px !important; }
   .dtable tr:hover td { background: rgba(255,255,255,.025); }
   .dtable tr.clickable { cursor: pointer; user-select: none; }
+  .dtable tr.fill-new td { animation: fillFlash 1.8s ease; }
+  @keyframes fillFlash {
+    from { background: rgba(41, 98, 255, .28); }
+    to { background: transparent; }
+  }
   .dtable .dbt-sel-h, .dtable td.dbt-sel {
     width: 36px; min-width: 36px; max-width: 36px;
     text-align: center; padding-left: 8px !important; padding-right: 4px !important;
@@ -939,7 +956,7 @@
 
     .rpt-hero { padding: 16px; border-radius: 12px; }
     .rpt-hero .hero-bal { font-size: 28px; word-break: break-word; }
-    .bal-xfer-grid { grid-template-columns: 1fr; }
+    .bal-xfer-grid, .bal-xfer-cols { grid-template-columns: 1fr; }
     .rpt-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .rpt-kpi .v { font-size: 16px; }
     .rpt-acct-h { grid-template-columns: 1fr auto; gap: 8px; padding: 12px; }

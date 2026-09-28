@@ -1972,7 +1972,10 @@ class LaunchRequest(BaseModel):
 
 
 class LaunchStopRequest(BaseModel):
-    id: str
+    id: str = ""
+    contract: str = ""
+    account: str = ""
+    strategy: str = ""
 
 
 class TransferRequest(BaseModel):
@@ -2029,7 +2032,7 @@ async def ops_accounts(venue: str = Query("")) -> dict:
             "strategy": bot.get("strategy") or "",
         })
     rows = dash_ops.enrich_accounts(v, snaps=snaps, running=running, wallets_inr=wallets_inr)
-    return {"accounts": rows, "count": len(rows)}
+    return {"accounts": rows, "count": len(rows), **dash_ops.parent_status()}
 
 
 @app.get("/api/ops/products")
@@ -2079,14 +2082,40 @@ async def ops_launch(req: LaunchRequest) -> dict:
 
 @app.post("/api/ops/bots/stop")
 async def ops_bot_stop(req: LaunchStopRequest) -> dict:
+    rec = dash_launch.find_bot(
+        bot_id=req.id, contract=req.contract, account=req.account, strategy=req.strategy,
+    )
+    if rec is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No dash-started service for this contract. Only bots launched from OPADash can be removed here.",
+        )
+    contract = canon_contract(req.contract or rec.get("contract") or "") or str(req.contract or rec.get("contract") or "")
+    account = str(req.account or rec.get("account") or "").strip()
+    strategy = str(req.strategy or rec.get("strategy") or "").strip()
+    if _db is not None and _db.pool and contract and strategy:
+        try:
+            await _db.insert_bot_command(
+                strategy, account, contract, "cancel", created_by="dashboard",
+            )
+            await _db.insert_bot_command(
+                strategy, account, contract, "stop", created_by="dashboard",
+            )
+        except Exception as extra:
+            logger.debug("webapp: stop command queue failed — %s", extra)
     try:
-        rec = dash_launch.stop(req.id)
+        out = dash_launch.stop(str(rec.get("id") or ""))
     except KeyError:
         raise HTTPException(status_code=404, detail="bot not found")
     except (ValueError, RuntimeError) as extra:
         raise HTTPException(status_code=400, detail=str(extra))
-    logger.info("webapp: stopped dash bot %s pid=%s", rec.get("id"), rec.get("pid"))
-    return {"ok": True, "bot": rec}
+    if _db is not None and _db.pool and contract and strategy:
+        try:
+            await _db.drop_live_bot(contract, account, strategy)
+        except Exception as extra:
+            logger.debug("webapp: drop live pill failed — %s", extra)
+    logger.info("webapp: stopped dash bot %s pid=%s", out.get("id"), out.get("pid"))
+    return {"ok": True, "bot": out}
 
 
 @app.get("/api/ops/delta/wallets")
@@ -2992,6 +3021,7 @@ def _build_table_filters(
     pair: str | None = None,
     status: str | None = None,
     order_id: str | None = None,
+    after_id: int | None = None,
 ) -> tuple[str, list]:
     """Return SQL `WHERE ...` (or empty) plus bound parameters."""
     wheres: list[str] = []
@@ -3064,6 +3094,15 @@ def _build_table_filters(
             parts = [f"{_qi(c)}::text ILIKE ${idx}" for c in search_cols]
             wheres.append("(" + " OR ".join(parts) + ")")
 
+    if after_id is not None and "id" in cols:
+        try:
+            n = int(after_id)
+        except (TypeError, ValueError):
+            n = 0
+        if n > 0:
+            params.append(n)
+            wheres.append(f"{_qi('id')} > ${len(params)}")
+
     if not wheres:
         return "", params
     return "WHERE " + " AND ".join(wheres), params
@@ -3124,6 +3163,7 @@ async def _prepare_table(
     pair: str | None = None,
     status: str | None = None,
     order_id: str | None = None,
+    after_id: int | None = None,
 ):
     _require_db()
     if not _IDENT_RE.fullmatch(name):
@@ -3137,7 +3177,7 @@ async def _prepare_table(
         col_names, col_types,
         q=q, since=since, until=until, contract=contract, account=account,
         exchange=exchange, strategy=strategy, side=side, service=service,
-        level=level, pair=pair, status=status, order_id=order_id,
+        level=level, pair=pair, status=status, order_id=order_id, after_id=after_id,
     )
     order_sql, sort_col, sort_dir = _order_sql(col_names, sort, direction)
     return _ordered_cols(name, col_names), col_types, where_sql, params, order_sql, sort_col, sort_dir
@@ -3422,12 +3462,14 @@ async def db_table(
     pair: str | None = Query(None),
     status: str | None = Query(None),
     order_id: str | None = Query(None),
+    after_id: int | None = Query(None, description="only rows with id > after_id"),
 ) -> dict:
     """Paginated read-only table view with sort + filters. Newest first by default."""
     col_names, col_types, where_sql, params, order_sql, sort_col, sort_dir = await _prepare_table(
         name, sort=sort, direction=dir, q=q, since=since, until=until,
         contract=contract, account=account, exchange=exchange, strategy=strategy,
         side=side, service=service, level=level, pair=pair, status=status, order_id=order_id,
+        after_id=after_id,
     )
     tbl = _qi(name)
     count_sql = f"SELECT COUNT(*) FROM {tbl} {where_sql}"

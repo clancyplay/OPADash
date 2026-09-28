@@ -30,6 +30,9 @@
             <label class="ctrl-check" id="dbtCompactWrap" title="Hide id, JSON blobs, and sparse market columns">
               <input type="checkbox" id="dbtCompact" checked onchange="dbtToggleCompact()" /> Compact
             </label>
+            <label class="ctrl-check" id="dbtLiveWrap" hidden title="Poll newest fills every 3 seconds">
+              <input type="checkbox" id="dbtLive" onchange="setupDbtLive()" /> Live
+            </label>
           </div>
         </div>
 
