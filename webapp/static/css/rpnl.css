@@ -63,6 +63,7 @@ body:has(#rpnl.visible) {
 #rpnl .rp-bar,
 #rpnl .rpnl-pills,
 #rpnl .error-panel,
+#rpnl .rpnl-inspect,
 #rpnl .rp-foot { flex: 0 0 auto; }
 
 #rpnl .error-panel {
@@ -169,32 +170,76 @@ body:has(#rpnl.visible) {
 .rpnl-inspect {
   display: none;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px max(12px, var(--safe-r));
+  gap: 0;
+  padding: 6px max(12px, var(--safe-r)) 6px max(12px, var(--safe-l));
   border-bottom: 1px solid var(--border);
   background: #12161f;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
+  overflow: hidden;
+}
+.rpnl-inspect.open { display: flex; }
+.rpnl-inspect.open:not(.folded) {
+  flex: 0 1 auto;
   max-height: 30vh;
   overflow: auto;
 }
-.rpnl-inspect.open { display: flex; }
 .rpnl-inspect .ri-bar {
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  min-width: 0;
+}
+.rpnl-inspect .ri-row {
+  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px 12px;
-  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
 }
+.rpnl-inspect .ri-info {
+  flex-wrap: nowrap;
+  padding-bottom: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.rpnl-inspect .ri-info::-webkit-scrollbar { display: none; }
 .rpnl-inspect .ri-stats {
-  display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 0;
+  min-width: 0; flex: 1 1 auto;
   font-size: 12px; font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
+.rpnl-inspect .ri-stats > * + *::before {
+  content: '·';
+  margin: 0 7px;
+  color: #4e5668;
+  font-weight: 500;
+}
+.rpnl-inspect .ri-sym {
+  font-size: 12px; font-weight: 700; color: #fff;
+  letter-spacing: .2px;
+  flex: 0 0 auto;
+}
+.rpnl-inspect .ri-tools {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 8px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(255, 255, 255, .06);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.rpnl-inspect .ri-tools::-webkit-scrollbar { display: none; }
 .rpnl-inspect .ri-col { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
-.rpnl-inspect .ri-chip { color: var(--muted); font-size: 11px; }
+.rpnl-inspect .ri-chip { color: var(--muted); font-size: 11px; flex: 0 0 auto; }
 .rpnl-inspect .ri-chip.status.stop { color: #ffb74d; font-weight: 650; }
 .rpnl-inspect .ri-chip.status.bad { color: var(--red); font-weight: 650; }
-.rpnl-inspect .ri-pos { font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.rpnl-inspect .ri-pos {
+  font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
 .rpnl-inspect .ri-pos.long, .rpnl-inspect .ri-pos .up { color: var(--green); }
 .rpnl-inspect .ri-pos.short, .rpnl-inspect .ri-pos .dn { color: var(--red); }
 .rpnl-inspect .ri-split { display: flex; gap: 12px; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -213,12 +258,13 @@ body:has(#rpnl.visible) {
   border-radius: 4px; padding: 2px 6px; white-space: nowrap;
 }
 .rpnl-inspect .p-cfg.none { color: var(--muted); font-size: 11px; }
-.rpnl-inspect .p-acts { display: flex; flex-wrap: wrap; gap: 4px; }
+.rpnl-inspect .p-acts { display: flex; flex-wrap: nowrap; gap: 4px; flex: 0 0 auto; }
 .rpnl-inspect .p-acts button {
   font-size: 11px; font-weight: 650;
-  padding: 5px 9px; border-radius: 6px; cursor: pointer;
+  padding: 0 9px; height: 26px; border-radius: 6px; cursor: pointer;
   border: 1px solid var(--border2); background: rgba(255, 255, 255, .06);
   color: #c5cdd8; font-family: inherit;
+  min-height: 26px; flex: 0 0 auto; white-space: nowrap; line-height: 1;
 }
 .rpnl-inspect .p-acts button.danger { color: #f07178; }
 .rpnl-inspect .p-acts button.on {
@@ -226,17 +272,20 @@ body:has(#rpnl.visible) {
   border-color: rgba(240, 198, 116, .45);
 }
 .rpnl-inspect .p-acts button:disabled { opacity: .4; cursor: default; }
-.rpnl-inspect .ri-max { display: flex; align-items: center; gap: 6px; }
-.rpnl-inspect .ri-max label { font-size: 11px; color: #9aa3b8; font-weight: 650; }
-.rpnl-inspect .ri-max input {
-  width: 96px; font-size: 16px; font-variant-numeric: tabular-nums;
-  padding: 5px 8px; border-radius: 6px; font-family: inherit;
+.rpnl-inspect .ri-max { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; margin-left: auto; }
+.rpnl-inspect .ri-max label { font-size: 10px; color: #9aa3b8; font-weight: 650; white-space: nowrap; }
+.rpnl-inspect .ri-max input,
+.rpnl-inspect .ri-max input[type="number"] {
+  width: 68px; height: 26px; min-height: 26px;
+  font-size: 12px; font-variant-numeric: tabular-nums; line-height: 1;
+  padding: 0 6px; border-radius: 6px; font-family: inherit;
   border: 1px solid var(--border2); background: rgba(255, 255, 255, .06); color: #e6edf3;
 }
 .rpnl-inspect .ri-max button {
-  font-size: 11px; font-weight: 650; padding: 5px 9px; border-radius: 6px; cursor: pointer;
+  font-size: 11px; font-weight: 650; height: 26px; min-height: 26px;
+  padding: 0 9px; border-radius: 6px; cursor: pointer; line-height: 1;
   border: 1px solid var(--border2); background: rgba(255, 255, 255, .06);
-  color: #c5cdd8; font-family: inherit;
+  color: #c5cdd8; font-family: inherit; white-space: nowrap;
 }
 .rpnl-inspect .ri-gates {
   display: flex; flex-direction: column; gap: 2px;
@@ -254,11 +303,11 @@ body:has(#rpnl.visible) {
 .ri-fold {
   display: inline-flex;
   flex: 0 0 auto;
-  width: 28px; height: 28px;
+  width: 24px; height: 24px;
   align-items: center; justify-content: center;
-  border: 1px solid var(--border2); border-radius: 6px;
+  border: 1px solid var(--border2); border-radius: 5px;
   background: rgba(255, 255, 255, .06); color: var(--muted);
-  cursor: pointer; font-size: 12px; line-height: 1;
+  cursor: pointer; font-size: 11px; line-height: 1;
 }
 .rpnl-inspect.folded .ri-extra { display: none; }
 .rpnl-inspect.folded .ri-fold { transform: rotate(-90deg); }
@@ -610,8 +659,9 @@ body:has(#rpnl.visible) {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
   }
-  .rpnl-inspect.open {
-    max-height: min(32vh, 220px);
+  .rpnl-inspect.open { max-height: none; overflow: hidden; }
+  .rpnl-inspect.open:not(.folded) {
+    max-height: min(28vh, 200px);
     overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
@@ -676,16 +726,31 @@ body:has(#rpnl.visible) {
   .rpnl-pill .p-val { font-size: 13px; margin-top: 1px; }
 
   .rpnl-inspect {
-    padding: 8px max(8px, var(--safe-r));
+    padding: 5px max(8px, var(--safe-r)) 5px max(8px, var(--safe-l));
     max-width: 100%;
     min-width: 0;
   }
-  .ri-fold { width: 32px; height: 32px; }
+  .rpnl-inspect .ri-info { padding-bottom: 4px; }
+  .rpnl-inspect .ri-tools { padding-top: 4px; gap: 6px; }
+  .rpnl-inspect .ri-stats { font-size: 11px; }
+  .rpnl-inspect .ri-stats > * + *::before { margin: 0 6px; }
+  .rpnl-inspect .ri-sym { font-size: 11px; }
+  .rpnl-inspect .ri-pos { font-size: 11px; }
+  .rpnl-inspect .ri-chip { font-size: 10px; }
+  .ri-fold { width: 22px; height: 22px; font-size: 10px; }
+  .rpnl-inspect .p-acts { gap: 3px; }
   .rpnl-inspect .p-acts button {
-    min-height: 28px; padding: 2px 7px; font-size: 10px;
+    height: 26px; min-height: 26px; padding: 0 7px; font-size: 10px;
   }
-  .rpnl-inspect .ri-max input { min-height: 32px; padding: 3px 6px; width: 72px; }
-  .rpnl-inspect .ri-max button { min-height: 32px; padding: 3px 8px; font-size: 10px; }
+  .rpnl-inspect .ri-max { gap: 4px; }
+  .rpnl-inspect .ri-max label { font-size: 9px; }
+  .rpnl-inspect .ri-max input,
+  .rpnl-inspect .ri-max input[type="number"] {
+    height: 26px; min-height: 26px; padding: 0 5px; width: 58px; font-size: 16px;
+  }
+  .rpnl-inspect .ri-max button {
+    height: 26px; min-height: 26px; padding: 0 7px; font-size: 10px;
+  }
 
   .rp-pane-lab { right: 48px; top: 6px; font-size: 9px; }
   .rp-ohlc-hud {

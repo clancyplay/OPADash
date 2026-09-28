@@ -549,20 +549,20 @@ function rpnlPosHtml(s, cls, venue) {
   const n = Number(s.pos);
   if (!isFinite(n)) return '';
   cls = cls || 'p-pos';
-  if (Math.abs(n) < 1e-12) return '<div class="' + cls + '">pos 0</div>';
+  if (Math.abs(n) < 1e-12) return '<span class="' + cls + '">flat</span>';
   const side = n > 0 ? 'long' : 'short';
   let t = side + ' ' + fmtG(Math.abs(n));
   if (s.entry != null && Number(s.entry) > 0) t += ' @ ' + fmtG(s.entry);
   let extra = '';
-    const u = liveUpnlInr(s, venue);
-    if (u != null && isFinite(u)) {
+  const u = liveUpnlInr(s, venue);
+  if (u != null && isFinite(u)) {
     const d = Math.abs(u) < 100 ? 2 : 0;
     const usd = liveUpnlUsd(s, venue);
     const usdBit = (usd != null && isFinite(usd)) ? ' (' + usdFmtDec(usd, 2) + ')' : '';
     extra = ' · <span class="' + (u >= 0 ? 'up' : 'dn') + '">uPnL ' +
       escHtml(inrFmtDec(u, d) + usdBit) + '</span>';
   }
-  return '<div class="' + cls + ' ' + side + '">' + escHtml(t) + extra + '</div>';
+  return '<span class="' + cls + ' ' + side + '">' + escHtml(t) + extra + '</span>';
 }
 
 function rpnlWalletHtml(s) {
@@ -957,19 +957,19 @@ function renderRpnlInspect(row) {
   box.dataset.sig = sig;
   box.innerHTML =
     '<div class="ri-bar">' +
-      '<button type="button" class="ri-fold" title="Contract setup" onclick="toggleRpnlInspectFold()">▾</button>' +
-      '<div class="ri-stats">' +
-        rpnlPosHtml(s, 'ri-pos', row.quote_venue) +
-        rpnlStatusChip(s) +
-        '<span class="ri-chip">' + escHtml(qlab) + ' ' + (row.fills || 0) + ' fills' +
-          (hedged ? ' · ' + escHtml(hlab) + ' ' + (row.hedge_fills || 0) : '') + '</span>' +
-        // (row.strategy ? '<span class="ri-chip">' + escHtml(row.strategy) + '</span>' : '') +
-        // (row.live && modeTxt ? '<span class="ri-chip">' + escHtml(modeTxt) + '</span>' : '') +
+      '<div class="ri-row ri-info">' +
+        '<button type="button" class="ri-fold" title="Contract setup" onclick="toggleRpnlInspectFold()">▾</button>' +
+        '<div class="ri-stats">' +
+          '<span class="ri-sym">' + escHtml(qsym) + '</span>' +
+          rpnlPosHtml(s, 'ri-pos', row.quote_venue) +
+          rpnlStatusChip(s) +
+          '<span class="ri-chip">' + escHtml(qlab) + ' · ' + (row.fills || 0) + ' fills' +
+            (hedged ? ' · ' + escHtml(hlab) + ' ' + (row.hedge_fills || 0) : '') + '</span>' +
+        '</div>' +
       '</div>' +
-      '<div class="ri-col">' +
-        rpnlActsHtml(row) +
-        rpnlMaxHtml(row) +
-      '</div>' +
+      (row.live
+        ? '<div class="ri-row ri-tools">' + rpnlActsHtml(row) + rpnlMaxHtml(row) + '</div>'
+        : '') +
     '</div>' +
     '<div class="ri-extra">' +
     '<div class="ri-setup">' +
