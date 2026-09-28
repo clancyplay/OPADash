@@ -655,6 +655,14 @@ body:has(#rpnl.visible) {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
   }
+  #rpnl.logs-open .rp-logs-box.js-pane-scroll {
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+  }
+  #rpnl.logs-open .rp-logs-box.js-pane-scroll.pane-can-y,
+  #rpnl.logs-open .rp-logs-stage #rpnlLgPeek.js-pane-scroll.pane-can-y {
+    overflow-y: auto !important;
+  }
   .rpnl-inspect.open { max-height: none; overflow: hidden; }
 
   #rpnl select, #rpnl button.btn, #rpnl input[type="datetime-local"] {
@@ -845,7 +853,8 @@ body:has(#rpnl.visible) {
     height: 76vh;
     min-height: 76vh;
     max-height: 76vh !important;
-    overflow: auto !important;
+    overflow-x: auto;
+    overflow-y: hidden;
   }
   #rpnl.logs-open .rp-logs-stage:has(#rpnlLgPeek:not([hidden])) .rp-logs-box {
     height: 64vh;
@@ -857,7 +866,8 @@ body:has(#rpnl.visible) {
     height: 58vh;
     min-height: 52vh;
     max-height: 70vh;
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
     border-left: 0;
     border-top: 1px solid var(--border);

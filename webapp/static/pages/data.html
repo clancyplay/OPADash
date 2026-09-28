@@ -34,66 +34,103 @@
         </div>
 
         <div class="dbt-filters" id="dbtFilters" hidden>
-          <label data-need="time">Range
-            <select id="dbtPreset" onchange="dbtApplyPreset()">
-              <option value="">All / custom</option>
-              <option value="today">Today (IST)</option>
-              <option value="24h">Last 24h</option>
-              <option value="7d">Last 7 days</option>
-              <option value="30d">Last 30 days</option>
-              <option value="90d">Last 90 days</option>
-            </select>
-          </label>
-          <label data-need="time">From
-            <input type="date" id="dbtFrom" onchange="dbtMarkCustomRange()" />
-            <input type="time" id="dbtFromTime" step="60" title="IST" onchange="dbtMarkCustomRange()" />
-          </label>
-          <label data-need="time">To
-            <input type="date" id="dbtTo" onchange="dbtMarkCustomRange()" />
-            <input type="time" id="dbtToTime" step="60" title="IST" onchange="dbtMarkCustomRange()" />
-          </label>
-          <label data-need="contract">Contract
-            <input class="dinp" id="dbtContract" list="dbtContractList" placeholder="any" onkeydown="dbtFilterKey(event)" />
-          </label>
-          <label data-need="account">Account
-            <input class="dinp" id="dbtAccount" list="dbtAccountList" placeholder="id or (blank)" onkeydown="dbtFilterKey(event)" />
-          </label>
-          <label data-need="exchange">Exchange
-            <input class="dinp" id="dbtExchange" list="dbtExchangeList" placeholder="any" onkeydown="dbtFilterKey(event)" />
-          </label>
-          <label data-need="side">Side
-            <select id="dbtSide" onchange="dbtApply()">
-              <option value="">All</option>
-              <option value="buy">buy</option>
-              <option value="sell">sell</option>
-            </select>
-          </label>
-          <label data-need="strategy">Strategy
-            <input class="dinp" id="dbtStrategy" list="dbtStrategyList" placeholder="all" onkeydown="dbtFilterKey(event)" />
-          </label>
-          <label data-need="service">Service
-            <input class="dinp" id="dbtService" list="dbtServiceList" placeholder="any" onkeydown="dbtFilterKey(event)" />
-          </label>
-          <label data-need="level">Level
-            <select id="dbtLevel" onchange="dbtApply()">
-              <option value="">All</option>
-              <option>INFO</option><option>WARNING</option><option>ERROR</option>
-            </select>
-          </label>
-          <label data-need="pair">Pair
-            <input class="dinp" id="dbtPair" list="dbtPairList" placeholder="any" onkeydown="dbtFilterKey(event)" />
-          </label>
-          <label data-need="status">Status
-            <input class="dinp" id="dbtStatusCol" list="dbtStatusList" placeholder="any" onkeydown="dbtFilterKey(event)" />
-          </label>
-          <label data-need="order_id">Order id
-            <input class="dinp" id="dbtOrderId" placeholder="contains…" onkeydown="dbtFilterKey(event)" />
-          </label>
-          <label>Search
-            <input class="dinp" id="dbtQ" placeholder="text…" onkeydown="dbtFilterKey(event)" />
-          </label>
-          <button class="btn" type="button" onclick="dbtApply()">Apply</button>
-          <button class="btn" type="button" onclick="dbtClearFilters()">Clear</button>
+          <div class="dbt-f-top">
+            <label class="dbt-f-field dbt-f-search">
+              <span class="dbt-fl">Search</span>
+              <input class="dinp" id="dbtQ" type="search" placeholder="Text in any column" onkeydown="dbtFilterKey(event)" />
+            </label>
+            <label class="dbt-f-field" data-need="time">
+              <span class="dbt-fl">When</span>
+              <select id="dbtPreset" onchange="dbtApplyPreset()">
+                <option value="">Any time</option>
+                <option value="today">Today</option>
+                <option value="24h">Last 24h</option>
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+                <option value="90d">Last 90 days</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <div class="dbt-f-acts">
+              <button type="button" class="btn dbt-f-toggle" id="dbtFToggle" onclick="toggleDbtFilterPanel('dbt')" aria-expanded="false">Filters</button>
+              <button class="btn" type="button" onclick="dbtApply()">Apply</button>
+              <button class="btn" type="button" onclick="dbtClearFilters()">Clear</button>
+            </div>
+          </div>
+          <div class="dbt-f-panel" id="dbtFPanel">
+            <div class="dbt-f-when" id="dbtCustomRange" data-need="time">
+              <label class="dbt-f-field">
+                <span class="dbt-fl">From</span>
+                <span class="dbt-f-dt">
+                  <input type="date" id="dbtFrom" onchange="dbtMarkCustomRange()" />
+                  <input type="time" id="dbtFromTime" step="60" title="IST" onchange="dbtMarkCustomRange()" />
+                </span>
+              </label>
+              <label class="dbt-f-field">
+                <span class="dbt-fl">To</span>
+                <span class="dbt-f-dt">
+                  <input type="date" id="dbtTo" onchange="dbtMarkCustomRange()" />
+                  <input type="time" id="dbtToTime" step="60" title="IST" onchange="dbtMarkCustomRange()" />
+                </span>
+              </label>
+            </div>
+            <div class="dbt-f-grid" id="dbtFMain">
+              <label class="dbt-f-field" data-need="contract">
+                <span class="dbt-fl">Contract</span>
+                <input class="dinp" id="dbtContract" list="dbtContractList" placeholder="any" onkeydown="dbtFilterKey(event)" />
+              </label>
+              <label class="dbt-f-field" data-need="account">
+                <span class="dbt-fl">Account</span>
+                <input class="dinp" id="dbtAccount" list="dbtAccountList" placeholder="id or (blank)" onkeydown="dbtFilterKey(event)" />
+              </label>
+              <label class="dbt-f-field" data-need="exchange">
+                <span class="dbt-fl">Exchange</span>
+                <input class="dinp" id="dbtExchange" list="dbtExchangeList" placeholder="any" onkeydown="dbtFilterKey(event)" />
+              </label>
+              <label class="dbt-f-field" data-need="side">
+                <span class="dbt-fl">Side</span>
+                <select id="dbtSide" onchange="dbtApply()">
+                  <option value="">All</option>
+                  <option value="buy">buy</option>
+                  <option value="sell">sell</option>
+                </select>
+              </label>
+            </div>
+            <button type="button" class="btn dbt-f-extra-btn" id="dbtFExtraBtn" onclick="toggleDbtExtra()">More</button>
+            <div class="dbt-f-grid dbt-f-extra is-collapsed" id="dbtFExtra">
+              <label class="dbt-f-field" data-need="strategy">
+                <span class="dbt-fl">Strategy</span>
+                <input class="dinp" id="dbtStrategy" list="dbtStrategyList" placeholder="all" onkeydown="dbtFilterKey(event)" />
+              </label>
+              <label class="dbt-f-field" data-need="service">
+                <span class="dbt-fl">Service</span>
+                <input class="dinp" id="dbtService" list="dbtServiceList" placeholder="any" onkeydown="dbtFilterKey(event)" />
+              </label>
+              <label class="dbt-f-field" data-need="level">
+                <span class="dbt-fl">Level</span>
+                <select id="dbtLevel" onchange="dbtApply()">
+                  <option value="">All</option>
+                  <option>INFO</option><option>WARNING</option><option>ERROR</option>
+                </select>
+              </label>
+              <label class="dbt-f-field" data-need="pair">
+                <span class="dbt-fl">Pair</span>
+                <input class="dinp" id="dbtPair" list="dbtPairList" placeholder="any" onkeydown="dbtFilterKey(event)" />
+              </label>
+              <label class="dbt-f-field" data-need="status">
+                <span class="dbt-fl">Status</span>
+                <input class="dinp" id="dbtStatusCol" list="dbtStatusList" placeholder="any" onkeydown="dbtFilterKey(event)" />
+              </label>
+              <label class="dbt-f-field" data-need="order_id">
+                <span class="dbt-fl">Order id</span>
+                <input class="dinp" id="dbtOrderId" placeholder="contains…" onkeydown="dbtFilterKey(event)" />
+              </label>
+            </div>
+            <div class="dbt-f-foot">
+              <button class="btn" type="button" onclick="dbtApply()">Apply</button>
+              <button class="btn" type="button" onclick="dbtClearFilters()">Clear</button>
+            </div>
+          </div>
           <datalist id="dbtContractList"></datalist>
           <datalist id="dbtAccountList"></datalist>
           <datalist id="dbtExchangeList"></datalist>
@@ -148,42 +185,77 @@
       </div>
     </div>
     <div class="dbt-filters" id="lgFilters">
-      <label>Service
-        <select id="lgService" onchange="loadLogsX(true)">
-          <option value="">All</option><option value="bot">bot</option><option value="webapp">webapp</option>
-        </select>
-      </label>
-      <label>Strategy <input type="text" id="lgStrategy" class="dinp" placeholder="any" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
-      <label>Contract <input type="text" id="lgContract" class="dinp" placeholder="any" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
-      <label>Account <input type="text" id="lgAccount" class="dinp" placeholder="any" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
-      <label>Exchange
-        <select id="lgExchange" onchange="loadLogsX(true)">
-          <option value="">All</option>
-          <option value="delta">delta</option>
-          <option value="binance">binance</option>
-          <option value="kucoin">kucoin</option>
-          <option value="bybit">bybit</option>
-          <option value="coinbase">coinbase</option>
-          <option value="aster">aster</option>
-          <option value="coindcx">coindcx</option>
-        </select>
-      </label>
-      <label>Level
-        <select id="lgLevel" onchange="loadLogsX(true)">
-          <option value="">All</option><option>INFO</option><option>WARNING</option><option>ERROR</option>
-        </select>
-      </label>
-      <label>Search <input type="text" id="lgSearch" class="dinp" placeholder="text…" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" /></label>
-      <label>From <input type="date" id="lgFrom" onchange="loadLogsX(true)" /></label>
-      <label>To <input type="date" id="lgTo" onchange="loadLogsX(true)" /></label>
-      <label>Load
-        <select id="lgLimit" onchange="loadLogsX(true)">
-          <option value="300">300</option><option value="1000" selected>1000</option>
-          <option value="2000">2000</option><option value="5000">5000</option>
-        </select>
-      </label>
-      <button class="btn" type="button" onclick="loadLogsX(true)">Apply</button>
-      <button class="btn" type="button" onclick="lgClearFilters()">Clear</button>
+      <div class="dbt-f-top">
+        <label class="dbt-f-field dbt-f-search">
+          <span class="dbt-fl">Search</span>
+          <input type="search" id="lgSearch" class="dinp" placeholder="Text in the log" onkeydown="if(event.key==='Enter') loadLogsX(true)" />
+        </label>
+        <label class="dbt-f-field">
+          <span class="dbt-fl">Level</span>
+          <select id="lgLevel" onchange="loadLogsX(true)">
+            <option value="">All</option><option>INFO</option><option>WARNING</option><option>ERROR</option>
+          </select>
+        </label>
+        <div class="dbt-f-acts">
+          <button type="button" class="btn dbt-f-toggle" id="lgFToggle" onclick="toggleDbtFilterPanel('lg')" aria-expanded="false">Filters</button>
+          <button class="btn" type="button" onclick="loadLogsX(true)">Apply</button>
+          <button class="btn" type="button" onclick="lgClearFilters()">Clear</button>
+        </div>
+      </div>
+      <div class="dbt-f-panel" id="lgFPanel">
+        <div class="dbt-f-grid">
+          <label class="dbt-f-field">
+            <span class="dbt-fl">Service</span>
+            <select id="lgService" onchange="loadLogsX(true)">
+              <option value="">All</option><option value="bot">bot</option><option value="webapp">webapp</option>
+            </select>
+          </label>
+          <label class="dbt-f-field">
+            <span class="dbt-fl">Exchange</span>
+            <select id="lgExchange" onchange="loadLogsX(true)">
+              <option value="">All</option>
+              <option value="delta">delta</option>
+              <option value="binance">binance</option>
+              <option value="kucoin">kucoin</option>
+              <option value="bybit">bybit</option>
+              <option value="coinbase">coinbase</option>
+              <option value="aster">aster</option>
+              <option value="coindcx">coindcx</option>
+            </select>
+          </label>
+          <label class="dbt-f-field">
+            <span class="dbt-fl">Strategy</span>
+            <input type="text" id="lgStrategy" class="dinp" placeholder="any" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" />
+          </label>
+          <label class="dbt-f-field">
+            <span class="dbt-fl">Contract</span>
+            <input type="text" id="lgContract" class="dinp" placeholder="any" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" />
+          </label>
+          <label class="dbt-f-field">
+            <span class="dbt-fl">Account</span>
+            <input type="text" id="lgAccount" class="dinp" placeholder="any" onkeydown="if(event.key==='Enter') loadLogsX(true)" onchange="loadLogsX(true)" />
+          </label>
+          <label class="dbt-f-field">
+            <span class="dbt-fl">From</span>
+            <input type="date" id="lgFrom" onchange="loadLogsX(true)" />
+          </label>
+          <label class="dbt-f-field">
+            <span class="dbt-fl">To</span>
+            <input type="date" id="lgTo" onchange="loadLogsX(true)" />
+          </label>
+          <label class="dbt-f-field">
+            <span class="dbt-fl">Load</span>
+            <select id="lgLimit" onchange="loadLogsX(true)">
+              <option value="300">300</option><option value="1000" selected>1000</option>
+              <option value="2000">2000</option><option value="5000">5000</option>
+            </select>
+          </label>
+        </div>
+        <div class="dbt-f-foot">
+          <button class="btn" type="button" onclick="loadLogsX(true)">Apply</button>
+          <button class="btn" type="button" onclick="lgClearFilters()">Clear</button>
+        </div>
+      </div>
     </div>
     <div class="dbt-chips" id="lgColChips" hidden></div>
     <div class="insights-bar" id="lgStats" hidden></div>

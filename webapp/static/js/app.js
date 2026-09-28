@@ -22,6 +22,124 @@
   }, { passive: false });
 })();
 
+// Mobile nested panes: page (parent) owns vertical scroll first. The table
+// only keeps Y when the page cannot move that way and the rows actually overflow.
+(function nestedPaneScroll() {
+  const SELECTOR = '.tbl-grid-wrap, .rp-logs-box, .dbt-peek, .fill-scroll';
+  const attached = new WeakSet();
+  let lastY = 0, lastX = 0, active = null, axis = null;
+
+  function isPhoneScroll() {
+    return window.matchMedia('(max-width: 720px), (hover: none) and (pointer: coarse)').matches;
+  }
+  function parentScroller(el) {
+    let n = el && el.parentElement;
+    while (n && n !== document.body && n !== document.documentElement) {
+      const st = getComputedStyle(n);
+      const oy = st.overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 1) return n;
+      n = n.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+  function sync(el) {
+    if (!el || el.nodeType !== 1) return;
+    el.classList.add('js-pane-scroll');
+    if (!isPhoneScroll()) {
+      el.classList.remove('pane-can-y');
+      el.style.touchAction = '';
+      return;
+    }
+    const canY = el.scrollHeight > el.clientHeight + 2;
+    el.classList.toggle('pane-can-y', canY);
+    el.style.touchAction = canY ? 'pan-x pan-y' : 'pan-x';
+  }
+  function attach(el) {
+    if (!el || el.nodeType !== 1 || attached.has(el)) return;
+    attached.add(el);
+    const kick = function () { sync(el); };
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(kick);
+      ro.observe(el);
+    }
+    const mo = new MutationObserver(kick);
+    mo.observe(el, { childList: true, subtree: true });
+    kick();
+  }
+  function scan(root) {
+    const scope = root && root.nodeType === 1 ? root : document;
+    if (scope.matches && scope.matches(SELECTOR)) attach(scope);
+    if (scope.querySelectorAll) scope.querySelectorAll(SELECTOR).forEach(attach);
+  }
+  window.syncPaneScrollers = function () {
+    scan(document);
+  };
+
+  document.addEventListener('touchstart', function (e) {
+    if (!isPhoneScroll() || e.touches.length !== 1) { active = null; return; }
+    const el = e.target.closest && e.target.closest(SELECTOR);
+    active = el || null;
+    axis = null;
+    lastY = e.touches[0].clientY;
+    lastX = e.touches[0].clientX;
+    if (el) sync(el);
+  }, { passive: true, capture: true });
+
+  document.addEventListener('touchmove', function (e) {
+    if (!active || !isPhoneScroll() || e.touches.length !== 1) return;
+    const y = e.touches[0].clientY;
+    const x = e.touches[0].clientX;
+    const dy = y - lastY;
+    const dx = x - lastX;
+    if (!axis) {
+      if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      axis = Math.abs(dx) > Math.abs(dy) * 1.1 ? 'x' : 'y';
+    }
+    lastY = y;
+    lastX = x;
+    if (axis !== 'y') return;
+    const el = active;
+    const parent = parentScroller(el);
+    if (!parent || parent === el) return;
+    const pTop = parent.scrollTop;
+    const pMax = Math.max(0, parent.scrollHeight - parent.clientHeight);
+    if ((dy > 0 && pTop > 0) || (dy < 0 && pTop < pMax - 0.5)) {
+      parent.scrollTop = pTop - dy;
+      if (e.cancelable) e.preventDefault();
+      return;
+    }
+    if (el.classList.contains('pane-can-y')) return;
+    if (e.cancelable) e.preventDefault();
+  }, { passive: false, capture: true });
+
+  function endTouch() { active = null; axis = null; }
+  document.addEventListener('touchend', endTouch, { passive: true, capture: true });
+  document.addEventListener('touchcancel', endTouch, { passive: true, capture: true });
+
+  window.addEventListener('resize', function () {
+    document.querySelectorAll(SELECTOR).forEach(sync);
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function () {
+      document.querySelectorAll(SELECTOR).forEach(sync);
+    });
+  }
+  const boot = function () {
+    scan(document);
+    if (document.body) {
+      new MutationObserver(function (muts) {
+        muts.forEach(function (m) {
+          m.addedNodes.forEach(function (n) {
+            if (n.nodeType === 1) scan(n);
+          });
+        });
+      }).observe(document.body, { childList: true, subtree: true });
+    }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+
 // Page nav
 function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
@@ -138,6 +256,9 @@ function showPage(name) {
     if (typeof clearRpnlYScaleMode === 'function') clearRpnlYScaleMode();
     const foot = document.getElementById('rpnlTools');
     if (foot && foot.classList.contains('export-open') && typeof toggleRpnlExports === 'function') toggleRpnlExports();
+  }
+  if (typeof syncPaneScrollers === 'function') {
+    requestAnimationFrame(syncPaneScrollers);
   }
 }
 

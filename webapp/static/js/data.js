@@ -460,7 +460,8 @@ function dbtClearFilters() {
 }
 function dbtMarkCustomRange() {
   const preset = document.getElementById('dbtPreset');
-  if (preset) preset.value = '';
+  if (preset) preset.value = 'custom';
+  dbtSyncFilterChrome();
 }
 function dbtApplyPreset() {
   const p = document.getElementById('dbtPreset').value;
@@ -472,7 +473,18 @@ function dbtApplyPreset() {
     from.value = ''; to.value = '';
     if (fromT) fromT.value = '';
     if (toT) toT.value = '';
+    dbtSyncFilterChrome();
     dbtApply();
+    return;
+  }
+  if (p === 'custom') {
+    dbtSyncFilterChrome();
+    const box = document.getElementById('dbtFilters');
+    if (box && window.matchMedia('(max-width: 720px)').matches) {
+      box.classList.add('is-open');
+      const toggle = document.getElementById('dbtFToggle');
+      if (toggle) toggle.setAttribute('aria-expanded', 'true');
+    }
     return;
   }
   to.value = istYMD(0);
@@ -520,6 +532,96 @@ function dbtSyncFilterVisibility(cols) {
     const on = need === 'time' ? hasTime : (set.has(need) && !compactHide.has(need));
     el.hidden = !on;
   });
+  dbtSyncFilterChrome({ revealExtra: true });
+}
+function dbtActiveFilterCount() {
+  const p = dbtFilterParams();
+  let n = 0;
+  if (p.since || p.until) n++;
+  ['contract', 'account', 'exchange', 'strategy', 'side', 'service', 'level', 'pair', 'status', 'order_id', 'q'].forEach(k => {
+    if (p[k]) n++;
+  });
+  return n;
+}
+function dbtSyncFilterChrome(opts) {
+  opts = opts || {};
+  const preset = document.getElementById('dbtPreset');
+  const custom = document.getElementById('dbtCustomRange');
+  if (custom && preset) custom.classList.toggle('off', preset.value !== 'custom');
+  const extra = document.getElementById('dbtFExtra');
+  const extraBtn = document.getElementById('dbtFExtraBtn');
+  if (extra && extraBtn) {
+    const vis = [...extra.querySelectorAll('.dbt-f-field')].filter(el => !el.hidden);
+    extraBtn.hidden = !vis.length;
+    const filled = vis.some(el => {
+      const inp = el.querySelector('input, select');
+      return inp && String(inp.value || '').trim();
+    });
+    if (!vis.length) extra.classList.add('is-collapsed');
+    else if (opts.revealExtra && filled) extra.classList.remove('is-collapsed');
+    extraBtn.textContent = extra.classList.contains('is-collapsed') ? 'More' : 'Less';
+  }
+  const n = dbtActiveFilterCount();
+  const toggle = document.getElementById('dbtFToggle');
+  if (toggle) {
+    toggle.textContent = n ? 'Filters · ' + n : 'Filters';
+    toggle.classList.toggle('on', n > 0);
+    const box = document.getElementById('dbtFilters');
+    toggle.setAttribute('aria-expanded', !!(box && box.classList.contains('is-open')));
+  }
+}
+function toggleDbtFilterPanel(which) {
+  const box = document.getElementById(which === 'lg' ? 'lgFilters' : 'dbtFilters');
+  if (!box) return;
+  box.classList.toggle('is-open');
+  const open = box.classList.contains('is-open');
+  const btn = document.getElementById(which === 'lg' ? 'lgFToggle' : 'dbtFToggle');
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open && box.scrollIntoView) box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+function toggleDbtExtra() {
+  const extra = document.getElementById('dbtFExtra');
+  const btn = document.getElementById('dbtFExtraBtn');
+  if (!extra) return;
+  extra.classList.toggle('is-collapsed');
+  if (btn) btn.textContent = extra.classList.contains('is-collapsed') ? 'More' : 'Less';
+}
+function dbtClearChip(key) {
+  if (key === 'range') {
+    ['dbtFrom', 'dbtFromTime', 'dbtTo', 'dbtToTime'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    const preset = document.getElementById('dbtPreset');
+    if (preset) preset.value = '';
+  } else if (key === 'sort') {
+    dbtSort = '';
+    dbtDir = 'desc';
+  } else {
+    const map = {
+      contract: 'dbtContract', account: 'dbtAccount', exchange: 'dbtExchange',
+      strategy: 'dbtStrategy', side: 'dbtSide', service: 'dbtService',
+      level: 'dbtLevel', pair: 'dbtPair', status: 'dbtStatusCol',
+      order_id: 'dbtOrderId', q: 'dbtQ',
+    };
+    const el = document.getElementById(map[key] || '');
+    if (el) el.value = '';
+  }
+  dbtApply();
+}
+function lgSyncFilterChrome() {
+  const ids = ['lgService', 'lgLevel', 'lgSearch', 'lgFrom', 'lgTo', 'lgStrategy', 'lgContract', 'lgAccount', 'lgExchange'];
+  let n = 0;
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el && String(el.value || '').trim()) n++;
+  });
+  const toggle = document.getElementById('lgFToggle');
+  if (!toggle) return;
+  toggle.textContent = n ? 'Filters · ' + n : 'Filters';
+  toggle.classList.toggle('on', n > 0);
+  const box = document.getElementById('lgFilters');
+  toggle.setAttribute('aria-expanded', !!(box && box.classList.contains('is-open')));
 }
 function dbtIstBound(dateId, timeId, isEnd) {
   const d = (document.getElementById(dateId)?.value || '').trim();
@@ -553,22 +655,33 @@ function dbtFilterParams() {
   return p;
 }
 function dbtPaintChips() {
+  dbtSyncFilterChrome();
   const el = document.getElementById('dbtChips');
   if (!el) return;
   const p = dbtFilterParams();
   const bits = [];
   if (p.since || p.until) {
     const preset = (document.getElementById('dbtPreset') || {}).value;
-    bits.push(preset === 'today' ? 'Today IST' : preset === '24h' ? 'Last 24h' : 'Custom range');
+    const lab = preset === 'today' ? 'Today' : preset === '24h' ? 'Last 24h'
+      : preset === '7d' ? 'Last 7d' : preset === '30d' ? 'Last 30d'
+      : preset === '90d' ? 'Last 90d' : 'Custom range';
+    bits.push(['range', lab]);
   }
-  ['contract', 'account', 'exchange', 'strategy', 'side', 'service', 'level', 'pair', 'status', 'order_id', 'q'].forEach(k => {
+  const names = {
+    contract: 'contract', account: 'account', exchange: 'exchange', strategy: 'strategy',
+    side: 'side', service: 'service', level: 'level', pair: 'pair', status: 'status',
+    order_id: 'order', q: 'search',
+  };
+  Object.keys(names).forEach(k => {
     if (!p[k]) return;
-    const label = k === 'q' ? 'search' : k.replace('_', ' ');
-    bits.push(label + ': ' + (p[k] === '__blank__' ? '(blank)' : p[k]));
+    bits.push([k, names[k] + ': ' + (p[k] === '__blank__' ? '(blank)' : p[k])]);
   });
-  if (dbtSort) bits.push('sort ' + dbtSort + ' ' + dbtDir);
+  if (dbtSort) bits.push(['sort', 'sort ' + dbtSort + ' ' + dbtDir]);
   el.hidden = !bits.length;
-  el.innerHTML = bits.map(b => '<span class="dbt-chip">' + esc(b) + '</span>').join('');
+  el.innerHTML = bits.map(([k, lab]) =>
+    '<button type="button" class="dbt-chip" onclick="dbtClearChip(\'' + k + '\')">' +
+      esc(lab) + '<span class="x" aria-hidden="true">×</span></button>'
+  ).join('');
 }
 async function loadDbFacets(name) {
   if (dbtFacetsCache[name]) { dbtFillFacets(dbtFacetsCache[name]); return; }
@@ -2021,6 +2134,7 @@ function lgPaintStats() {
 function lgPaintChrome() {
   lgPaintStats();
   lgPaintColChips();
+  lgSyncFilterChrome();
   const title = document.getElementById('lgTitle');
   if (title) title.textContent = lgRows.length ? 'Logs · ' + fmtCount(lgRows.length) + ' shown' : 'Logs';
   const copy = document.getElementById('lgCopyBtn');
@@ -2098,6 +2212,7 @@ function lgClearFilters() {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
+  lgSyncFilterChrome();
   loadLogsX(true);
 }
 

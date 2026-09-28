@@ -3605,6 +3605,7 @@ function openRpnlKind(kind) {
       applyRpnlChartSize();
       if (snap) restoreRpnlView(snap);
       rpnlHoldSnap = null;
+      if (typeof syncPaneScrollers === 'function') syncPaneScrollers();
     });
   } else {
     rpnlHoldSnap = null;
