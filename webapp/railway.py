@@ -123,7 +123,7 @@ def _project() -> dict:
                       node {
                         environmentId
                         startCommand
-                        source { repo image branch }
+                        source { repo }
                         latestDeployment { status }
                       }
                     }
@@ -228,7 +228,6 @@ def _source_of(svc: dict) -> dict:
     inst = _instance_for_env(svc, _env_id())
     src = inst.get("source") if isinstance(inst.get("source"), dict) else {}
     repo = str(src.get("repo") or "").strip()
-    branch = str(src.get("branch") or "").strip() or "main"
     if not repo:
         repo = (os.getenv("OPA6_GITHUB_REPO") or "").strip()
     if not repo:
@@ -240,6 +239,7 @@ def _source_of(svc: dict) -> dict:
         repo = repo[len("https://github.com/"):]
         if repo.endswith(".git"):
             repo = repo[:-4]
+    branch = (os.getenv("OPA6_GITHUB_BRANCH") or "").strip() or "main"
     return {"repo": repo, "branch": branch}
 
 
@@ -298,14 +298,27 @@ def _set_start(service_id: str, cmd: str) -> None:
 
 
 def _connect(service_id: str, source: dict) -> None:
-    _gql(
-        """
-        mutation ($id: String!, $input: ServiceSourceInput!) {
-          serviceConnect(id: $id, input: $input) { id }
-        }
-        """,
-        {"id": service_id, "input": {"repo": source["repo"], "branch": source.get("branch") or "main"}},
-    )
+    repo = source["repo"]
+    payload = {"repo": repo}
+    try:
+        _gql(
+            """
+            mutation ($id: String!, $input: ServiceSourceInput!) {
+              serviceConnect(id: $id, input: $input) { id }
+            }
+            """,
+            {"id": service_id, "input": payload},
+        )
+    except RuntimeError:
+        payload["branch"] = source.get("branch") or "main"
+        _gql(
+            """
+            mutation ($id: String!, $input: ServiceSourceInput!) {
+              serviceConnect(id: $id, input: $input) { id }
+            }
+            """,
+            {"id": service_id, "input": payload},
+        )
 
 
 def _deploy(service_id: str) -> None:
