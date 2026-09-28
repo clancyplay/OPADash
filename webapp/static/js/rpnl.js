@@ -3424,6 +3424,12 @@ function rpnlLogsOpen() {
   const page = document.getElementById('rpnl');
   return !!(page && page.classList.contains('logs-open'));
 }
+function rpnlLogsIsSheet() {
+  return window.matchMedia('(max-width: 720px)').matches;
+}
+function rpnlLogsBackdrop(ev) {
+  if (ev && ev.target === ev.currentTarget) closeRpnlKind();
+}
 
 function rpnlQs(p) {
   return Object.entries(p).filter(([, v]) => v !== '' && v != null && v !== false)
@@ -3602,8 +3608,10 @@ function openRpnlKind(kind) {
   rpnlKindReload();
   if (!wasOpen) {
     requestAnimationFrame(function () {
-      applyRpnlChartSize();
-      if (snap) restoreRpnlView(snap);
+      if (!rpnlLogsIsSheet()) {
+        applyRpnlChartSize();
+        if (snap) restoreRpnlView(snap);
+      }
       rpnlHoldSnap = null;
       if (typeof syncPaneScrollers === 'function') syncPaneScrollers();
     });
@@ -3624,11 +3632,24 @@ function closeRpnlKind() {
   rpnlFillClosePeek();
   syncRpnlKindButtons();
   requestAnimationFrame(function () {
-    applyRpnlChartSize();
-    if (snap) restoreRpnlView(snap);
+    if (!rpnlLogsIsSheet()) {
+      applyRpnlChartSize();
+      if (snap) restoreRpnlView(snap);
+    }
     rpnlHoldSnap = null;
   });
 }
+
+document.addEventListener('keydown', function (ev) {
+  if (ev.key !== 'Escape' || !rpnlLogsOpen()) return;
+  const peek = document.getElementById('rpnlLgPeek');
+  if (peek && !peek.hidden) {
+    if (rpnlKind === 'logs' && typeof lgClosePeek === 'function') lgClosePeek();
+    else if (typeof rpnlFillClosePeek === 'function') rpnlFillClosePeek();
+    return;
+  }
+  closeRpnlKind();
+});
 
 function toggleRpnlLogs() { openRpnlKind('logs'); }
 

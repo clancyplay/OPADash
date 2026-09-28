@@ -107,31 +107,34 @@
       <button class="btn" type="button" data-rpnl-kind="fills" onclick="openRpnlKind('fills')">Fills</button>
     </span>
   </div>
-  <div class="rp-logs" id="rpnlLogs" hidden>
-    <div class="rp-logs-h">
-      <select id="rpnlKindScope" title="Which rows" onchange="rpnlKindReload()">
-        <option value="contract" selected>This contract</option>
-        <option value="all">All</option>
-      </select>
-      <b id="rpnlLogsTitle">Logs</b>
-      <span id="rpnlLogsStatus" class="ctrl-meta"></span>
-      <input type="search" id="rpnlKindSearch" class="rp-kind-search" placeholder="search fate, pause…" onkeydown="if(event.key==='Enter') rpnlKindReload()" />
-      <button class="btn lg-view-btn rp-log-view" type="button" data-lg-view="table" onclick="lgSetView('table')">Table</button>
-      <button class="btn lg-view-btn rp-log-view" type="button" data-lg-view="raw" onclick="lgSetView('raw')">Raw</button>
-      <div class="lg-cols-wrap rp-log-cols">
-        <button class="btn" type="button" onclick="lgToggleColsMenu(event)">Columns</button>
-        <div class="lg-cols-menu" id="rpnlLgColsMenu" hidden></div>
-      </div>
-      <button class="btn" type="button" onclick="rpnlKindReload()">Refresh</button>
-      <label class="rp-check" id="rpnlKindLiveWrap"><input type="checkbox" id="rpnlLogsLive" checked /> Live</label>
-      <button class="btn" type="button" onclick="exportRpnlOpenKind()" title="CSV of the current From/To + filters">Export CSV</button>
-      <button class="btn" type="button" onclick="closeRpnlKind()">Close</button>
-    </div>
-    <div class="rp-logs-stage">
-      <div class="logs-box rp-logs-box" id="rpnlLogsBox"></div>
-      <div class="dbt-peek" id="rpnlLgPeek" hidden></div>
-    </div>
   </div>
+  <div class="rp-logs" id="rpnlLogs" hidden onclick="rpnlLogsBackdrop(event)">
+    <div class="rp-logs-sheet" role="dialog" aria-modal="true" aria-labelledby="rpnlLogsTitle">
+      <div class="rp-logs-grab" aria-hidden="true"></div>
+      <div class="rp-logs-h">
+        <select id="rpnlKindScope" title="Which rows" onchange="rpnlKindReload()">
+          <option value="contract" selected>This contract</option>
+          <option value="all">All</option>
+        </select>
+        <b id="rpnlLogsTitle">Logs</b>
+        <span id="rpnlLogsStatus" class="ctrl-meta"></span>
+        <input type="search" id="rpnlKindSearch" class="rp-kind-search" placeholder="search fate, pause…" onkeydown="if(event.key==='Enter') rpnlKindReload()" />
+        <button class="btn lg-view-btn rp-log-view" type="button" data-lg-view="table" onclick="lgSetView('table')">Table</button>
+        <button class="btn lg-view-btn rp-log-view" type="button" data-lg-view="raw" onclick="lgSetView('raw')">Raw</button>
+        <div class="lg-cols-wrap rp-log-cols">
+          <button class="btn" type="button" onclick="lgToggleColsMenu(event)">Columns</button>
+          <div class="lg-cols-menu" id="rpnlLgColsMenu" hidden></div>
+        </div>
+        <button class="btn" type="button" onclick="rpnlKindReload()">Refresh</button>
+        <label class="rp-check" id="rpnlKindLiveWrap"><input type="checkbox" id="rpnlLogsLive" checked /> Live</label>
+        <button class="btn" type="button" onclick="exportRpnlOpenKind()" title="CSV of the current From/To + filters">Export CSV</button>
+        <button class="btn" type="button" onclick="closeRpnlKind()">Close</button>
+      </div>
+      <div class="rp-logs-stage">
+        <div class="logs-box rp-logs-box" id="rpnlLogsBox"></div>
+        <div class="dbt-peek" id="rpnlLgPeek" hidden></div>
+      </div>
+    </div>
   </div>
 </div>
 

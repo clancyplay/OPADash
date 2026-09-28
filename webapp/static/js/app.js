@@ -206,6 +206,7 @@ function showPage(name) {
   });
   lsSet(LS_PAGE, name);
   if (name !== 'rpnl' && typeof closeRpOps === 'function') closeRpOps();
+  if (name !== 'rpnl' && typeof closeRpnlKind === 'function') closeRpnlKind();
   if (name === 'rpnl'      && !rpnlReady) { initRpnl();      rpnlReady = true; }
   if (name === 'balances') {
     if (!balancesReady) { initBalances(); balancesReady = true; }

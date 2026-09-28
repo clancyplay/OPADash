@@ -28,7 +28,7 @@ body:has(#rpnl.visible) {
   min-height: 0;
 }
 #rpnl.page.visible.logs-open {
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) minmax(220px, 42vh);
 }
 
 .rp-top,
@@ -48,9 +48,15 @@ body:has(#rpnl.visible) {
   min-height: 0;
   overflow: hidden;
 }
-#rpnl.logs-open .rp-scroll {
-  grid-template-rows: minmax(0, 1fr) auto minmax(200px, 40vh);
+.rp-logs-sheet {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  height: 100%;
 }
+.rp-logs-grab { display: none; }
 
 .rp-top {
   display: flex;
@@ -655,14 +661,6 @@ body:has(#rpnl.visible) {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
   }
-  #rpnl.logs-open .rp-logs-box.js-pane-scroll {
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-  }
-  #rpnl.logs-open .rp-logs-box.js-pane-scroll.pane-can-y,
-  #rpnl.logs-open .rp-logs-stage #rpnlLgPeek.js-pane-scroll.pane-can-y {
-    overflow-y: auto !important;
-  }
   .rpnl-inspect.open { max-height: none; overflow: hidden; }
 
   #rpnl select, #rpnl button.btn, #rpnl input[type="datetime-local"] {
@@ -770,22 +768,7 @@ body:has(#rpnl.visible) {
     min-height: 420px;
     width: 100%;
   }
-  #rpnl.logs-open .rp-top {
-    max-height: 32vh;
-    overflow-x: hidden;
-    overflow-y: auto;
-  }
-  #rpnl.logs-open .rp-charts {
-    height: 22vh;
-    min-height: 140px;
-    max-height: 28vh;
-  }
-  #rpnl.logs-open .rp-scroll {
-    overflow-x: hidden;
-    padding-bottom: calc(28px + var(--safe-b));
-  }
   .rp-pane { min-height: 180px; }
-  #rpnl.logs-open .rp-pane { min-height: 90px; }
   #ohlcChart, #rpnlChart,
   #ohlcChart canvas, #rpnlChart canvas {
     touch-action: pan-y pinch-zoom;
@@ -834,44 +817,90 @@ body:has(#rpnl.visible) {
   }
   .rp-foot .btn { min-height: 28px !important; padding: 2px 8px !important; font-size: 11px !important; }
   .rp-inspect { margin-left: 0; width: 100%; }
-  #rpnl.logs-open .rp-logs {
-    flex: 1 1 auto;
-    height: auto;
-    min-height: 78vh;
-    max-height: none;
-    padding-bottom: calc(28px + var(--safe-b));
+
+  #rpnl.page.visible.logs-open {
+    grid-template-rows: auto minmax(0, 1fr);
   }
-  #rpnl.logs-open .rp-logs-stage {
+  #rpnl.logs-open #rpnlLogs.rp-logs {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: stretch;
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: rgba(0, 0, 0, .58);
+  }
+  #rpnlLogs .rp-logs-sheet {
+    width: 100%;
+    height: min(92svh, 920px);
+    max-height: 92svh;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    background: #121722;
+    border: 1px solid var(--border2);
+    border-bottom: 0;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -16px 48px rgba(0, 0, 0, .5);
+    padding-bottom: var(--safe-b);
+  }
+  #rpnlLogs .rp-logs-grab {
+    display: block;
+    width: 36px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .22);
+    margin: 8px auto 4px;
+    flex: 0 0 auto;
+  }
+  #rpnlLogs .rp-logs-h {
+    flex: 0 0 auto;
+    padding: 4px 12px 8px;
+    gap: 6px;
+  }
+  #rpnlLogs .rp-logs-h .btn { min-height: 32px !important; }
+  #rpnlLogs .rp-logs-stage {
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: 0;
   }
-  #rpnl.logs-open .rp-logs-box {
-    flex: 0 0 auto;
-    height: 76vh;
-    min-height: 76vh;
-    max-height: 76vh !important;
-    overflow-x: auto;
-    overflow-y: hidden;
+  #rpnlLogs .rp-logs-box,
+  #rpnl.logs-open .rp-logs-box.js-pane-scroll,
+  #rpnl.logs-open .rp-logs-box.js-pane-scroll.pane-can-y {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+    max-height: none !important;
+    overflow: auto !important;
   }
-  #rpnl.logs-open .rp-logs-stage:has(#rpnlLgPeek:not([hidden])) .rp-logs-box {
-    height: 64vh;
-    min-height: 64vh;
-    max-height: 64vh !important;
+  #rpnlLogs .rp-logs-stage:has(#rpnlLgPeek:not([hidden])) .rp-logs-box {
+    flex: 1 1 58%;
+    min-height: 28vh;
+    height: auto;
+    max-height: none !important;
   }
-  #rpnl.logs-open .rp-logs-stage #rpnlLgPeek {
-    flex: 0 0 auto;
-    height: 58vh;
-    min-height: 52vh;
-    max-height: 70vh;
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
+  #rpnlLogs .rp-logs-stage #rpnlLgPeek,
+  #rpnl.logs-open .rp-logs-stage #rpnlLgPeek.js-pane-scroll.pane-can-y {
+    flex: 1 1 42%;
+    min-height: 26vh;
+    max-height: 42vh;
+    height: auto;
+    overflow: auto !important;
     border-left: 0;
     border-top: 1px solid var(--border);
-    padding: 12px 14px calc(18px + var(--safe-b));
+    padding: 12px 14px 14px;
   }
 }
 
