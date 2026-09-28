@@ -1,7 +1,7 @@
-"""Spawn / track OPA6 strategy processes from OPADash.
+"""Start OPA6 bots from OPADash.
 
-Dash does not trade. It starts `python3 stack.py SYMBOL` (etc.) in the sibling
-OPA6 tree with the selected subaccount keys and env knobs.
+Local: `python3 stack.py SYMBOL` in the sibling OPA6 tree (or OPA6_ROOT).
+Railway: create a new service in this project from the OPA6 GitHub repo.
 """
 from __future__ import annotations
 
@@ -49,6 +49,35 @@ _DENY = (
     "DATABASE_URL", "DASHBOARD_PASSWORD", "DASHBOARD_USERNAME", "DASHBOARD_SECRET",
     "PATH", "PYTHONPATH", "PYTHONHOME", "HOME", "USER",
 )
+
+
+def on_railway() -> bool:
+    return bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"))
+
+
+def launch_mode() -> str:
+    """railway | railway-unconfigured | local | missing"""
+    load_env_file()
+    try:
+        from webapp import railway as rw
+        rail_ok = rw.ready()
+    except Exception:
+        rail_ok = False
+    if on_railway():
+        return "railway" if rail_ok else "railway-unconfigured"
+    if _is_opa6_tree(opa6_root()):
+        return "local"
+    if rail_ok:
+        return "railway"
+    return "missing"
+
+
+def _railway_missing_msg() -> str:
+    return (
+        "On Railway, New contract creates a new OPA6 service — it cannot spawn a local process. "
+        "Set RAILWAY_TOKEN on this OPADash service (project token: railway.com/account/tokens) "
+        "and OPA6_RAILWAY_SERVICE to an existing OPA6 bot's service name so the repo can be copied."
+    )
 
 
 def _is_opa6_tree(path: Path) -> bool:
@@ -136,6 +165,10 @@ def _save(rows: list[dict]) -> None:
 
 
 def list_bots(reap: bool = True) -> list[dict]:
+    mode = launch_mode()
+    if mode == "railway":
+        from webapp import railway as rw
+        return rw.list_bots()
     rows = _load()
     out = []
     changed = False
@@ -172,6 +205,9 @@ def _public(rec: dict) -> dict:
         "started_at": int(rec.get("started_at") or 0),
         "log": rec.get("log") or "",
         "params": rec.get("params") if isinstance(rec.get("params"), dict) else {},
+        "kind": rec.get("kind") or "local",
+        "service": rec.get("service") or "",
+        "status": rec.get("status") or "",
     }
 
 
@@ -274,11 +310,21 @@ def launch(
     if venue == "kucoin" and not (account.get("passphrase") or os.getenv("KUCOIN_API_PASSPHRASE")):
         raise ValueError("KuCoin needs an API passphrase on the account")
 
-    root = opa6_root()
-    if not _is_opa6_tree(root):
+    mode = launch_mode()
+    if mode == "railway":
+        from webapp import railway as rw
+        return rw.launch(
+            venue=venue, contract=contract, strategy=strategy, account=account, params=params,
+        )
+    if mode == "railway-unconfigured":
+        raise ValueError(_railway_missing_msg())
+    if mode == "missing":
+        root = opa6_root()
         raise FileNotFoundError(
             f"OPA6 folder missing: {root} (set OPA6_ROOT to the folder that contains stack.py)"
         )
+
+    root = opa6_root()
     path = root / script
     if not path.is_file():
         raise FileNotFoundError(f"OPA6 bot missing: {path}")
@@ -353,6 +399,9 @@ def stop(bot_id: str) -> dict:
     want = str(bot_id or "").strip()
     if not want:
         raise ValueError("id required")
+    if launch_mode() == "railway":
+        from webapp import railway as rw
+        return rw.stop(want)
     rows = _load()
     hit = None
     keep = []

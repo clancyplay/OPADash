@@ -46,6 +46,7 @@ function openRpOps() {
   document.body.classList.add('ops-open');
   bootRpOps().then(() => {
     fillOpsStrategies();
+    applyOpsLaunchLead();
     renderOpsParams();
     onOpsStrategyChange();
     setOpsMsg('opsLaunchMsg', '', false);
@@ -108,6 +109,19 @@ async function bootRpOps() {
     await refreshOpsBots();
   } catch (e) {
     setOpsMsg('opsLaunchMsg', String(e), true);
+  }
+}
+
+function applyOpsLaunchLead() {
+  const el = document.getElementById('opsLaunchLead');
+  if (!el) return;
+  const mode = (opsCatalog && opsCatalog.launch) || '';
+  if (mode === 'railway') {
+    el.textContent = 'Creates a new Railway service from your OPA6 repo with this subaccount’s keys. Same contract + account + strategy cannot run twice.';
+  } else if (mode === 'railway-unconfigured') {
+    el.textContent = 'On Railway this needs RAILWAY_TOKEN on OPADash and OPA6_RAILWAY_SERVICE (existing OPA6 bot name). It cannot spawn a local process here.';
+  } else {
+    el.textContent = 'Start an OPA6 process with this subaccount’s keys. Same contract + account + strategy cannot run twice.';
   }
 }
 
@@ -956,23 +970,33 @@ async function refreshOpsBots() {
     opsBots = [];
   }
   if (!opsBots.length) {
-    box.innerHTML = '<div class="rp-ops-empty">No dash-started processes.</div>';
+    const rail = opsCatalog && opsCatalog.launch === 'railway';
+    box.innerHTML = '<div class="rp-ops-empty">' +
+      (rail ? 'No dash-started Railway services.' : 'No dash-started processes.') + '</div>';
     return;
   }
   box.innerHTML = opsBots.map(b => {
     const when = b.started_at ? fmtIST(b.started_at) : '';
+    const rail = b.kind === 'railway' || b.service;
     return '<div class="rp-ops-bot">' +
       '<div><b>' + escHtml(b.contract) + '</b> · ' + escHtml(b.strategy) +
       ' <span class="rpnl-venue ' + escHtml(b.venue) + '">' + escHtml(b.venue) + '</span>' +
-      '<div class="aid">' + escHtml(b.account_name || b.account) + (when ? ' · ' + when : '') +
+      '<div class="aid">' + escHtml(b.account_name || b.account || b.service || '') +
+      (when ? ' · ' + when : '') +
+      (b.status ? ' · ' + escHtml(b.status) : '') +
       (b.alive ? '' : ' · dead') + '</div></div>' +
-      '<button type="button" class="btn" data-ops-stop="' + escHtml(b.id) + '">Kill</button>' +
+      '<button type="button" class="btn" data-ops-stop="' + escHtml(b.id) + '">' +
+      (rail ? 'Delete' : 'Kill') + '</button>' +
       '</div>';
   }).join('');
 }
 
 async function stopOpsBot(id) {
-  if (!id || !confirm('Kill this process? Open quotes cancel on shutdown.')) return;
+  const row = (opsBots || []).find(b => b.id === id) || {};
+  const rail = row.kind === 'railway' || !!row.service;
+  if (!id || !confirm(rail
+    ? 'Delete this Railway service? Open quotes cancel on shutdown.'
+    : 'Kill this process? Open quotes cancel on shutdown.')) return;
   try {
     const r = await fetch('/api/ops/bots/stop', {
       method: 'POST',

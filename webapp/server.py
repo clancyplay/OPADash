@@ -1988,6 +1988,7 @@ async def ops_strategies() -> dict:
         "venues": list(dash_ops.QUOTE_VENUES),
         "strategies": dash_ops.strategy_catalog(),
         "opa6": str(dash_launch.opa6_root()),
+        "launch": dash_launch.launch_mode(),
         "geom": dash_ops.GEOM_LENS,
         "pair_params": dash_ops.PAIR_PARAMS,
         **dash_ops.parent_status(),
@@ -2067,10 +2068,12 @@ async def ops_launch(req: LaunchRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(extra))
     except FileNotFoundError as extra:
         raise HTTPException(status_code=500, detail=str(extra))
+    except RuntimeError as extra:
+        raise HTTPException(status_code=502, detail=str(extra)[:240])
     except Exception as extra:
         logger.exception("webapp: launch failed")
         raise HTTPException(status_code=500, detail=str(extra)[:200])
-    logger.info("webapp: launched %s %s:%s pid=%s", strategy, venue, contract, rec.get("pid"))
+    logger.info("webapp: launched %s %s:%s kind=%s id=%s", strategy, venue, contract, rec.get("kind") or "local", rec.get("id") or rec.get("pid"))
     return {"ok": True, "bot": rec}
 
 
