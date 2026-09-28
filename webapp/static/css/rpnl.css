@@ -157,7 +157,13 @@ body:has(#rpnl.visible) {
   padding: 1px 5px; flex-shrink: 0;
 }
 .rpnl-pill .p-name .p-sym {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 132px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0; max-width: 120px;
+}
+.rpnl-pill .rpnl-acct {
+  font-size: 9px; font-weight: 700; letter-spacing: .3px;
+  color: #ffe082; background: rgba(255, 224, 130, .14); border-radius: 4px;
+  padding: 1px 5px; flex-shrink: 0;
 }
 .rpnl-pill .p-val {
   display: flex; align-items: baseline; gap: 8px;

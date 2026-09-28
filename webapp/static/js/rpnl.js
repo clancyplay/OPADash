@@ -1089,16 +1089,22 @@ function rpnlPillWallet(r) {
   return 'bal ' + inrFmt(n);
 }
 
+function rpnlPillAcctText(r, nameCount) {
+  const acct = rpnlAccountLabel(r);
+  if (!acct) return '';
+  const qsym = r.quote_symbol || r.contract;
+  const dupe = nameCount && nameCount[qsym + '|' + acct] > 1 && r.account && r.account !== acct;
+  return dupe ? acct + ' #' + r.account : acct;
+}
+
 function rpnlPillHtml(r, cur, nameCount) {
   const key = rpnlOptionValue(r);
   const active = key === cur ? ' active' : '';
   const liveCls = r.live ? ' live' : '';
-  const acct = rpnlAccountLabel(r);
+  const acct = rpnlPillAcctText(r, nameCount);
   const qv = r.quote_venue || 'delta';
   const qlab = r.quote_label || 'Delta';
   const qsym = r.quote_symbol || r.contract;
-  const dupe = nameCount[qsym + '|' + acct] > 1 && r.account && r.account !== acct;
-  const name = qsym + (acct ? ' · ' + acct : '') + (dupe ? ' #' + r.account : '');
   const main = rpnlPillMain(r);
   const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
   const mode = rpnlPillMode(r);
@@ -1114,7 +1120,8 @@ function rpnlPillHtml(r, cur, nameCount) {
   const shownMode = hedgeBit ? '' : mode;
   return '<button type="button" class="rpnl-pill' + active + liveCls + statusCls + (hedgeBit ? ' hedge' : '') + '" data-rpnl-key="' + escHtml(key) + '">' +
     '<div class="p-name">' + rpnlLiveDot(r) +
-      '<span class="p-sym">' + escHtml(name) + '</span>' +
+      '<span class="p-sym">' + escHtml(qsym || '') + '</span>' +
+      (acct ? '<span class="rpnl-acct">' + escHtml(acct) + '</span>' : '') +
       (strat ? '<span class="rpnl-strat">' + escHtml(strat) + '</span>' : '') +
       (hedgeBit ? '<span class="rpnl-hedge">Hedge</span>' : '') +
       '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
@@ -1239,12 +1246,23 @@ function renderRpnlSummary(rows, hours) {
             dot.title = stDot.label || 'Live';
           }
         } else if (dot) dot.remove();
-        const acct = rpnlAccountLabel(r);
         const qsym = r.quote_symbol || r.contract;
-        const dupe = (typeof nameCount !== 'undefined') && nameCount[qsym + '|' + acct] > 1 && r.account && r.account !== acct;
-        const shown = qsym + (acct ? ' · ' + acct : '') + (dupe ? ' #' + r.account : '');
         let symEl = nameEl.querySelector('.p-sym');
-        if (symEl) symEl.textContent = shown;
+        if (symEl) symEl.textContent = qsym || '';
+        const acct = rpnlPillAcctText(r, nameCount);
+        let acctEl = nameEl.querySelector('.rpnl-acct');
+        if (acct) {
+          if (!acctEl) {
+            acctEl = document.createElement('span');
+            acctEl.className = 'rpnl-acct';
+            const after = nameEl.querySelector('.p-sym');
+            if (after && after.nextSibling) nameEl.insertBefore(acctEl, after.nextSibling);
+            else nameEl.appendChild(acctEl);
+          }
+          acctEl.textContent = acct;
+        } else if (acctEl) {
+          acctEl.remove();
+        }
         let stratEl = nameEl.querySelector('.rpnl-strat');
         if (r.strategy) {
           if (!stratEl) {
