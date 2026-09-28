@@ -51,12 +51,49 @@ _DENY = (
 )
 
 
+def _is_opa6_tree(path: Path) -> bool:
+    try:
+        return path.is_dir() and (path / "stack.py").is_file()
+    except OSError:
+        return False
+
+
 def opa6_root() -> Path:
+    """Folder that contains stack.py. OPA6_ROOT wins if it exists; else sibling OPA6."""
     load_env_file()
-    raw = (os.getenv("OPA6_ROOT") or "").strip()
-    if raw:
-        return Path(raw).expanduser().resolve()
-    return (_ROOT.parent / "OPA6").resolve()
+    tried: list[Path] = []
+
+    def add(raw: Path | str) -> None:
+        p = Path(raw).expanduser()
+        if not p.is_absolute():
+            tried.append((_ROOT / p).resolve())
+            tried.append((Path.cwd() / p).resolve())
+        else:
+            tried.append(p.resolve())
+
+    env = (os.getenv("OPA6_ROOT") or os.getenv("opa6_root") or "").strip()
+    if env:
+        add(env)
+    parent = _ROOT.parent
+    for name in ("OPA6", "opa6"):
+        add(parent / name)
+        add(_ROOT / name)
+    here = _ROOT
+    for _ in range(4):
+        here = here.parent
+        add(here / "OPA6")
+        add(here / "opa6")
+
+    seen: set[Path] = set()
+    ordered: list[Path] = []
+    for p in tried:
+        if p in seen:
+            continue
+        seen.add(p)
+        ordered.append(p)
+        if _is_opa6_tree(p):
+            return p
+    return ordered[0] if ordered else (parent / "OPA6").resolve()
 
 
 def _python(root: Path) -> str:
@@ -238,8 +275,10 @@ def launch(
         raise ValueError("KuCoin needs an API passphrase on the account")
 
     root = opa6_root()
-    if not root.is_dir():
-        raise FileNotFoundError(f"OPA6 folder missing: {root} (set OPA6_ROOT)")
+    if not _is_opa6_tree(root):
+        raise FileNotFoundError(
+            f"OPA6 folder missing: {root} (set OPA6_ROOT to the folder that contains stack.py)"
+        )
     path = root / script
     if not path.is_file():
         raise FileNotFoundError(f"OPA6 bot missing: {path}")

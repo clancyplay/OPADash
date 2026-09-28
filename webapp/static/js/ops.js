@@ -170,15 +170,24 @@ function onOpsAccountChange() {
 function opsMoney(a) {
   if (!a) return '';
   const asset = String(a.asset || 'USD').toUpperCase();
-  const n = Number(a.balance);
-  const inr = Number(a.balance_inr);
-  if (isFinite(n) && a.balance != null) {
-    const d = Math.abs(n) >= 100 ? 0 : (Math.abs(n) >= 10 ? 1 : 2);
-    const unit = (asset === 'USD' || asset === 'USDT') ? '$' : (asset + ' ');
-    return unit + n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  let usd = Number(a.balance);
+  let inr = Number(a.balance_inr);
+  const rate = Number(a.usdinr);
+  const fx = isFinite(rate) && rate > 0 ? rate : 87;
+  if ((!isFinite(inr) || a.balance_inr == null) && isFinite(usd) && a.balance != null) inr = usd * fx;
+  if ((!isFinite(usd) || a.balance == null) && isFinite(inr) && a.balance_inr != null) usd = inr / fx;
+  const bits = [];
+  if (isFinite(inr) && (a.balance_inr != null || a.balance != null)) {
+    bits.push(typeof inrFmt === 'function'
+      ? inrFmt(inr)
+      : ('₹' + Math.abs(inr).toLocaleString('en-IN', { maximumFractionDigits: 0 })));
   }
-  if (isFinite(inr) && a.balance_inr != null && typeof inrFmt === 'function') return inrFmt(inr);
-  return '';
+  if (isFinite(usd) && (a.balance != null || a.balance_inr != null)) {
+    const d = Math.abs(usd) >= 100 ? 0 : (Math.abs(usd) >= 10 ? 1 : 2);
+    const unit = (asset === 'INR') ? '' : ((asset === 'USD' || asset === 'USDT' || !asset) ? '$' : asset + ' ');
+    bits.push(unit + usd.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }));
+  }
+  return bits.join(' · ');
 }
 
 function opsRunningLine(a) {

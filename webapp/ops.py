@@ -406,6 +406,8 @@ async def _delta_acct_snap(client: httpx.AsyncClient, acct: dict, rate: float) -
         item["id"] = str(snap.get("uid") or item["id"])
         item["available"] = _num(snap.get("available"))
         item["balance"] = _num(snap.get("native"))
+        item["balance_inr"] = _num(snap.get("balance"))
+        item["usdinr"] = rate
         item["asset"] = str(snap.get("asset") or item["asset"])
         item["margin_mode"] = mode or _mode_from_wallet(snap)
     except Exception as exc:
@@ -480,14 +482,18 @@ def enrich_accounts(
         avail = snap.get("available")
         row["available"] = None if avail is None else _num(avail)
         row["asset"] = snap.get("asset") or row.get("asset") or ""
-        if row["balance"] is None:
+        inr = snap.get("balance_inr")
+        if inr is None:
             inr = wallets_inr.get(row["id"])
-            if inr is None:
-                inr = wallets_inr.get(row["name"])
-            if inr is not None:
-                row["balance_inr"] = _num(inr)
-        else:
-            row["balance_inr"] = None
+        if inr is None:
+            inr = wallets_inr.get(row["name"])
+        rate = _num(snap.get("usdinr") or os.getenv("USDINR_RATE") or 87) or 87.0
+        row["usdinr"] = rate
+        if inr is None and row["balance"] is not None:
+            inr = row["balance"] * rate
+        row["balance_inr"] = None if inr is None else _num(inr)
+        if row["balance"] is None and row["balance_inr"] is not None and rate:
+            row["balance"] = round(row["balance_inr"] / rate, 4)
         row["error"] = snap.get("error") or ""
         row["running"] = _dedupe_running(
             (by_acct.get(row["id"]) or []) + (by_acct.get(row["name"]) or [])
