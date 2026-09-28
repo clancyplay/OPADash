@@ -70,10 +70,19 @@ _DRY = {"key": "DRY_RUN", "label": "Dry run", "type": "bool", "default": False, 
 
 
 def _max(label="Max", default="10000", usd=True):
-    rows = [{"key": "MAX_POSITION", "label": label, "type": "number", "default": default, "group": "size"}]
-    if usd is not None:
-        rows.append({"key": "MAX_IN_USD", "label": "Max is USD", "type": "bool", "default": usd, "group": "size"})
-    return rows
+    """Max number + USD/lots unit. Pair stays coin-only and does not use this."""
+    return [{
+        "key": "MAX_POSITION",
+        "label": label,
+        "type": "max",
+        "default": default,
+        "group": "size",
+        "unit": "usd" if usd else "lots",
+        "units": [
+            {"id": "usd", "label": "USD"},
+            {"id": "lots", "label": "lots"},
+        ],
+    }]
 
 
 def _geom(lenses, hint="", defaults=None):
@@ -134,6 +143,10 @@ def _touch_like(*, k_default="0", step_default="0.05"):
 PAIR_PARAMS = [
     {"key": "MAX_POSITION", "label": "Max coin", "type": "number", "default": "2", "group": "size"},
     {"key": "PAIR_HEDGE", "label": "Hedge with perpetual", "type": "bool", "default": True, "group": "hedge"},
+    {
+        "key": "PAIR_HEDGE_LOT", "label": "Hedge lot", "type": "int", "default": "1", "group": "hedge",
+        "min": 1, "hint": "Min contracts off-target before a hedge order.",
+    },
     {"key": "BID_TICKS", "label": "Bid +ticks", "type": "int", "default": "1", "group": "quote"},
     {"key": "ASK_TICKS", "label": "Ask −ticks", "type": "int", "default": "1", "group": "quote"},
 ]

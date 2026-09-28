@@ -393,7 +393,8 @@ _SETUP_KEYS = (
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
     "mode", "mode_why", "pause_left", "size_pct",
     "min_spread", "spread_pad",
-    "role", "pair_hedge", "hedge_of", "hedge_via", "hedge_target", "hedge_pct",
+    "role", "pair_hedge", "hedge_of", "hedge_via", "hedge_target", "hedge_pct", "hedge_lot",
+    "bid_ticks", "ask_ticks",
     "pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr", "wallet_exch", "hold",
     "grind", "grind_window", "grind_rpnl", "grind_secs",
     "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "probing",
@@ -1802,13 +1803,13 @@ _BOT_CMDS = {
 
 _MAX_POS_ABS_CAP = 50_000_000.0
 
-_SETUP_KEYS = frozenset({
+_SETUP_PAYLOAD_KEYS = frozenset({
     "HEM_PCT", "SPAN_PCT", "STEP_PCT", "TAIL_PCT", "K_PCT", "EDGE_PCT",
     "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS", "K_TICKS", "TAILS",
     "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",
     "FATE_USD", "GRIND_USD",
     "FIT_AUTO", "SPAN_SPREAD", "VOL_GATE", "STEP_AUTO", "DRY_RUN", "MAX_IN_USD",
-    "HOOK", "STEP_MULT", "MAX_POSITION", "PAIR_HEDGE", "FLIP", "EDGE_VENUE",
+    "HOOK", "STEP_MULT", "MAX_POSITION", "PAIR_HEDGE", "PAIR_HEDGE_LOT", "FLIP", "EDGE_VENUE",
     "MOVE_PCT", "MOVE_SECS", "RISK_REWARD",
     "MOM_PCT", "MOM_SLOW_PCT", "CLIP_PCT", "TRAIL_PCT", "MOM_STOP_PCT",
     "max_usd", "max_pos",
@@ -1818,7 +1819,7 @@ _SETUP_BOOL = frozenset({
 })
 _SETUP_INT = frozenset({
     "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS", "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",
-    "K_TICKS", "TAILS",
+    "K_TICKS", "TAILS", "PAIR_HEDGE_LOT",
 })
 _SETUP_NUM = frozenset({
     "HEM_PCT", "SPAN_PCT", "STEP_PCT", "TAIL_PCT", "K_PCT", "EDGE_PCT",
@@ -1852,7 +1853,7 @@ def _setup_payload(payload: dict | None) -> dict:
     out: dict = {}
     for key, val in raw.items():
         name = str(key or "").strip()
-        if name not in _SETUP_KEYS or val is None or val == "":
+        if name not in _SETUP_PAYLOAD_KEYS or val is None or val == "":
             continue
         if name in _SETUP_BOOL:
             if isinstance(val, bool):
@@ -1867,8 +1868,8 @@ def _setup_payload(payload: dict | None) -> dict:
                 raise HTTPException(status_code=400, detail=f"{name} invalid")
             if n < 0:
                 raise HTTPException(status_code=400, detail=f"{name} must be ≥ 0")
-            if name == "ORDERS" and n < 1:
-                raise HTTPException(status_code=400, detail="ORDERS must be ≥ 1")
+            if name in ("ORDERS", "PAIR_HEDGE_LOT") and n < 1:
+                raise HTTPException(status_code=400, detail=f"{name} must be ≥ 1")
             out[name] = n
             continue
         if name in _SETUP_NUM:
