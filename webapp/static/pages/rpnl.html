@@ -152,17 +152,19 @@
             <select id="opsAccount"></select>
           </label>
           <label>Contract
-            <input id="opsContract" type="text" list="opsContractList" autocomplete="off" placeholder="EVAAUSD" />
+            <input id="opsContract" type="text" list="opsContractList" autocomplete="off" placeholder="EVAAUSD" oninput="onOpsContractMeta()" />
             <datalist id="opsContractList"></datalist>
+            <span class="rp-ops-meta" id="opsContractMeta"></span>
           </label>
           <label>Strategy
             <select id="opsStrategy" onchange="renderOpsParams()"></select>
           </label>
         </div>
         <div class="rp-ops-params" id="opsParams"></div>
-        <label class="rp-ops-extra">Extra env
-          <textarea id="opsExtra" rows="2" placeholder="STEP_MULT=2&#10;HEM_TICKS=4"></textarea>
-        </label>
+        <details class="rp-ops-extra" id="opsExtraWrap">
+          <summary>More env</summary>
+          <textarea id="opsExtra" rows="2" placeholder="TOUCH_TICKS=1"></textarea>
+        </details>
         <div class="rp-ops-actions">
           <button class="btn" type="button" id="opsLaunchBtn" onclick="submitOpsLaunch()">Start</button>
           <span class="rp-ops-msg" id="opsLaunchMsg"></span>

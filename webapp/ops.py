@@ -11,15 +11,43 @@ import httpx
 from config.settings import load_env_file
 from webapp.wallets import _LABELS, _delta_headers, _num, load_wallet_accounts
 
+GEOM_LENS = [
+    {
+        "id": "hem", "label": "Hem",
+        "hint": "Cover-side edge off the hook",
+        "pct_key": "HEM_PCT", "ticks_key": "HEM_TICKS",
+        "pct_default": "0.1", "ticks_default": "4",
+    },
+    {
+        "id": "span", "label": "Span",
+        "hint": "Other edge, measured from the hem",
+        "pct_key": "SPAN_PCT", "ticks_key": "SPAN_TICKS",
+        "pct_default": "0.5", "ticks_default": "10",
+    },
+    {
+        "id": "step", "label": "Step",
+        "hint": "First same-side gap behind an edge",
+        "pct_key": "STEP_PCT", "ticks_key": "STEP_TICKS",
+        "pct_default": "0.1", "ticks_default": "4",
+    },
+]
+
 GEOM_PARAMS = [
-    {"key": "MAX_POSITION", "label": "Max USD", "type": "number", "default": "10000"},
+    {"key": "MAX_POSITION", "label": "Max", "type": "number", "default": "10000"},
     {"key": "MAX_IN_USD", "label": "Max is USD", "type": "bool", "default": True},
     {"key": "ORDERS", "label": "Orders / side", "type": "int", "default": "3"},
     {"key": "HOOK", "label": "Hook", "type": "select", "default": "position",
      "options": ["position", "liquidity", "bid", "ask"]},
-    {"key": "HEM_PCT", "label": "Hem %", "type": "number", "default": "0.1"},
-    {"key": "SPAN_PCT", "label": "Span %", "type": "number", "default": "0.5"},
-    {"key": "STEP_PCT", "label": "Step %", "type": "number", "default": "0.1"},
+    {"key": "GEOM", "type": "geom"},
+    {"key": "STEP_MULT", "label": "Step ×", "type": "select", "default": "1",
+     "options": [
+         {"value": "1", "label": "1 · equal gaps"},
+         {"value": "2", "label": "2 · double"},
+         {"value": "3", "label": "3 · triple"},
+         {"value": "log", "label": "log · ×e"},
+         {"value": "log2", "label": "log2 · ×2,×4"},
+         {"value": "log10", "label": "log10 · ×10,×100"},
+     ]},
     {"key": "FIT_AUTO", "label": "Fit auto", "type": "bool", "default": False},
     {"key": "SPAN_SPREAD", "label": "Span spread", "type": "bool", "default": True},
     {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": False},
@@ -28,7 +56,26 @@ GEOM_PARAMS = [
     {"key": "DRY_RUN", "label": "Dry run", "type": "bool", "default": False},
 ]
 
-LEAN_PARAMS = [p for p in GEOM_PARAMS if p["key"] not in ("SPAN_SPREAD",)]
+LEAN_PARAMS = [
+    {"key": "MAX_POSITION", "label": "Max", "type": "number", "default": "10000"},
+    {"key": "MAX_IN_USD", "label": "Max is USD", "type": "bool", "default": True},
+    {"key": "ORDERS", "label": "Orders / side", "type": "int", "default": "3"},
+    {"key": "STEP_AUTO", "label": "Fit step", "type": "bool", "default": True},
+    {"key": "STEP_PCT", "label": "Step %", "type": "number", "default": "0.05"},
+    {"key": "STEP_MULT", "label": "Step ×", "type": "select", "default": "1",
+     "options": [
+         {"value": "1", "label": "1 · equal gaps"},
+         {"value": "2", "label": "2 · double"},
+         {"value": "3", "label": "3 · triple"},
+         {"value": "log", "label": "log · ×e"},
+         {"value": "log2", "label": "log2 · ×2,×4"},
+         {"value": "log10", "label": "log10 · ×10,×100"},
+     ]},
+    {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": False},
+    {"key": "FATE_USD", "label": "Fate $", "type": "number", "default": "10"},
+    {"key": "GRIND_USD", "label": "Grind $", "type": "number", "default": "10"},
+    {"key": "DRY_RUN", "label": "Dry run", "type": "bool", "default": False},
+]
 
 SIZE_PARAMS = [
     {"key": "MAX_POSITION", "label": "Max USD", "type": "number", "default": "10000"},

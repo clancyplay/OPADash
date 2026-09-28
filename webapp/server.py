@@ -1880,6 +1880,7 @@ async def ops_strategies() -> dict:
         "venues": list(dash_ops.QUOTE_VENUES),
         "strategies": dash_ops.strategy_catalog(),
         "opa6": str(dash_launch.opa6_root()),
+        "geom": dash_ops.GEOM_LENS,
         **dash_ops.parent_status(),
     }
 

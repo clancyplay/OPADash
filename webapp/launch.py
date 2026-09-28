@@ -147,13 +147,34 @@ def _same(rec: dict, venue: str, contract: str, account: str, strategy: str) -> 
     )
 
 
+def _pin_geom(knobs: dict[str, str]) -> dict[str, str]:
+    """Ticks win over %. Unused *_TICKS must be 0 so a parent .env cannot leak."""
+    if not any(k.startswith(("HEM_", "SPAN_", "STEP_", "TAIL_")) for k in knobs):
+        return knobs
+    for ticks, alias in (("HEM_TICKS", None), ("SPAN_TICKS", None), ("STEP_TICKS", "TAIL_TICKS")):
+        raw = knobs.get(ticks)
+        try:
+            n = int(float(raw)) if raw not in (None, "") else 0
+        except (TypeError, ValueError):
+            n = 0
+        if n > 0:
+            knobs[ticks] = str(n)
+            if alias:
+                knobs.pop(alias, None)
+        else:
+            knobs[ticks] = "0"
+            if alias:
+                knobs[alias] = "0"
+    return knobs
+
+
 def _scrub_params(raw: dict | None) -> dict[str, str]:
     out: dict[str, str] = {}
     if not isinstance(raw, dict):
         return out
     for key, val in raw.items():
         name = str(key or "").strip().upper()
-        if not name or not name.replace("_", "").isalnum() or len(name) > 48:
+        if not name or name == "GEOM" or not name.replace("_", "").isalnum() or len(name) > 48:
             continue
         if name in _DENY or name.endswith("_API_KEY") or name.endswith("_API_SECRET") or name.endswith("_PASSPHRASE"):
             continue
@@ -208,7 +229,7 @@ def launch(
         if _same(rec, venue, contract, acct_id, strategy):
             raise ValueError(f"{strategy} {venue}:{contract} already running (pid {rec.get('pid')})")
 
-    knobs = _scrub_params(params)
+    knobs = _pin_geom(_scrub_params(params))
     env = os.environ.copy()
     env["QUOTE_VENUE"] = venue
     env["STRATEGY"] = strategy

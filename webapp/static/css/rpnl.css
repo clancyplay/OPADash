@@ -857,8 +857,8 @@ body.ops-open { overflow: hidden; }
 }
 .rp-ops[hidden] { display: none !important; }
 .rp-ops-panel {
-  width: min(560px, 100%);
-  max-height: min(92svh, 740px);
+  width: min(620px, 100%);
+  max-height: min(92svh, 820px);
   overflow: hidden;
   display: flex; flex-direction: column;
   background: #141824;
@@ -885,6 +885,10 @@ body.ops-open { overflow: hidden; }
   font-size: 11px; font-weight: 650; color: var(--muted);
   min-width: 0;
 }
+.rp-ops-meta {
+  font-size: 11px; font-weight: 500; color: var(--muted);
+  min-height: 14px;
+}
 .rp-ops-params {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-bottom: 10px;
 }
@@ -894,7 +898,56 @@ body.ops-open { overflow: hidden; }
   min-height: 32px;
 }
 .rp-ops-check input { width: 16px; height: 16px; accent-color: var(--accent); }
+.rp-ops-geom {
+  grid-column: 1 / -1;
+  padding: 8px 10px 10px;
+  margin: 2px 0 4px;
+  background: #1a1f2c;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.rp-ops-geom .rp-ops-sub { margin: 0 0 4px; }
+.rp-ops-hint {
+  margin: 0 0 10px; font-size: 11px; font-weight: 500; color: var(--muted); line-height: 1.4;
+}
+.rp-ops-len {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  grid-template-areas: "lab inp unit" ". hint hint";
+  gap: 3px 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.rp-ops-len-lab { grid-area: lab; font-size: 12px; font-weight: 700; color: #fff; }
+.rp-ops-len input { grid-area: inp; width: 100%; }
+.rp-ops-unit {
+  grid-area: unit;
+  display: inline-flex;
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.rp-ops-unit button {
+  font-size: 11px; font-weight: 650; font-family: inherit;
+  padding: 5px 9px; border: 0; background: transparent;
+  color: var(--muted); cursor: pointer;
+}
+.rp-ops-unit button.on {
+  background: rgba(41, 98, 255, .22); color: #fff;
+}
+.rp-ops-len-hint {
+  grid-area: hint; font-size: 11px; font-weight: 500; color: #8b93a7;
+}
+.rp-ops-geom-sum {
+  margin-top: 4px; font-size: 12px; font-weight: 650; color: #d7deef;
+  font-variant-numeric: tabular-nums;
+}
 .rp-ops-extra { margin-bottom: 10px; }
+.rp-ops-extra summary {
+  cursor: pointer; font-size: 11px; font-weight: 650; color: var(--muted);
+  margin-bottom: 6px;
+}
 .rp-ops-extra textarea {
   width: 100%; min-height: 52px; resize: vertical;
   background: #1e2230; color: var(--text);
