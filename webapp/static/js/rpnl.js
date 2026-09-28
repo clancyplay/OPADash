@@ -627,31 +627,30 @@ function rpnlMarkPairHedges(rows) {
 function rpnlActsHtml(r) {
   if (rpnlIsPairHedge(r) || !r.live) return '';
   const s = r.settings || {};
-  const held = !!(s.hold || s.mode === 'stopped' || s.mode === 'flattening');
-  const flattening = s.mode === 'flattening';
-  return '<div class="p-acts">' +
-    '<button type="button" data-bot-cmd="stop"' + (held ? ' class="on"' : '') + '>Stop</button>' +
-    '<button type="button" data-bot-cmd="resume">Resume</button>' +
-    '<button type="button" data-bot-cmd="cancel">Cancel</button>' +
-    '<button type="button" data-bot-cmd="clear" title="Cancel pause, size-cool, and all limit orders — keep quoting">Clear</button>' +
-    '<button type="button" class="danger' + (flattening ? ' on' : '') + '" data-bot-cmd="flatten">Close</button>' +
-    '</div>';
-}
-
-function rpnlMaxHtml(r) {
-  if (rpnlIsPairHedge(r) || !r.live) return '';
-  const s = r.settings || {};
-  const usd = s.max_usd != null;
-  const cur = usd ? s.max_usd : s.max_pos;
-  const label = usd ? 'max $' : 'max lots';
-  const val = (cur != null && isFinite(Number(cur)) && Number(cur) > 0) ? fmtG(cur) : '';
-  return '<div class="ri-max">' +
-    '<label for="rpnlMaxInput">' + escHtml(label) + '</label>' +
-    '<input type="number" id="rpnlMaxInput" min="1" step="any" inputmode="decimal" autocomplete="off" data-usd="' + (usd ? '1' : '0') +
-      '" value="' + escHtml(val) +
-      '" title="Live until bot restart. Does not write .env. Shrinking below |pos| drops add quotes; does not flatten." />' +
-    '<button type="button" data-bot-cmd="max">Set</button>' +
-    '</div>';
+  const mode = String(s.mode || '').trim().toLowerCase();
+  const flattening = mode === 'flattening';
+  const held = !flattening && (s.hold === true || s.hold === 1 || s.hold === 'true' || s.hold === '1' || mode === 'stopped');
+  const quoting = !held && !flattening;
+  const paused = quoting && (
+    mode === 'paused' || mode === 'fill-pause' || mode === 'size-cool' ||
+    mode === 'rest' || !!s.probing || Number(s.pause_left) > 0
+  );
+  const liveOrders = Number(s.live_orders);
+  const hasQuotes = quoting && (!isFinite(liveOrders) || liveOrders > 0);
+  const ico = (cmd, glyph, title, cls) =>
+    '<button type="button" class="ico' + (cls ? ' ' + cls : '') +
+    '" data-bot-cmd="' + cmd + '" title="' + title + '" aria-label="' + title + '">' + glyph + '</button>';
+  let html = '<div class="p-acts">';
+  if (quoting) html += ico('stop', '■', 'Stop quoting');
+  if (held) html += ico('resume', '▶', 'Resume quoting', 'go');
+  if (hasQuotes) html += ico('cancel', '✕', 'Cancel open quotes');
+  if (paused) html += ico('clear', '↺', 'Clear pause and limits');
+  html += ico('flatten', '×', 'Close position', 'danger' + (flattening ? ' on' : ''));
+  if (!flattening) {
+    html += '<button type="button" class="ico edit" data-rp-edit="1" title="Edit settings" aria-label="Edit settings">✎</button>';
+  }
+  html += '</div>';
+  return html;
 }
 
 async function sendBotCmd(pill, cmd) {
@@ -669,13 +668,6 @@ async function sendBotCmd(pill, cmd) {
     cmd: cmd, contract: contract, account: account,
     strategy: pill.dataset.strategy || currentRpnlSel().strategy || (strategyIsAll(currentStrategy) ? '' : currentStrategy),
   };
-  if (cmd === 'max') {
-    const inp = document.getElementById('rpnlMaxInput');
-    const n = Number(inp && inp.value);
-    if (!isFinite(n) || n <= 0) { toast('max must be > 0', 'err'); return; }
-    const usd = !inp || inp.getAttribute('data-usd') !== '0';
-    body.payload = usd ? { max_usd: n } : { max_pos: n };
-  }
   try {
     const r = await fetch('/api/bot/command', {
       method: 'POST',
@@ -689,7 +681,7 @@ async function sendBotCmd(pill, cmd) {
     }
     const msg = cmd === 'flatten' ? 'closing '
       : cmd === 'clear' ? 'clearing pause + limits '
-      : cmd === 'max' ? ('max ' + (body.payload.max_usd != null ? '$' + body.payload.max_usd : body.payload.max_pos) + ' ')
+      : cmd === 'setup' ? 'updating '
       : cmd + ' ';
     toast(msg + name, 'ok');
     setTimeout(() => { if (typeof loadRpnl === 'function') loadRpnl(true); }, 1200);
@@ -1004,7 +996,7 @@ function renderRpnlInspect(row) {
     s && s.trip_why, s && s.probe_hold, s && s.probe_lock_left, s && s.probe_n_have,
     s && s.probe_win_ok, s && s.fate_peak, s && s.grind_rpnl, s && s.pause_clock,
     s && s.probe_rpnl_ready, s && s.probe_chop_ok,
-    s && s.max_usd, s && s.max_pos,
+    s && s.max_usd, s && s.max_pos, s && s.live_orders,
     s && s.pair_hedge, s && s.role, s && s.hedge_of, s && s.hedge_via,
     cfgSig, modeTxt,
   ].join('|');
@@ -1019,12 +1011,6 @@ function renderRpnlInspect(row) {
   box.dataset.strategy = row.strategy || '';
   box.dataset.qsym = qsym;
   box.dataset.hedge = pairHedge ? '1' : '';
-  const maxInp = document.getElementById('rpnlMaxInput');
-  const keepMax = (document.activeElement === maxInp) ? {
-    value: maxInp.value,
-    start: maxInp.selectionStart,
-    end: maxInp.selectionEnd,
-  } : null;
   if (box.dataset.sig === sig && box.innerHTML) return;
   box.dataset.sig = sig;
   box.innerHTML =
@@ -1043,7 +1029,7 @@ function renderRpnlInspect(row) {
         '</div>' +
       '</div>' +
       (function () {
-        const tools = rpnlActsHtml(row) + rpnlMaxHtml(row);
+        const tools = rpnlActsHtml(row);
         return tools ? '<div class="ri-row ri-tools">' + tools + '</div>' : '';
       })() +
     '</div>' +
@@ -1058,27 +1044,21 @@ function renderRpnlInspect(row) {
     '</div>' +
     (pairHedge ? '' : rpnlGatesHtml(s)) +
     '</div>';
-  if (keepMax) {
-    const el = document.getElementById('rpnlMaxInput');
-    if (el) {
-      el.value = keepMax.value;
-      el.focus();
-      try { el.setSelectionRange(keepMax.start, keepMax.end); } catch (e) {}
-    }
-  }
   if (!box.dataset.bound) {
     box.dataset.bound = '1';
     box.addEventListener('click', ev => {
+      const edit = ev.target.closest('[data-rp-edit]');
+      if (edit) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (typeof openRpOpsEdit === 'function') openRpOpsEdit(currentRpnlRow());
+        return;
+      }
       const act = ev.target.closest('[data-bot-cmd]');
       if (!act) return;
       ev.preventDefault();
       ev.stopPropagation();
       sendBotCmd(act.closest('.rpnl-inspect') || box, act.getAttribute('data-bot-cmd'));
-    });
-    box.addEventListener('keydown', ev => {
-      if (ev.key !== 'Enter' || !ev.target || ev.target.id !== 'rpnlMaxInput') return;
-      ev.preventDefault();
-      sendBotCmd(box, 'max');
     });
   }
 }

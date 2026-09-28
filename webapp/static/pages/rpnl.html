@@ -143,8 +143,10 @@
     </div>
     <div class="rp-ops-body">
       <section id="rpOpsLaunch" class="rp-ops-pane">
-        <p class="rp-ops-lead">Start an OPA6 process with this subaccount’s keys. Same contract + account + strategy cannot run twice.</p>
-        <div class="rp-ops-grid">
+        <p class="rp-ops-lead ops-launch-only">Start an OPA6 process with this subaccount’s keys. Same contract + account + strategy cannot run twice.</p>
+        <p class="rp-ops-lead ops-edit-only">Change live knobs on this process. Applies until restart — does not write .env.</p>
+        <div class="rp-ops-edit-meta ops-edit-only" id="opsEditMeta"></div>
+        <div class="rp-ops-grid ops-launch-only">
           <label>Exchange
             <select id="opsVenue" onchange="onOpsVenueChange()"></select>
           </label>
@@ -161,7 +163,7 @@
           </label>
         </div>
         <div class="rp-ops-params" id="opsParams"></div>
-        <details class="rp-ops-extra" id="opsExtraWrap">
+        <details class="rp-ops-extra ops-launch-only" id="opsExtraWrap">
           <summary>More env</summary>
           <textarea id="opsExtra" rows="2" placeholder="TOUCH_TICKS=1"></textarea>
         </details>
@@ -169,8 +171,8 @@
           <button class="btn" type="button" id="opsLaunchBtn" onclick="submitOpsLaunch()">Start</button>
           <span class="rp-ops-msg" id="opsLaunchMsg"></span>
         </div>
-        <h4 class="rp-ops-sub">Dash-started</h4>
-        <div id="opsBots" class="rp-ops-bots"></div>
+        <h4 class="rp-ops-sub ops-launch-only">Dash-started</h4>
+        <div id="opsBots" class="rp-ops-bots ops-launch-only"></div>
       </section>
     </div>
   </div>

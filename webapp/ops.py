@@ -98,6 +98,12 @@ STRATEGIES = [
     {"id": "edge", "label": "Edge", "params": SIZE_PARAMS},
 ]
 
+PAIR_PARAMS = [
+    {"key": "MAX_POSITION", "label": "Max coin", "type": "number", "default": "2"},
+    {"key": "BID_TICKS", "label": "Bid +ticks", "type": "int", "default": "1"},
+    {"key": "ASK_TICKS", "label": "Ask −ticks", "type": "int", "default": "1"},
+]
+
 QUOTE_VENUES = ("delta", "binance", "bybit", "kucoin", "coinbase", "aster")
 
 _prod_cache: dict[str, tuple[float, list[dict]]] = {}

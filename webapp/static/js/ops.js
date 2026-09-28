@@ -3,6 +3,7 @@ let opsAccounts = [];
 let opsProducts = [];
 let opsBots = [];
 let opsReady = false;
+let opsEdit = null;
 
 function opsErr(d, status) {
   const det = d && d.detail;
@@ -14,18 +15,83 @@ function opsErr(d, status) {
   return 'failed ' + status;
 }
 
+function applyOpsMode() {
+  const panel = document.querySelector('#rpOps .rp-ops-panel');
+  const title = document.getElementById('rpOpsTitle');
+  const btn = document.getElementById('opsLaunchBtn');
+  const edit = !!opsEdit;
+  if (panel) panel.classList.toggle('edit', edit);
+  if (title) title.textContent = edit ? ('Edit ' + (opsEdit.qsym || opsEdit.contract || '')) : 'New contract';
+  if (btn) btn.textContent = edit ? 'Apply' : 'Start';
+  const meta = document.getElementById('opsEditMeta');
+  if (meta) {
+    if (!edit) {
+      meta.innerHTML = '';
+    } else {
+      const acct = opsEdit.account_name || opsEdit.account || '';
+      meta.innerHTML = '<b>' + escHtml(opsEdit.qsym || opsEdit.contract || '') + '</b> · ' +
+        escHtml(opsEdit.strategy || '') +
+        (acct ? ' · ' + escHtml(acct) : '') +
+        '<div class="aid">Live until this process restarts — does not write .env</div>';
+    }
+  }
+}
+
 function openRpOps() {
+  opsEdit = null;
   const box = document.getElementById('rpOps');
   if (!box) return;
+  applyOpsMode();
   box.hidden = false;
   document.body.classList.add('ops-open');
-  bootRpOps();
+  bootRpOps().then(() => {
+    fillOpsStrategies();
+    renderOpsParams();
+    setOpsMsg('opsLaunchMsg', '', false);
+  });
+}
+
+function openRpOpsEdit(row) {
+  if (!row || !row.live) return;
+  if (typeof rpnlIsPairHedge === 'function' && rpnlIsPairHedge(row)) {
+    toast('pair hedge is automatic — edit the option contracts', 'err');
+    return;
+  }
+  opsEdit = {
+    contract: row.contract,
+    account: row.account,
+    account_name: row.account_name || '',
+    strategy: String(row.strategy || '').toLowerCase(),
+    venue: row.quote_venue || '',
+    qsym: row.quote_symbol || row.contract,
+    settings: row.settings || {},
+  };
+  const box = document.getElementById('rpOps');
+  if (!box) return;
+  applyOpsMode();
+  box.hidden = false;
+  document.body.classList.add('ops-open');
+  bootRpOps().then(() => {
+    const sel = document.getElementById('opsStrategy');
+    if (sel && opsEdit.strategy) {
+      if (opsEdit.strategy === 'pair' && ![...sel.options].some(o => o.value === 'pair')) {
+        sel.insertAdjacentHTML('beforeend', '<option value="pair">Pair</option>');
+      }
+      if ([...sel.options].some(o => o.value === opsEdit.strategy)) sel.value = opsEdit.strategy;
+    }
+    renderOpsParams();
+    fillOpsFromSetup(opsEdit.settings);
+    setOpsMsg('opsLaunchMsg', '', false);
+  });
 }
 
 function closeRpOps() {
   const box = document.getElementById('rpOps');
   if (box) box.hidden = true;
   document.body.classList.remove('ops-open');
+  opsEdit = null;
+  applyOpsMode();
+  if (opsCatalog) fillOpsStrategies();
 }
 
 async function bootRpOps() {
@@ -35,8 +101,8 @@ async function bootRpOps() {
       opsCatalog = r.ok ? await r.json() : { venues: [], strategies: [] };
       fillOpsVenues();
       fillOpsStrategies();
-      renderOpsParams();
     }
+    if (opsEdit) return;
     await onOpsVenueChange();
     await refreshOpsBots();
   } catch (e) {
@@ -119,7 +185,10 @@ function onOpsContractMeta() {
 }
 
 function opsStrategySpec() {
-  const id = (document.getElementById('opsStrategy') || {}).value || '';
+  const id = (opsEdit && opsEdit.strategy) || (document.getElementById('opsStrategy') || {}).value || '';
+  if (id === 'pair') {
+    return { id: 'pair', label: 'Pair', params: (opsCatalog && opsCatalog.pair_params) || [] };
+  }
   return ((opsCatalog && opsCatalog.strategies) || []).find(s => s.id === id) || { params: [] };
 }
 
@@ -147,6 +216,7 @@ function opsGeomRowUnit(id) {
 }
 
 function persistOpsGeom() {
+  if (opsEdit) return;
   const state = opsGeomState();
   opsGeomLens().forEach(g => {
     const row = document.querySelector('#opsGeom [data-geom="' + g.id + '"]');
@@ -298,15 +368,17 @@ function validateOpsGeom() {
 function collectOpsParams() {
   const spec = opsStrategySpec();
   const out = {};
-  const extra = (document.getElementById('opsExtra') || {}).value || '';
-  extra.split('\n').forEach(line => {
-    const s = line.trim();
-    if (!s || s.startsWith('#') || s.indexOf('=') < 0) return;
-    const i = s.indexOf('=');
-    const k = s.slice(0, i).trim().toUpperCase();
-    const v = s.slice(i + 1).trim();
-    if (k && v) out[k] = v;
-  });
+  if (!opsEdit) {
+    const extra = (document.getElementById('opsExtra') || {}).value || '';
+    extra.split('\n').forEach(line => {
+      const s = line.trim();
+      if (!s || s.startsWith('#') || s.indexOf('=') < 0) return;
+      const i = s.indexOf('=');
+      const k = s.slice(0, i).trim().toUpperCase();
+      const v = s.slice(i + 1).trim();
+      if (k && v) out[k] = v;
+    });
+  }
   (spec.params || []).forEach(p => {
     if (p.type === 'geom') return;
     const el = document.getElementById('opsP_' + p.key);
@@ -325,7 +397,69 @@ function setOpsMsg(id, text, err) {
   el.classList.toggle('err', !!err);
 }
 
+function opsBool(v) {
+  return v === true || v === 'true' || v === 'on' || v === 1 || v === '1';
+}
+
+function fillOpsFromSetup(s) {
+  s = s || {};
+  const setNum = (id, v) => {
+    const el = document.getElementById(id);
+    if (!el || v == null || v === '') return;
+    el.value = String(v);
+  };
+  const setChk = (id, v, present) => {
+    const el = document.getElementById(id);
+    if (!el || present === false) return;
+    el.checked = opsBool(v);
+  };
+  const setSel = (id, v) => {
+    const el = document.getElementById(id);
+    if (!el || v == null || v === '') return;
+    const t = String(v);
+    if ([...el.options].some(o => o.value === t)) el.value = t;
+  };
+  if (s.max_usd != null) {
+    setNum('opsP_MAX_POSITION', s.max_usd);
+    setChk('opsP_MAX_IN_USD', true, true);
+  } else if (s.max_pos != null) {
+    setNum('opsP_MAX_POSITION', s.max_pos);
+    setChk('opsP_MAX_IN_USD', false, true);
+  }
+  setNum('opsP_ORDERS', s.orders);
+  setSel('opsP_HOOK', s.hook);
+  setSel('opsP_STEP_MULT', s.step_mult);
+  if (s.fit_auto != null) setChk('opsP_FIT_AUTO', s.fit_auto, true);
+  if (s.fit_auto != null || s.step_auto != null) setChk('opsP_STEP_AUTO', s.fit_auto != null ? s.fit_auto : s.step_auto, true);
+  if (s.span_spread != null) setChk('opsP_SPAN_SPREAD', s.span_spread, true);
+  if (s.vol_gate != null) setChk('opsP_VOL_GATE', s.vol_gate, true);
+  setNum('opsP_FATE_USD', s.fate);
+  setNum('opsP_GRIND_USD', s.grind);
+  if (s.dry_run != null) setChk('opsP_DRY_RUN', s.dry_run, true);
+  setNum('opsP_BID_TICKS', s.bid_ticks);
+  setNum('opsP_ASK_TICKS', s.ask_ticks);
+  setNum('opsP_STEP_PCT', s.step);
+  opsGeomLens().forEach(g => {
+    const ticks = s[g.id + '_ticks'];
+    const pct = s[g.id];
+    const row = document.querySelector('#opsGeom [data-geom="' + g.id + '"]');
+    const inp = document.getElementById('opsG_' + g.id);
+    if (!row || !inp) return;
+    if (pct != null && pct !== '') row.dataset.pct = String(pct);
+    if (ticks != null && ticks !== '') row.dataset.ticks = String(ticks);
+    const useTicks = ticks != null && Number(ticks) > 0;
+    row.querySelectorAll('.rp-ops-unit button').forEach(b => {
+      b.classList.toggle('on', b.getAttribute('data-unit') === (useTicks ? 'ticks' : 'pct'));
+    });
+    inp.step = useTicks ? '1' : 'any';
+    inp.min = useTicks ? '1' : '0';
+    inp.value = useTicks ? String(ticks) : (pct != null && pct !== '' ? String(pct) : inp.value);
+  });
+  updateOpsGeomSum();
+}
+
 async function submitOpsLaunch() {
+  if (opsEdit) return submitOpsEdit();
   const venue = opsVenue();
   const account = (document.getElementById('opsAccount') || {}).value || '';
   const contract = ((document.getElementById('opsContract') || {}).value || '').trim();
@@ -356,6 +490,53 @@ async function submitOpsLaunch() {
     toast('started ' + strategy + ' ' + contract, 'ok');
     await refreshOpsBots();
     setTimeout(() => { if (typeof loadRpnl === 'function') loadRpnl(true); }, 2500);
+  } catch (e) {
+    setOpsMsg('opsLaunchMsg', String(e), true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function submitOpsEdit() {
+  if (!opsEdit) return;
+  const geomErr = validateOpsGeom();
+  if (geomErr) return setOpsMsg('opsLaunchMsg', geomErr, true);
+  const payload = collectOpsParams();
+  if (payload.MAX_POSITION != null && payload.max_usd == null && payload.max_pos == null) {
+    const usd = payload.MAX_IN_USD;
+    if (usd === false || usd === 'false') payload.max_pos = payload.MAX_POSITION;
+    else if (usd === true || usd === 'true' || (opsEdit.settings && opsEdit.settings.max_usd != null)) {
+      payload.max_usd = payload.MAX_POSITION;
+    } else if (opsEdit.settings && opsEdit.settings.max_pos != null) {
+      payload.max_pos = payload.MAX_POSITION;
+    } else {
+      payload.max_usd = payload.MAX_POSITION;
+    }
+  }
+  const btn = document.getElementById('opsLaunchBtn');
+  if (btn) btn.disabled = true;
+  setOpsMsg('opsLaunchMsg', 'Applying…', false);
+  const name = opsEdit.qsym || opsEdit.contract;
+  try {
+    const r = await fetch('/api/bot/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cmd: 'setup',
+        contract: opsEdit.contract,
+        account: opsEdit.account,
+        strategy: opsEdit.strategy,
+        payload,
+      }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setOpsMsg('opsLaunchMsg', opsErr(d, r.status), true);
+      return;
+    }
+    toast('updated ' + name, 'ok');
+    closeRpOps();
+    setTimeout(() => { if (typeof loadRpnl === 'function') loadRpnl(true); }, 1200);
   } catch (e) {
     setOpsMsg('opsLaunchMsg', String(e), true);
   } finally {
@@ -420,5 +601,7 @@ document.addEventListener('click', ev => {
   if (box && !box.hidden && ev.target === box) closeRpOps();
 });
 document.addEventListener('keydown', ev => {
-  if (ev.key === 'Escape') closeRpOps();
+  if (ev.key !== 'Escape') return;
+  const box = document.getElementById('rpOps');
+  if (box && !box.hidden) closeRpOps();
 });

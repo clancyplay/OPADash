@@ -1794,9 +1794,34 @@ _BOT_CMDS = {
     "set_max": "max",
     "max_position": "max",
     "max_usd": "max",
+    "setup": "setup",
+    "set": "setup",
+    "knobs": "setup",
+    "edit": "setup",
 }
 
 _MAX_POS_ABS_CAP = 50_000_000.0
+
+_SETUP_KEYS = frozenset({
+    "HEM_PCT", "SPAN_PCT", "STEP_PCT",
+    "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS",
+    "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",
+    "FATE_USD", "GRIND_USD",
+    "FIT_AUTO", "SPAN_SPREAD", "VOL_GATE", "STEP_AUTO", "DRY_RUN", "MAX_IN_USD",
+    "HOOK", "STEP_MULT", "MAX_POSITION",
+    "max_usd", "max_pos",
+})
+_SETUP_BOOL = frozenset({
+    "FIT_AUTO", "SPAN_SPREAD", "VOL_GATE", "STEP_AUTO", "DRY_RUN", "MAX_IN_USD",
+})
+_SETUP_INT = frozenset({
+    "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS", "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",
+})
+_SETUP_NUM = frozenset({
+    "HEM_PCT", "SPAN_PCT", "STEP_PCT", "FATE_USD", "GRIND_USD", "MAX_POSITION", "max_usd", "max_pos",
+})
+_SETUP_HOOK = frozenset({"position", "liquidity", "bid", "ask"})
+_SETUP_MULT = frozenset({"1", "2", "3", "log", "log2", "log10", "ln", "e"})
 
 
 def _max_payload(payload: dict | None) -> dict:
@@ -1815,12 +1840,64 @@ def _max_payload(payload: dict | None) -> dict:
     return {key: n}
 
 
+def _setup_payload(payload: dict | None) -> dict:
+    raw = payload if isinstance(payload, dict) else {}
+    out: dict = {}
+    for key, val in raw.items():
+        name = str(key or "").strip()
+        if name not in _SETUP_KEYS or val is None or val == "":
+            continue
+        if name in _SETUP_BOOL:
+            if isinstance(val, bool):
+                out[name] = val
+            else:
+                out[name] = str(val).strip().lower() in ("1", "true", "yes", "on")
+            continue
+        if name in _SETUP_INT:
+            try:
+                n = int(float(val))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{name} invalid")
+            if n < 0:
+                raise HTTPException(status_code=400, detail=f"{name} must be ≥ 0")
+            if name == "ORDERS" and n < 1:
+                raise HTTPException(status_code=400, detail="ORDERS must be ≥ 1")
+            out[name] = n
+            continue
+        if name in _SETUP_NUM:
+            try:
+                n = float(val)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{name} invalid")
+            if n != n or n < 0 or n > _MAX_POS_ABS_CAP:
+                raise HTTPException(status_code=400, detail=f"{name} out of range")
+            if name in ("max_usd", "max_pos", "MAX_POSITION") and n <= 0:
+                raise HTTPException(status_code=400, detail="max must be > 0")
+            out[name] = n
+            continue
+        if name == "HOOK":
+            h = str(val).strip().lower()
+            if h not in _SETUP_HOOK:
+                raise HTTPException(status_code=400, detail="HOOK invalid")
+            out[name] = h
+            continue
+        if name == "STEP_MULT":
+            t = str(val).strip()
+            if t.lower() not in _SETUP_MULT:
+                raise HTTPException(status_code=400, detail="STEP_MULT invalid")
+            out[name] = t
+            continue
+    if not out:
+        raise HTTPException(status_code=400, detail="setup payload required")
+    return out
+
+
 @app.post("/api/bot/command")
 async def bot_command(
     req: BotCommandRequest,
     strategy: str = Query(""),
 ) -> dict:
-    """Queue stop / resume / cancel / clear / flatten / max for a live OPA6 contract. Bot polls ~0.6s."""
+    """Queue stop / resume / cancel / clear / flatten / max / setup for a live OPA6 contract. Bot polls ~0.6s."""
     if _db is None or not _db.pool:
         raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
     cmd = _BOT_CMDS.get(str(req.cmd or "").strip().lower())
@@ -1845,7 +1922,12 @@ async def bot_command(
             status_code=400,
             detail="pair hedge is managed automatically — stop/max the option contracts, not " + contract,
         )
-    payload = _max_payload(req.payload) if cmd == "max" else (req.payload if isinstance(req.payload, dict) else None)
+    if cmd == "max":
+        payload = _max_payload(req.payload)
+    elif cmd == "setup":
+        payload = _setup_payload(req.payload)
+    else:
+        payload = req.payload if isinstance(req.payload, dict) else None
     cmd_id = await _db.insert_bot_command(
         tag, str(req.account or "").strip(), contract, cmd, created_by="dashboard", payload=payload,
     )
@@ -1881,6 +1963,7 @@ async def ops_strategies() -> dict:
         "strategies": dash_ops.strategy_catalog(),
         "opa6": str(dash_launch.opa6_root()),
         "geom": dash_ops.GEOM_LENS,
+        "pair_params": dash_ops.PAIR_PARAMS,
         **dash_ops.parent_status(),
     }
 

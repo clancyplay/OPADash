@@ -269,35 +269,34 @@ body:has(#rpnl.visible) {
   border-radius: 4px; padding: 2px 6px; white-space: nowrap;
 }
 .rpnl-inspect .p-cfg.none { color: var(--muted); font-size: 11px; }
-.rpnl-inspect .p-acts { display: flex; flex-wrap: nowrap; gap: 4px; flex: 0 0 auto; }
+.rpnl-inspect .p-acts { display: flex; flex-wrap: nowrap; gap: 4px; flex: 1 1 auto; align-items: center; }
 .rpnl-inspect .p-acts button {
   font-size: 11px; font-weight: 650;
-  padding: 0 9px; height: 26px; border-radius: 6px; cursor: pointer;
+  padding: 0 9px; height: 28px; border-radius: 7px; cursor: pointer;
   border: 1px solid var(--border2); background: rgba(255, 255, 255, .06);
   color: #c5cdd8; font-family: inherit;
-  min-height: 26px; flex: 0 0 auto; white-space: nowrap; line-height: 1;
+  min-height: 28px; flex: 0 0 auto; white-space: nowrap; line-height: 1;
 }
-.rpnl-inspect .p-acts button.danger { color: #f07178; }
+.rpnl-inspect .p-acts button.ico {
+  width: 28px; min-width: 28px; padding: 0;
+  font-size: 13px; font-weight: 700; letter-spacing: 0;
+}
+.rpnl-inspect .p-acts button.go { color: #8bd98b; }
+.rpnl-inspect .p-acts button.edit {
+  margin-left: auto;
+  color: #9ecbff;
+}
+.rpnl-inspect .p-acts button.danger { color: #f48fb1; }
 .rpnl-inspect .p-acts button.on {
   background: rgba(240, 198, 116, .16); color: #f0c674;
   border-color: rgba(240, 198, 116, .45);
 }
+.rpnl-inspect .p-acts button.danger.on {
+  background: rgba(240, 113, 120, .16); color: #f48fb1;
+  border-color: rgba(240, 113, 120, .45);
+}
 .rpnl-inspect .p-acts button:disabled { opacity: .4; cursor: default; }
-.rpnl-inspect .ri-max { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; margin-left: auto; }
-.rpnl-inspect .ri-max label { font-size: 10px; color: #9aa3b8; font-weight: 650; white-space: nowrap; }
-.rpnl-inspect .ri-max input,
-.rpnl-inspect .ri-max input[type="number"] {
-  width: 68px; height: 26px; min-height: 26px;
-  font-size: 12px; font-variant-numeric: tabular-nums; line-height: 1;
-  padding: 0 6px; border-radius: 6px; font-family: inherit;
-  border: 1px solid var(--border2); background: rgba(255, 255, 255, .06); color: #e6edf3;
-}
-.rpnl-inspect .ri-max button {
-  font-size: 11px; font-weight: 650; height: 26px; min-height: 26px;
-  padding: 0 9px; border-radius: 6px; cursor: pointer; line-height: 1;
-  border: 1px solid var(--border2); background: rgba(255, 255, 255, .06);
-  color: #c5cdd8; font-family: inherit; white-space: nowrap;
-}
+.rpnl-inspect .ri-max { display: none; }
 .rpnl-inspect .ri-gates {
   display: flex; flex-direction: column; gap: 2px;
   font-size: 11px; color: #9aa3b8; line-height: 1.4;
@@ -751,16 +750,10 @@ body:has(#rpnl.visible) {
   .ri-fold { width: 22px; height: 22px; font-size: 10px; }
   .rpnl-inspect .p-acts { gap: 3px; }
   .rpnl-inspect .p-acts button {
-    height: 26px; min-height: 26px; padding: 0 7px; font-size: 10px;
+    height: 30px; min-height: 30px; padding: 0 7px; font-size: 10px;
   }
-  .rpnl-inspect .ri-max { gap: 4px; }
-  .rpnl-inspect .ri-max label { font-size: 9px; }
-  .rpnl-inspect .ri-max input,
-  .rpnl-inspect .ri-max input[type="number"] {
-    height: 26px; min-height: 26px; padding: 0 5px; width: 58px; font-size: 16px;
-  }
-  .rpnl-inspect .ri-max button {
-    height: 26px; min-height: 26px; padding: 0 7px; font-size: 10px;
+  .rpnl-inspect .p-acts button.ico {
+    width: 30px; min-width: 30px; font-size: 14px;
   }
 
   .rp-pane-lab { right: 48px; top: 6px; font-size: 9px; }
@@ -875,6 +868,13 @@ body.ops-open { overflow: hidden; }
 .rp-ops-h h3 {
   margin: 0; font-size: 14px; font-weight: 700; color: #fff;
 }
+.rp-ops-panel.edit .ops-launch-only,
+.rp-ops-panel:not(.edit) .ops-edit-only { display: none !important; }
+.rp-ops-edit-meta {
+  margin: 0 0 12px;
+  font-size: 13px; font-weight: 650; color: #fff;
+}
+.rp-ops-edit-meta .aid { font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 3px; }
 .rp-ops-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 14px 18px; }
 .rp-ops-lead { margin: 0 0 12px; font-size: 12px; color: var(--muted); line-height: 1.45; }
 .rp-ops-grid {
