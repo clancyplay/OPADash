@@ -2249,25 +2249,54 @@ async def _opp_running() -> list[dict]:
     """Live pings plus dash-started processes, for the opportunities page."""
     names = dict(dash_ops.account_names())
     rows: list[dict] = []
-    seen: set[tuple] = set()
+
+    def _tags(account: str, account_name: str) -> set[str]:
+        tags = set()
+        if account:
+            tags.add(account.lower())
+        label = (account_name or names.get(account) or "").strip()
+        if label:
+            tags.add(label.lower())
+        for aid, nm in names.items():
+            aid_l = str(aid or "").strip().lower()
+            nm_l = str(nm or "").strip().lower()
+            if tags.intersection({aid_l, nm_l}):
+                if aid_l:
+                    tags.add(aid_l)
+                if nm_l:
+                    tags.add(nm_l)
+        return tags
 
     def add(contract, account, strategy, venue, account_name: str = "") -> None:
         contract = str(contract or "").strip()
         if not contract:
             return
         account = str(account or "").strip()
-        strategy = str(strategy or "").strip()
+        strategy = str(strategy or "").strip().lower()
         venue = str(venue or "").strip().lower()
-        key = (contract.upper(), account, strategy.lower(), venue)
-        if key in seen:
+        label = (account_name or names.get(account) or "").strip()
+        ckey = canon_contract(contract) or contract.upper()
+        tags = _tags(account, label)
+        for row in rows:
+            if row.get("_ck") != ckey or row.get("_sk") != strategy:
+                continue
+            if tags and row["_tags"] and not (tags & row["_tags"]):
+                continue
+            row["_tags"] |= tags
+            if venue and not row["venue"]:
+                row["venue"] = venue
+            if label and not row["account_name"]:
+                row["account_name"] = label
             return
-        seen.add(key)
         rows.append({
             "contract": contract,
             "account": account,
-            "account_name": account_name or names.get(account) or "",
+            "account_name": label,
             "strategy": strategy,
             "venue": venue,
+            "_ck": ckey,
+            "_sk": strategy,
+            "_tags": tags,
         })
 
     if _db is not None and _db.pool:
@@ -2310,6 +2339,10 @@ async def _opp_running() -> list[dict]:
             )
     except Exception as extra:
         logger.debug("webapp: opp launches failed — %s", extra)
+    for row in rows:
+        row.pop("_ck", None)
+        row.pop("_sk", None)
+        row.pop("_tags", None)
     return rows
 
 
