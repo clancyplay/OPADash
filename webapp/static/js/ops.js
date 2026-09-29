@@ -147,7 +147,10 @@ async function bootRpOps() {
       fillOpsStrategies();
     }
     applyOpsMode();
-    if (opsEdit) return;
+    if (opsEdit) {
+      await refreshOpsBots();
+      return;
+    }
     await onOpsVenueChange();
     await refreshOpsBots();
   } catch (e) {
@@ -1122,6 +1125,27 @@ async function submitOpsEdit() {
   }
 }
 
+function opsBotForEdit() {
+  if (!opsEdit) return null;
+  const norm = v => String(v || '').toUpperCase().replace(/[-_]/g, '');
+  const want = [norm(opsEdit.contract), norm(opsEdit.qsym)].filter(Boolean);
+  const strat = String(opsEdit.strategy || '').toLowerCase();
+  const tags = [opsEdit.account, opsEdit.account_name].map(v => String(v || '')).filter(Boolean);
+  const rows = (opsBots || []).filter(b => String(b.strategy || '').toLowerCase() === strat);
+  const sameContract = rows.filter(b => {
+    const bc = norm(b.contract);
+    return want.some(w => w && bc === w);
+  });
+  const exact = sameContract.filter(b => {
+    const ba = String(b.account || '');
+    const bn = String(b.account_name || '');
+    return tags.some(tag => tag === ba || tag === bn);
+  });
+  if (exact.length === 1) return exact[0];
+  if (sameContract.length === 1) return sameContract[0];
+  return null;
+}
+
 async function submitOpsRemove() {
   if (!opsEdit) return;
   const rail = opsCatalog && opsCatalog.launch === 'railway';
@@ -1132,13 +1156,17 @@ async function submitOpsRemove() {
   const btn = document.getElementById('opsRemoveBtn');
   if (btn) btn.disabled = true;
   setOpsMsg('opsLaunchMsg', rail ? 'Removing service…' : 'Stopping…', false);
+  const known = opsBotForEdit();
   try {
     const r = await fetch('/api/ops/bots/stop', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        id: (known && known.id) || '',
         contract: opsEdit.contract,
+        quote: opsEdit.qsym || '',
         account: opsEdit.account,
+        account_name: opsEdit.account_name || '',
         strategy: opsEdit.strategy,
       }),
     });

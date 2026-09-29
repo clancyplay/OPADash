@@ -278,6 +278,34 @@ def _source_of(svc: dict) -> dict:
     return {"repo": repo, "branch": branch}
 
 
+def _split_svc(name: str) -> tuple[str, str, str]:
+    """dash-strategy-contract-account. Account names may contain hyphens."""
+    parts = [p for p in str(name or "").split("-") if p]
+    strategy = parts[1] if len(parts) > 1 else ""
+    tail = "-".join(parts[2:]) if len(parts) > 2 else ""
+    known: list[str] = []
+    try:
+        from webapp.ops import load_wallet_accounts
+        for acct in load_wallet_accounts():
+            for tag in (acct.get("name"), acct.get("id")):
+                text = str(tag or "").strip()
+                if text and text not in known:
+                    known.append(text)
+    except Exception:
+        known = []
+    known.sort(key=len, reverse=True)
+    low = tail.lower()
+    for tag in known:
+        suffix = "-" + tag
+        if low.endswith(suffix.lower()) and len(tail) > len(suffix):
+            return strategy, tail[: -len(suffix)], tag
+    if len(parts) > 3:
+        return strategy, "-".join(parts[2:-1]), parts[-1]
+    if len(parts) > 2:
+        return strategy, tail, ""
+    return strategy, "", ""
+
+
 def _svc_name(strategy: str, contract: str, account: str) -> str:
     bits = ["dash", strategy, contract, account]
     raw = "-".join(str(b or "").strip() for b in bits if str(b or "").strip())
@@ -581,10 +609,7 @@ def list_bots() -> list[dict]:
         if isinstance(dep, dict):
             status = str(dep.get("status") or "")
         alive = status.upper() not in ("CRASHED", "FAILED", "REMOVED", "SKIPPED")
-        parts = name.split("-")
-        strategy = parts[1] if len(parts) > 1 else ""
-        contract = "-".join(parts[2:-1]) if len(parts) > 3 else ("-".join(parts[2:]) if len(parts) > 2 else "")
-        account = parts[-1] if len(parts) > 3 else ""
+        strategy, contract, account = _split_svc(name)
         out.append({
             "id": str(svc.get("id") or ""),
             "pid": 0,

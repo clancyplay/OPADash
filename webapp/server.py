@@ -1976,7 +1976,9 @@ class LaunchRequest(BaseModel):
 class LaunchStopRequest(BaseModel):
     id: str = ""
     contract: str = ""
+    quote: str = ""
     account: str = ""
+    account_name: str = ""
     strategy: str = ""
 
 
@@ -2166,10 +2168,73 @@ async def ops_launch(req: LaunchRequest) -> dict:
     return {"ok": True, "bot": rec}
 
 
+async def _stop_aliases(account: str, account_name: str = "") -> list[str]:
+    """Exchange account id, configured name, and the balance-table label are one subaccount."""
+    aliases: set[str] = set()
+    for raw in (account, account_name):
+        text = str(raw or "").strip()
+        if text:
+            aliases.add(text)
+    try:
+        named = dash_ops.account_names()
+    except Exception:
+        named = {}
+    for tag in list(aliases):
+        mapped = named.get(tag)
+        if mapped:
+            aliases.add(mapped)
+    for aid, nm in named.items():
+        if aliases.intersection({aid, nm}):
+            if aid:
+                aliases.add(aid)
+            if nm:
+                aliases.add(nm)
+    try:
+        for acct in dash_ops.load_wallet_accounts():
+            aid = str(acct.get("id") or "").strip()
+            nm = str(acct.get("name") or "").strip()
+            if aliases.intersection({aid, nm}):
+                if aid:
+                    aliases.add(aid)
+                if nm:
+                    aliases.add(nm)
+    except Exception:
+        pass
+    if _db is not None and _db.pool and aliases:
+        try:
+            async with _db.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT DISTINCT account, account_name
+                    FROM account_balances
+                    WHERE account = ANY($1::text[])
+                       OR account_name = ANY($1::text[])
+                    """,
+                    list(aliases),
+                )
+            for rec in rows:
+                aid = str(rec["account"] or "").strip()
+                nm = str(rec["account_name"] or "").strip()
+                if aid:
+                    aliases.add(aid)
+                if nm:
+                    aliases.add(nm)
+        except Exception as extra:
+            logger.debug("webapp: stop aliases failed — %s", extra)
+    return [a for a in aliases if a]
+
+
 @app.post("/api/ops/bots/stop")
 async def ops_bot_stop(req: LaunchStopRequest) -> dict:
+    aliases = await _stop_aliases(req.account, req.account_name)
+    contracts = [req.quote] if (req.quote or "").strip() else None
     rec = dash_launch.find_bot(
-        bot_id=req.id, contract=req.contract, account=req.account, strategy=req.strategy,
+        bot_id=req.id,
+        contract=req.contract,
+        account=req.account,
+        strategy=req.strategy,
+        aliases=aliases,
+        contracts=contracts,
     )
     if rec is None:
         raise HTTPException(

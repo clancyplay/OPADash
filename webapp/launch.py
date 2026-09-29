@@ -196,8 +196,20 @@ def _norm_contract(value: str) -> str:
     return str(value or "").strip().upper().replace("-", "").replace("_", "")
 
 
-def find_bot(*, bot_id: str = "", contract: str = "", account: str = "", strategy: str = "") -> dict | None:
-    """Match a dash-started process / Railway service."""
+def find_bot(
+    *,
+    bot_id: str = "",
+    contract: str = "",
+    account: str = "",
+    strategy: str = "",
+    aliases: list[str] | None = None,
+    contracts: list[str] | None = None,
+) -> dict | None:
+    """Match a dash-started process / Railway service.
+
+    The rPnL card knows the exchange account id. The Railway service is named
+    with the configured account name. `aliases` bridges those.
+    """
     rows = list_bots(reap=False)
     want_id = str(bot_id or "").strip()
     if want_id:
@@ -205,60 +217,73 @@ def find_bot(*, bot_id: str = "", contract: str = "", account: str = "", strateg
             if str(rec.get("id") or "") == want_id:
                 return rec
         return None
-    c = str(contract or "").strip()
+    wanted = []
+    for raw in [contract, *(contracts or [])]:
+        text = str(raw or "").strip()
+        if text and text not in wanted:
+            wanted.append(text)
     a = str(account or "").strip()
     s = str(strategy or "").strip().lower()
-    if not c or not s:
+    if not wanted or not s:
         return None
-    cn = _norm_contract(c)
-    acct_aliases = {a}
+    acct_aliases = {a} if a else set()
+    for extra in aliases or []:
+        text = str(extra or "").strip()
+        if text:
+            acct_aliases.add(text)
     try:
         from webapp.ops import account_names
         named = account_names()
-        if a in named:
-            acct_aliases.add(named[a])
+        for tag in list(acct_aliases):
+            if tag in named and named[tag]:
+                acct_aliases.add(named[tag])
         for aid, nm in named.items():
-            if nm == a:
-                acct_aliases.add(aid)
+            if a and a in (aid, nm):
+                if aid:
+                    acct_aliases.add(aid)
+                if nm:
+                    acct_aliases.add(nm)
     except Exception:
         pass
     names: set[str] = set()
     try:
         from webapp.railway import _svc_name
-        for tag in list(acct_aliases) + [""]:
-            if tag:
-                names.add(_svc_name(s, c, tag))
-                names.add(_svc_name(s, c.upper(), tag))
-        for rec in rows:
-            names.add(_svc_name(s, c, rec.get("account") or ""))
-            names.add(_svc_name(s, c, rec.get("account_name") or ""))
+        for variant in wanted:
+            for tag in acct_aliases:
+                names.add(_svc_name(s, variant, tag))
+                names.add(_svc_name(s, variant.upper(), tag))
     except Exception:
         pass
-    hits: list[dict] = []
-    for rec in rows:
-        if str(rec.get("strategy") or "").lower() != s:
-            continue
-        svc = str(rec.get("service") or "")
+    norms = {_norm_contract(v) for v in wanted}
+
+    def _contract_hit(rec: dict) -> bool:
         rc = str(rec.get("contract") or "")
+        if rc and (rc in wanted or rc.upper() in {v.upper() for v in wanted} or _norm_contract(rc) in norms):
+            return True
+        svc = str(rec.get("service") or "")
+        return bool(svc and svc in names)
+
+    def _account_hit(rec: dict) -> bool:
+        if not acct_aliases:
+            return True
         ra = str(rec.get("account") or "")
         rn = str(rec.get("account_name") or "")
-        name_hit = bool(svc and svc in names)
-        acct_hit = (not a) or ra in acct_aliases or rn in acct_aliases or a in (ra, rn) or (not ra and not rn)
-        c_hit = (not rc) or rc.upper() == c.upper() or _norm_contract(rc) == cn
-        if name_hit or (acct_hit and c_hit):
-            hits.append(rec)
-    if not hits:
+        return ra in acct_aliases or rn in acct_aliases or (not ra and not rn)
+
+    same = [
+        rec for rec in rows
+        if str(rec.get("strategy") or "").lower() == s and _contract_hit(rec)
+    ]
+    if not same:
         return None
-    if a:
-        exact = [
-            h for h in hits
-            if a in (str(h.get("account") or ""), str(h.get("account_name") or ""))
-            or str(h.get("account") or "") in acct_aliases
-            or str(h.get("account_name") or "") in acct_aliases
-        ]
-        if exact:
-            return exact[0]
-    return hits[0]
+    exact = [rec for rec in same if _account_hit(rec)]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        return exact[0]
+    if len(same) == 1:
+        return same[0]
+    return None
 
 
 def _public(rec: dict) -> dict:
