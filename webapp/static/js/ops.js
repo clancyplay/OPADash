@@ -1003,6 +1003,7 @@ function fillOpsFromSetup(s) {
 }
 
 async function waitForRpnlPill(contract, account, strategy, rail) {
+  waitForRpnlPill.saw = false;
   const c = String(contract || '').trim();
   const wants = [c + '::' + account + '::' + strategy, c.toUpperCase() + '::' + account + '::' + strategy];
   const sel = document.getElementById('rpnlSymbol');
@@ -1016,6 +1017,9 @@ async function waitForRpnlPill(contract, account, strategy, rail) {
     sel.value = wants[1];
     if (typeof rpnlForceKeepSel !== 'undefined') rpnlForceKeepSel = true;
   }
+  if (typeof loadRpnl === 'function') {
+    try { await loadRpnl(true); } catch (e) {}
+  }
   const tries = rail ? 50 : 12;
   const gap = rail ? 4000 : 2000;
   for (let i = 0; i < tries; i++) {
@@ -1025,10 +1029,24 @@ async function waitForRpnlPill(contract, account, strategy, rail) {
     }
     const box = document.getElementById('rpnlSymbol');
     if (!box) continue;
+    const row = (typeof rpnlSummaryCache !== 'undefined' ? rpnlSummaryCache : []).find(r =>
+      (typeof rpnlCanonSym === 'function' ? rpnlCanonSym(r.contract) === rpnlCanonSym(c) : String(r.contract || '').toUpperCase() === c.toUpperCase())
+      && String(r.strategy || '').toLowerCase() === String(strategy || '').toLowerCase()
+    );
+    if (row && typeof rpnlIsBooting === 'function' && rpnlIsBooting(row)) {
+      const label = typeof rpnlBootLabel === 'function' ? rpnlBootLabel(row) : 'Queued';
+      if (!waitForRpnlPill.saw) {
+        waitForRpnlPill.saw = true;
+        toast(label.toLowerCase() + ' · ' + strategy + ' ' + c.toUpperCase(), 'ok');
+      }
+      if (typeof closeRpOps === 'function') closeRpOps();
+      setOpsMsg('opsLaunchMsg', 'rPnL pill is up. Railway is still ' + label.toLowerCase() + '.', false);
+      continue;
+    }
     const hit = [...box.options].find(o =>
       wants.some(w => o.value === w || (typeof rpnlSelMatch === 'function' && rpnlSelMatch(o.value, w)))
     );
-    if (hit && (hit.textContent || '').indexOf('starting') < 0) {
+    if (row && row.live && hit && (hit.textContent || '').indexOf('starting') < 0) {
       box.value = hit.value;
       if (typeof loadRpnl === 'function') {
         try { await loadRpnl(false); } catch (e) {}

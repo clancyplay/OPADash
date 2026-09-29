@@ -11,10 +11,10 @@ async function fetchRpnlSymbols() {
       sel.innerHTML = '<option value="">No data in DB</option>';
     } else {
       const keep = sel.value;
-      list.sort((a, b) => Number(!!b.live) - Number(!!a.live));
+      list.sort((a, b) => rpnlRowRank(a) - rpnlRowRank(b));
       sel.innerHTML = list.map(c =>
         '<option value="' + escHtml(rpnlOptionValue(c)) + '">' +
-          escHtml((c.live ? '● ' : '') + (c.label || c.contract)) + '</option>'
+          escHtml(rpnlSelMark(c) + (c.label || c.contract)) + '</option>'
       ).join('');
       if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
       else {
@@ -28,6 +28,27 @@ async function fetchRpnlSymbols() {
   }
 }
 
+function rpnlBootLabel(r) {
+  const d = String((r && r.deploy) || '').trim().toLowerCase();
+  if (d === 'building') return 'Building';
+  if (d === 'deploying') return 'Deploying';
+  if (d === 'starting') return 'Starting';
+  if (d === 'queued') return 'Queued';
+  return d ? d.charAt(0).toUpperCase() + d.slice(1) : '';
+}
+function rpnlIsBooting(r) {
+  return !!(r && r.deploy && !r.live);
+}
+function rpnlRowRank(r) {
+  if (rpnlIsBooting(r)) return 0;
+  if (r && r.live) return 1;
+  return 2;
+}
+function rpnlSelMark(c) {
+  if (c && c.live) return '● ';
+  if (rpnlIsBooting(c)) return '◌ ';
+  return '';
+}
 function rpnlOptionValue(r) {
   return (r.contract || '') + '::' + (r.account || '') + '::' + (r.strategy || '');
 }
@@ -857,7 +878,7 @@ function rpnlWindowFillCount(r) {
 }
 
 function filterRpnlWindowRows(rows) {
-  return (Array.isArray(rows) ? rows : []).filter(r => r.live || rpnlWindowFillCount(r) > 0);
+  return (Array.isArray(rows) ? rows : []).filter(r => r.live || rpnlIsBooting(r) || rpnlWindowFillCount(r) > 0);
 }
 
 function syncRpnlSymbolSelect(rows) {
@@ -875,10 +896,10 @@ function syncRpnlSymbolSelect(rows) {
     sel.innerHTML = '<option value="">No live bots or fills</option>';
     return '';
   }
-  const sorted = rows.slice().sort((a, b) => Number(!!b.live) - Number(!!a.live));
+  const sorted = rows.slice().sort((a, b) => rpnlRowRank(a) - rpnlRowRank(b));
   sel.innerHTML = sorted.map(c =>
     '<option value="' + escHtml(rpnlOptionValue(c)) + '">' +
-      escHtml((c.live ? '● ' : '') + (c.label || pillOptionLabel(c))) + '</option>'
+      escHtml(rpnlSelMark(c) + (c.label || pillOptionLabel(c))) + '</option>'
   ).join('');
   if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
   else if (keep) {
@@ -1229,6 +1250,9 @@ function renderRpnlInspect(row) {
 }
 
 function rpnlLiveDot(r) {
+  if (rpnlIsBooting(r)) {
+    return '<span class="p-live booting" title="' + escHtml(rpnlBootLabel(r)) + '"></span>';
+  }
   if (!r || !r.live) return '';
   const st = rpnlIsPairHedge(r) ? { key: '', label: 'Hedge' } : rpnlDashStatus(r.settings);
   const cls = 'p-live' + (st.key ? ' ' + st.key : '');
@@ -1243,6 +1267,7 @@ function rpnlStatusChip(s) {
 }
 
 function rpnlPillMode(r) {
+  if (rpnlIsBooting(r)) return '';
   return rpnlModeText(r && r.settings, true) || '';
 }
 
@@ -1271,13 +1296,14 @@ function rpnlPillAcctText(r, nameCount) {
 function rpnlPillHtml(r, cur, nameCount) {
   const key = rpnlOptionValue(r);
   const active = key === cur ? ' active' : '';
-  const liveCls = r.live ? ' live' : '';
+  const bootOnly = rpnlIsBooting(r) && !rpnlWindowFillCount(r);
+  const liveCls = r.live ? ' live' : (rpnlIsBooting(r) ? ' booting' : '');
   const acct = rpnlPillAcctText(r, nameCount);
   const qv = r.quote_venue || 'delta';
   const qlab = r.quote_label || 'Delta';
   const qsym = r.quote_symbol || r.contract;
   const main = rpnlPillMain(r);
-  const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
+  const mainCol = bootOnly ? '#ffb74d' : (main >= 0 ? 'var(--green)' : 'var(--red)');
   const mode = rpnlPillMode(r);
   const maxBit = rpnlIsPairHedge(r) ? '' : rpnlPillMax(r);
   const walletBit = rpnlPillWallet(r);
@@ -1319,6 +1345,9 @@ function rpnlPillUsdText(r, inr) {
 }
 
 function rpnlPillValInner(r) {
+  if (rpnlIsBooting(r) && !rpnlWindowFillCount(r)) {
+    return '<span class="p-boot">' + escHtml(rpnlBootLabel(r)) + '</span>';
+  }
   const main = rpnlPillMain(r);
   return inrFmt(main) + '<span class="p-usd">' + rpnlPillUsdText(r, main) + '</span>';
 }
@@ -1344,7 +1373,7 @@ function renderRpnlSummary(rows, hours) {
     const n = (r.quote_symbol || r.contract) + '|' + rpnlAccountLabel(r);
     nameCount[n] = (nameCount[n] || 0) + 1;
   });
-  const sorted = rows.slice().sort((a, b) => Number(!!b.live) - Number(!!a.live));
+  const sorted = rows.slice().sort((a, b) => rpnlRowRank(a) - rpnlRowRank(b));
   const keys = sorted.map(r => rpnlOptionValue(r)).join('\n');
   if (wrap.dataset.keys !== keys) {
     wrap.dataset.keys = keys;
@@ -1356,6 +1385,7 @@ function renderRpnlSummary(rows, hours) {
       if (!r) return;
       el.classList.toggle('active', el.dataset.rpnlKey === cur);
       el.classList.toggle('live', !!r.live);
+      el.classList.toggle('booting', rpnlIsBooting(r));
       el.classList.toggle('hedge', rpnlIsPairHedge(r));
       const st = rpnlDashStatus(r.settings);
       el.classList.toggle('stopped', !rpnlIsPairHedge(r) && st.key === 'stopped');
@@ -1364,7 +1394,9 @@ function renderRpnlSummary(rows, hours) {
       const main = rpnlPillMain(r);
       if (val) {
         val.innerHTML = rpnlPillValInner(r);
-        val.style.color = main >= 0 ? 'var(--green)' : 'var(--red)';
+        val.style.color = (rpnlIsBooting(r) && !rpnlWindowFillCount(r))
+          ? '#ffb74d'
+          : (main >= 0 ? 'var(--green)' : 'var(--red)');
       }
       const mode = rpnlPillMode(r);
       let modeEl = el.querySelector('.p-mode');
@@ -1409,8 +1441,10 @@ function renderRpnlSummary(rows, hours) {
       const nameEl = el.querySelector('.p-name');
       if (nameEl) {
         const dot = nameEl.querySelector('.p-live');
-        if (r.live) {
-          const stDot = rpnlIsPairHedge(r) ? { key: '', label: 'Hedge' } : rpnlDashStatus(r.settings);
+        if (r.live || rpnlIsBooting(r)) {
+          const stDot = rpnlIsBooting(r)
+            ? { key: 'booting', label: rpnlBootLabel(r) }
+            : (rpnlIsPairHedge(r) ? { key: '', label: 'Hedge' } : rpnlDashStatus(r.settings));
           if (!dot) nameEl.insertAdjacentHTML('afterbegin', rpnlLiveDot(r));
           else {
             dot.className = 'p-live' + (stDot.key ? ' ' + stDot.key : '');
@@ -3408,6 +3442,14 @@ async function loadRpnl(keepRange) {
     rpnlHoldSnap = null;
 
     if (filled.length === 0 && !hedgeRaw.length && !ohlcBarsCache.length) {
+      const boot = (rpnlSummaryCache || []).find(row =>
+        rpnlIsBooting(row) && rpnlCanonSym(row.contract) === rpnlCanonSym(sym)
+      );
+      if (boot) {
+        setOhlcEmpty(true, rpnlBootLabel(boot) + ' — waiting for the process to come online');
+        if (!keepRange && rpnlNeedsFit) scheduleRpnlFit();
+        return;
+      }
       toast('No fills for ' + (d.contract || sym) + ' in this window.');
       if (!keepRange && rpnlNeedsFit) scheduleRpnlFit();
       return;

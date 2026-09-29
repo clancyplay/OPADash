@@ -884,6 +884,191 @@ async def position_history(
     return {"contract": symbol.upper(), "points": points}
 
 
+_DEPLOY_LABEL = {
+    "queued": "Queued",
+    "building": "Building",
+    "deploying": "Deploying",
+    "starting": "Starting",
+}
+
+
+def _deploy_phase(bot: dict) -> str:
+    """How far a dash launch is from a live ping. Empty once it should not have a pill."""
+    if not bot.get("alive"):
+        return ""
+    if str(bot.get("kind") or "") != "railway":
+        return "starting"
+    status = str(bot.get("status") or "").strip().upper()
+    if status in ("", "INITIALIZING", "QUEUED", "WAITING", "NEEDS_APPROVAL"):
+        return "queued"
+    if status == "BUILDING":
+        return "building"
+    if status == "DEPLOYING":
+        return "deploying"
+    if status in ("SUCCESS", "SLEEPING", "ACTIVE"):
+        return "starting"
+    return ""
+
+
+def _account_aliases(*tags: str) -> set[str]:
+    aliases = {str(t or "").strip() for t in tags if str(t or "").strip()}
+    try:
+        named = dash_ops.account_names()
+    except Exception:
+        named = {}
+    for tag in list(aliases):
+        mapped = named.get(tag)
+        if mapped:
+            aliases.add(mapped)
+    for aid, nm in named.items():
+        if aliases.intersection({aid, nm}):
+            if aid:
+                aliases.add(aid)
+            if nm:
+                aliases.add(nm)
+    try:
+        for acct in dash_ops.load_wallet_accounts():
+            aid = str(acct.get("id") or "").strip()
+            nm = str(acct.get("name") or "").strip()
+            if aliases.intersection({aid, nm}):
+                if aid:
+                    aliases.add(aid)
+                if nm:
+                    aliases.add(nm)
+    except Exception:
+        pass
+    return aliases
+
+
+async def _expand_balance_aliases(aliases: set[str]) -> set[str]:
+    if not aliases or _db is None or not _db.pool:
+        return aliases
+    try:
+        async with _db.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT account, account_name
+                FROM account_balances
+                WHERE account = ANY($1::text[])
+                   OR account_name = ANY($1::text[])
+                """,
+                list(aliases),
+            )
+    except Exception as extra:
+        logger.debug("webapp: deploy aliases failed — %s", extra)
+        return aliases
+    for rec in rows:
+        aid = str(rec["account"] or "").strip()
+        nm = str(rec["account_name"] or "").strip()
+        if aid:
+            aliases.add(aid)
+        if nm:
+            aliases.add(nm)
+    return aliases
+
+
+async def _pending_deploys(strategy: str) -> list[dict]:
+    """Dash launches that exist on Railway (or locally) but have not pinged yet."""
+    want = (strategy or "").strip().lower()
+    try:
+        bots = dash_launch.list_bots()
+    except Exception as extra:
+        logger.debug("webapp: deploy pills failed — %s", extra)
+        return []
+    out = []
+    for bot in bots:
+        phase = _deploy_phase(bot)
+        if not phase:
+            continue
+        strat = str(bot.get("strategy") or "").strip().lower()
+        if want and not strategy_is_all(want) and strat != want:
+            continue
+        raw = str(bot.get("contract") or "").strip()
+        contract = canon_contract(raw) or raw
+        if not contract or not strat:
+            continue
+        slug = str(bot.get("account") or bot.get("account_name") or "").strip()
+        aliases = await _expand_balance_aliases(_account_aliases(slug, str(bot.get("account_name") or "")))
+        aid = slug
+        name = str(bot.get("account_name") or slug)
+        try:
+            for acct in dash_ops.load_wallet_accounts():
+                cid = str(acct.get("id") or "").strip()
+                cname = str(acct.get("name") or "").strip()
+                if slug and slug in (cid, cname):
+                    aid = cid or cname or slug
+                    name = cname or cid or name
+                    break
+        except Exception:
+            pass
+        if aid == slug:
+            for tag in aliases:
+                if tag and tag != slug and tag != name:
+                    aid = tag
+                    break
+        venue = str(bot.get("venue") or "").strip().lower() or "delta"
+        out.append({
+            "contract": contract,
+            "account": aid or slug,
+            "account_name": name or aid or slug,
+            "strategy": strat,
+            "deploy": phase,
+            "venue": venue,
+            "aliases": aliases or {aid, name, slug} - {""},
+        })
+    return out
+
+
+def _deploy_hit(rows: list[dict], boot: dict) -> dict | None:
+    aliases = set(boot.get("aliases") or [])
+    for row in rows:
+        if canon_contract(str(row.get("contract") or "")) != boot["contract"]:
+            continue
+        if str(row.get("strategy") or "").lower() != boot["strategy"]:
+            continue
+        tags = {str(row.get("account") or "").strip(), str(row.get("account_name") or "").strip()} - {""}
+        if not tags or tags & aliases:
+            return row
+    return None
+
+
+async def _stamp_deploys(rows: list[dict], strategy: str) -> None:
+    """Show a pill for a contract whose Railway deploy has not come online yet."""
+    for boot in await _pending_deploys(strategy):
+        word = _DEPLOY_LABEL.get(boot["deploy"]) or "Queued"
+        hit = _deploy_hit(rows, boot)
+        if hit is not None:
+            if hit.get("live"):
+                continue
+            hit["deploy"] = boot["deploy"]
+            label = str(hit.get("label") or "")
+            if word not in label:
+                hit["label"] = (label + f" · {word}").strip(" ·")
+            continue
+        meta = venue_meta(boot["contract"], {boot["venue"]: 1} if boot.get("venue") else {})
+        name = boot["account_name"]
+        rows.append({
+            "contract": boot["contract"],
+            "account": boot["account"],
+            "account_name": name,
+            "strategy": boot["strategy"],
+            "deploy": boot["deploy"],
+            "live": False,
+            "rpnl": 0.0,
+            "fills": 0,
+            "hedge_rpnl": 0.0,
+            "hedge_fills": 0,
+            "settings": None,
+            **{k: meta[k] for k in (
+                "quote_venue", "quote_label", "quote_symbol",
+                "hedge_venue", "hedge_label", "hedge_symbol", "has_hedge",
+            )},
+            "label": meta["label"]
+                + (f" · {name}" if name else "")
+                + f" · {boot['strategy']} · {word}",
+        })
+
+
 @app.get("/api/rpnl/symbols")
 async def rpnl_symbols(
     strategy: str = Query("all", description="strategy tag, or all"),
@@ -982,8 +1167,10 @@ async def rpnl_symbols(
                 entry["live"] = ping_is_live(
                     entry["contract"], entry["account"], keys, entry.get("strategy"),
                 ) or bool(entry.get("live"))
+            await _stamp_deploys(out, strategy)
             out.sort(key=lambda e: (
-                0 if e.get("live") else 1, e.get("strategy") or "", e["contract"], e["account"],
+                0 if e.get("deploy") and not e.get("live") else 1 if e.get("live") else 2,
+                e.get("strategy") or "", e["contract"], e["account"],
             ))
         return out
     except Exception as e:
@@ -1069,6 +1256,7 @@ async def rpnl_summary(
             settings = {"kind": "setup"}
             row["settings"] = settings
         settings["wallet_inr"] = bal
+    await _stamp_deploys(out, strategy)
     return out
 
 

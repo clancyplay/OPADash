@@ -140,9 +140,14 @@ body:has(#rpnl.visible) {
   width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
   background: var(--green); box-shadow: 0 0 6px var(--green);
 }
-.rpnl-pill .p-live.stopped {
+.rpnl-pill .p-live.stopped,
+.rpnl-pill .p-live.booting {
   background: #ffb74d; box-shadow: 0 0 6px #ffb74d;
 }
+.rpnl-pill .p-live.booting { animation: rpnl-boot 1.2s ease-in-out infinite; }
+.rpnl-pill.booting { border-color: rgba(255, 183, 77, .65); }
+.rpnl-pill .p-boot { font-size: 13px; font-weight: 700; letter-spacing: .02em; color: #ffb74d; }
+@keyframes rpnl-boot { 50% { opacity: .35; } }
 .rpnl-pill .p-live.flattening {
   background: var(--red); box-shadow: 0 0 6px var(--red);
 }
