@@ -92,6 +92,38 @@ function openRpOpsEdit(row) {
   });
 }
 
+async function openOppLaunch(spec, note) {
+  spec = spec || {};
+  if (!spec.venue || !spec.contract) return;
+  opsEdit = null;
+  const box = document.getElementById('rpOps');
+  if (!box) return;
+  applyOpsMode();
+  box.hidden = false;
+  document.body.classList.add('ops-open');
+  await bootRpOps();
+  const venue = document.getElementById('opsVenue');
+  if (venue && [...venue.options].some(o => o.value === spec.venue)) {
+    venue.disabled = false;
+    venue.value = spec.venue;
+  }
+  await onOpsVenueChange();
+  const inp = document.getElementById('opsContract');
+  if (inp) inp.value = spec.contract;
+  const strat = document.getElementById('opsStrategy');
+  if (strat && spec.strategy && [...strat.options].some(o => o.value === spec.strategy)) {
+    strat.value = spec.strategy;
+  }
+  onOpsStrategyChange();
+  if (spec.edge_venue) {
+    const ev = document.getElementById('opsP_EDGE_VENUE');
+    if (ev && [...ev.options].some(o => o.value === spec.edge_venue)) ev.value = spec.edge_venue;
+  }
+  onOpsContractMeta();
+  applyOpsLaunchLead();
+  setOpsMsg('opsLaunchMsg', note || '', false);
+}
+
 function closeRpOps() {
   const box = document.getElementById('rpOps');
   if (box) box.hidden = true;

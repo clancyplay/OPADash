@@ -37,6 +37,7 @@ from utils.logger import start_db_log_forwarder
 from webapp.wallets import fetch_idle_wallets
 from webapp import launch as dash_launch
 from webapp import ops as dash_ops
+from webapp import scan as dash_scan
 
 logger = logging.getLogger("webapp")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -637,6 +638,7 @@ _DASHBOARD_PARTS = (
     "pages/balances.html",
     "pages/reports.html",
     "pages/rpnl.html",
+    "pages/opps.html",
     "pages/data.html",
     "partials/foot.html",
 )
@@ -2051,6 +2053,90 @@ async def ops_products(venue: str = Query("delta")) -> dict:
 @app.get("/api/ops/bots")
 async def ops_bots() -> dict:
     return {"bots": dash_launch.list_bots()}
+
+
+async def _opp_running() -> list[dict]:
+    """Live pings plus dash-started processes, for the opportunities page."""
+    names = dict(dash_ops.account_names())
+    rows: list[dict] = []
+    seen: set[tuple] = set()
+
+    def add(contract, account, strategy, venue, account_name: str = "") -> None:
+        contract = str(contract or "").strip()
+        if not contract:
+            return
+        account = str(account or "").strip()
+        strategy = str(strategy or "").strip()
+        venue = str(venue or "").strip().lower()
+        key = (contract.upper(), account, strategy.lower(), venue)
+        if key in seen:
+            return
+        seen.add(key)
+        rows.append({
+            "contract": contract,
+            "account": account,
+            "account_name": account_name or names.get(account) or "",
+            "strategy": strategy,
+            "venue": venue,
+        })
+
+    if _db is not None and _db.pool:
+        try:
+            async with _db.pool.acquire() as conn:
+                got = await conn.fetch(
+                    """
+                    SELECT contract, COALESCE(account, '') AS account,
+                           COALESCE(strategy::text, '') AS strategy,
+                           COALESCE(venue, '') AS venue
+                    FROM bot_ping
+                    WHERE pinged_at >= NOW() - ($1::float * INTERVAL '1 second')
+                    """,
+                    _db.LIVE_PING_SECS,
+                )
+                named = await conn.fetch(
+                    """
+                    SELECT DISTINCT ON (account) account, account_name
+                    FROM account_balances
+                    WHERE COALESCE(account_name, '') <> ''
+                    ORDER BY account, created_at DESC
+                    """
+                )
+            for rec in named:
+                aid = str(rec["account"] or "").strip()
+                label = str(rec["account_name"] or "").strip()
+                if aid and label and not names.get(aid):
+                    names[aid] = label
+            for rec in got:
+                add(rec["contract"], rec["account"], rec["strategy"], rec["venue"])
+        except Exception as extra:
+            logger.debug("webapp: opp pings failed — %s", extra)
+    try:
+        for bot in dash_launch.list_bots():
+            if not bot.get("alive"):
+                continue
+            add(
+                bot.get("contract"), bot.get("account"), bot.get("strategy"),
+                bot.get("venue"), bot.get("account_name") or "",
+            )
+    except Exception as extra:
+        logger.debug("webapp: opp launches failed — %s", extra)
+    return rows
+
+
+@app.get("/api/opps")
+async def list_opps(fresh: int = Query(0)) -> dict:
+    try:
+        snap = await dash_scan.load(force=bool(fresh))
+    except Exception as extra:
+        logger.exception("webapp: opportunity scan failed")
+        raise HTTPException(status_code=502, detail=str(extra)[:200])
+    running = await _opp_running()
+    return {
+        "as_of": snap.get("as_of"),
+        "venues": snap.get("venues") or [],
+        "opps": dash_scan.build(snap.get("rows") or [], running),
+        "notes": dash_scan.NOTES,
+    }
 
 
 @app.post("/api/ops/launch")

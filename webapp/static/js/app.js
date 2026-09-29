@@ -156,8 +156,8 @@ function fmtLogName(name) {
   return String(name || '').replace(/^(uvicorn|gunicorn)\.(error|access)$/i, '$1');
 }
 
-const PAGE_IDS = ['home', 'balances', 'reports', 'rpnl', 'data'];
-const NAV_IDS  = { home: 'navHome', balances: 'navBalances', reports: 'navReports', rpnl: 'navRpnl', data: 'navData' };
+const PAGE_IDS = ['home', 'balances', 'reports', 'rpnl', 'opps', 'data'];
+const NAV_IDS  = { home: 'navHome', balances: 'navBalances', reports: 'navReports', rpnl: 'navRpnl', opps: 'navOpps', data: 'navData' };
 let rpnlReady = false, reportsReady = false, balancesReady = false, dataReady = false;
 let pendingRpnlKey = null, pendingReportAcct = null, pendingReportWiden = false;
 let rpnlForceKeepSel = false;
@@ -239,6 +239,13 @@ function showPage(name) {
     else showDataTab(dataTab);
   } else if (typeof stopDataTimers === 'function') {
     stopDataTimers();
+  }
+  if (name === 'opps') {
+    if (!oppReady) { initOpps(); oppReady = true; }
+    else loadOpps(false);
+    if (typeof setupOppAuto === 'function') setupOppAuto();
+  } else if (typeof stopOppAuto === 'function') {
+    stopOppAuto();
   }
   // Charts need a resize when their container becomes visible
   if (name === 'rpnl') {
