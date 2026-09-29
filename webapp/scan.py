@@ -31,26 +31,32 @@ FEE_MAKER_RT = 0.0004
 
 MIN_FUND = 0.00015       # 1.5 bp / 8h
 MIN_CARRY = 0.00030      # 3 bp / 8h
-MIN_SPREAD_NET = 0.0015  # 15 bp after taker round trip
+MIN_SPREAD_NET = 0.0012  # 12 bp after taker round trip
 MIN_BASIS = 0.0020       # 20 bp vs index
-MIN_BOOK_NET = 0.0008    # 8 bp after maker round trip
+MIN_BOOK_NET = 0.0004    # 4 bp after maker round trip
 MAX_DISLOC = 0.12        # wider than this is a different contract, not an arb
-MAX_BOOK = 0.05
-MIN_TURN_CROSS = 100_000.0
-MIN_TURN_SINGLE = 50_000.0
+MAX_BOOK = 0.015         # a wider Delta book is usually empty, not a quote
+MIN_TURN_DELTA = 20_000.0
+MIN_TURN_OTHER = 250_000.0
+MIN_TURN_TAPE = 80_000.0
+MIN_TURN_MOVE = 40_000.0
+MIN_MOVE = 0.04          # 4% on the day
+MIN_PRINTS = 3           # trades in the last minute
 
-_CAPS = {"funding": 40, "spread": 40, "basis": 30, "book": 35, "carry": 35}
-_KINDS = ("funding", "spread", "basis", "book", "carry")
+_CAPS = {
+    "spread": 28, "tape": 24, "move": 24, "book": 24,
+    "funding": 18, "basis": 14, "carry": 14,
+}
+_KINDS = ("spread", "tape", "move", "book", "funding", "basis", "carry")
 
 NOTES = (
-    "Expected $ is edge × the notional on this page. "
-    "Funding and carry are per 8 hours (APR = that edge × 3 × 365). "
-    "Spread is buy-the-ask / sell-the-bid, after a 0.10% taker haircut. "
-    "Book is one bid-to-ask capture after a 0.04% maker haircut. "
-    "A book wider than 2% is ignored for arb and carry. "
-    "Basis is the gap to the index if it closes. "
-    "Delta publishes funding in percent; it is converted before compare. "
-    "Pairs whose marks differ by more than 12% are dropped."
+    "Sized for a $500 start. Delta contracts are listed first. "
+    "Spread is buy-the-ask / sell-the-bid after a 0.10% taker haircut, and a Delta leg wins over a wider pair elsewhere. "
+    "Tape is Delta names that are both liquid and printing in the last minute. "
+    "Move is the 24h price change on this notional, not a locked fill. "
+    "Book is one Delta bid-to-ask capture after a 0.04% maker haircut. "
+    "Funding and carry are per 8 hours. "
+    "Delta funding is published in percent and converted before compare."
 )
 
 _STABLES = frozenset({
@@ -86,6 +92,40 @@ def _hours(raw, default: float = 8.0) -> float:
         return v
     h = secs / 3600.0
     return h if h >= 0.25 else default
+
+
+def _pct(raw) -> float | None:
+    """A percent-style change (1.2 means 1.2%) → fraction."""
+    v = _num(raw)
+    if v is None:
+        return None
+    return v / 100.0
+
+
+def _usd_short(n: float) -> str:
+    v = abs(float(n or 0))
+    if v >= 1e9:
+        return f"${v / 1e9:.1f}B"
+    if v >= 1e6:
+        return f"${v / 1e6:.1f}M"
+    if v >= 1e3:
+        return f"${v / 1e3:.0f}k"
+    return f"${v:.0f}"
+
+
+def _on_delta(rows) -> bool:
+    return any(str(r.get("venue") or "") == "delta" for r in rows)
+
+
+def _prefer(rows: list[dict]) -> None:
+    """Delta legs first, then the kind's own score."""
+    def key(row: dict):
+        delta = _on_delta(row.get("legs") or [])
+        score = row.get("score")
+        if score is None:
+            score = row.get("edge") or 0
+        return (0 if delta else 1, -float(score))
+    rows.sort(key=key)
 
 
 def _rate_8h(rate, interval_h: float) -> float | None:
@@ -185,6 +225,9 @@ def _leg(row: dict, side: str = "") -> dict:
         "fund_8h": None if row.get("fund_8h") is None else round(float(row["fund_8h"]), 8),
         "spread": None if spread is None else round(spread, 6),
         "basis": None if basis is None else round(basis, 6),
+        "change": None if row.get("change") is None else round(float(row["change"]), 6),
+        "turnover": None if row.get("turnover") is None else round(float(row["turnover"]), 0),
+        "trades": None if row.get("trades") is None else int(row["trades"]),
     }
 
 
@@ -236,114 +279,233 @@ def build(rows: list[dict], running: list[dict] | None = None) -> list[dict]:
     out: list[dict] = []
     for kind in _KINDS:
         rows_k = found[kind]
-        rows_k.sort(key=lambda r: r["edge"], reverse=True)
+        _prefer(rows_k)
+        if kind in ("spread", "funding"):
+            delta = [r for r in rows_k if _on_delta(r.get("legs") or [])]
+            other = [r for r in rows_k if not _on_delta(r.get("legs") or [])]
+            rows_k = delta + other[:8]
         out.extend(rows_k[: _CAPS[kind]])
     _attach_running(out, running or [])
     return out
 
 
+def _turn_ok(row: dict, floor: float) -> bool:
+    if row.get("venue") == "delta":
+        floor = min(floor, MIN_TURN_DELTA)
+    return _liquid(row, floor)
+
+
+def _quote_leg(prefer: dict, other: dict) -> tuple[dict, dict]:
+    """Put the Delta contract on the strategy when one leg is Delta."""
+    if other.get("venue") == "delta" and prefer.get("venue") != "delta":
+        return other, prefer
+    return prefer, other
+
+
+def _executable(a: dict, b: dict) -> tuple[float, dict, dict] | None:
+    if not _same_px(a.get("mark") or 0, b.get("mark") or 0):
+        return None
+    if not a.get("ask") or not a.get("bid") or not b.get("ask") or not b.get("bid"):
+        return None
+    if a["ask"] <= b["bid"]:
+        cheap, rich = a, b
+        gross = (b["bid"] - a["ask"]) / a["ask"]
+    elif b["ask"] <= a["bid"]:
+        cheap, rich = b, a
+        gross = (a["bid"] - b["ask"]) / b["ask"]
+    else:
+        return None
+    return gross, cheap, rich
+
+
+def _best_pair(cands: list[tuple], min_net: float) -> tuple | None:
+    """Prefer a pair that includes Delta. Else only a liquid non-Delta pair."""
+    ok = [p for p in cands if p[0] >= min_net]
+    delta = [p for p in ok if p[2].get("venue") == "delta" or p[3].get("venue") == "delta"]
+    pool = delta
+    if not pool:
+        pool = [
+            p for p in ok
+            if (p[2].get("turnover") or 0) >= MIN_TURN_OTHER
+            and (p[3].get("turnover") or 0) >= MIN_TURN_OTHER
+        ]
+    if not pool:
+        return None
+    return max(pool, key=lambda p: p[0])
+
+
 def _score_base(base: str, quotes: list[dict], found: dict[str, list[dict]]) -> None:
     funded = [
         q for q in quotes
-        if q.get("fund_8h") is not None and _liquid(q, MIN_TURN_CROSS) and _tight(q)
+        if q.get("fund_8h") is not None and _turn_ok(q, MIN_TURN_OTHER) and _tight(q)
     ]
-    if len(funded) >= 2:
-        best = None
-        for i, a in enumerate(funded):
-            for b in funded[i + 1 :]:
-                if not _same_px(a["mark"], b["mark"]):
-                    continue
-                gap = abs(a["fund_8h"] - b["fund_8h"])
-                if best is None or gap > best[0]:
-                    best = (gap, a, b)
-        if best and best[0] >= MIN_FUND:
-            gap, a, b = best
+    gaps = []
+    for i, a in enumerate(funded):
+        for b in funded[i + 1 :]:
+            if not _same_px(a["mark"], b["mark"]):
+                continue
+            gap = abs(a["fund_8h"] - b["fund_8h"])
             long_q, short_q = (a, b) if a["fund_8h"] <= b["fund_8h"] else (b, a)
-            venues = "-".join(sorted((a["venue"], b["venue"])))
-            found["funding"].append({
-                "id": f"funding:{base}:{venues}",
-                "kind": "funding",
+            gaps.append((gap, gap, long_q, short_q))
+    best_fund = _best_pair(gaps, MIN_FUND)
+    if best_fund:
+        gap, _, long_q, short_q = best_fund
+        quote, other = _quote_leg(long_q, short_q)
+        venues = "-".join(sorted((long_q["venue"], short_q["venue"])))
+        found["funding"].append({
+            "id": f"funding:{base}:{venues}",
+            "kind": "funding",
+            "base": base,
+            "summary": (
+                f"Long {LABELS.get(long_q['venue'], long_q['venue'])}"
+                f" · short {LABELS.get(short_q['venue'], short_q['venue'])}"
+            ),
+            "period": "8h",
+            "edge": round(gap, 8),
+            "gross": round(gap, 8),
+            "score": gap + (0.01 if _on_delta((long_q, short_q)) else 0),
+            "apr": round(gap * 3 * 365, 4),
+            "legs": [_leg(long_q, "long"), _leg(short_q, "short")],
+            "suggest": _suggest("edge", quote, other),
+            "running": [],
+        })
+
+    priced = [q for q in quotes if _turn_ok(q, MIN_TURN_OTHER) and _tight(q)]
+    spreads = []
+    for i, a in enumerate(priced):
+        for b in priced[i + 1 :]:
+            got = _executable(a, b)
+            if not got:
+                continue
+            gross, cheap, rich = got
+            net = gross - FEE_TAKER_RT
+            spreads.append((net, gross, cheap, rich))
+    best_spread = _best_pair(spreads, MIN_SPREAD_NET)
+    if best_spread:
+        net, gross, cheap, rich = best_spread
+        quote, other = _quote_leg(cheap, rich)
+        venues = "-".join(sorted((cheap["venue"], rich["venue"])))
+        found["spread"].append({
+            "id": f"spread:{base}:{venues}",
+            "kind": "spread",
+            "base": base,
+            "summary": (
+                f"Buy {LABELS.get(cheap['venue'], cheap['venue'])}"
+                f" · sell {LABELS.get(rich['venue'], rich['venue'])}"
+            ),
+            "period": "trade",
+            "edge": round(net, 8),
+            "gross": round(gross, 8),
+            "score": net,
+            "apr": None,
+            "legs": [_leg(cheap, "buy"), _leg(rich, "sell")],
+            "suggest": _suggest("edge", quote, other),
+            "running": [],
+        })
+
+    delta = next((q for q in quotes if q.get("venue") == "delta"), None)
+    if delta and _liquid(delta, MIN_TURN_TAPE):
+        width = _width(delta)
+        trades = delta.get("trades")
+        printing = trades is not None and int(trades) >= MIN_PRINTS
+        if printing and (width is None or width <= 0.02):
+            turn = float(delta.get("turnover") or 0)
+            window = delta.get("trade_window")
+            plus = "+" if window is not None and window < 55 and int(trades) >= 40 else ""
+            found["tape"].append({
+                "id": f"tape:{base}:delta",
+                "kind": "tape",
                 "base": base,
                 "summary": (
-                    f"Long {LABELS.get(long_q['venue'], long_q['venue'])}"
-                    f" · short {LABELS.get(short_q['venue'], short_q['venue'])}"
+                    f"Delta printing · {int(trades)}{plus} trades / min · {_usd_short(turn)} 24h"
                 ),
-                "period": "8h",
-                "edge": round(gap, 8),
-                "gross": round(gap, 8),
-                "apr": round(gap * 3 * 365, 4),
-                "legs": [_leg(long_q, "long"), _leg(short_q, "short")],
-                "suggest": _suggest("edge", long_q, short_q),
+                "period": "flow",
+                "edge": round(max((width or 0) - FEE_MAKER_RT, 0), 8),
+                "gross": round(width or 0, 8),
+                "score": float(trades) * 1_000_000 + turn,
+                "apr": None,
+                "legs": [_leg(delta, "")],
+                "suggest": _suggest("stack", delta),
                 "running": [],
             })
-
-    priced = [q for q in quotes if _liquid(q, MIN_TURN_CROSS) and _tight(q)]
-    if len(priced) >= 2:
-        best = None
-        for i, a in enumerate(priced):
-            for b in priced[i + 1 :]:
-                if not _same_px(a["mark"], b["mark"]):
-                    continue
-                # Buy the ask on the cheap venue, sell the bid on the rich one.
-                if a["ask"] <= b["bid"]:
-                    cheap, rich = a, b
-                    gross = (b["bid"] - a["ask"]) / a["ask"]
-                elif b["ask"] <= a["bid"]:
-                    cheap, rich = b, a
-                    gross = (a["bid"] - b["ask"]) / b["ask"]
-                else:
-                    continue
-                net = gross - FEE_TAKER_RT
-                if best is None or net > best[0]:
-                    best = (net, gross, cheap, rich)
-        if best and best[0] >= MIN_SPREAD_NET:
-            net, gross, cheap, rich = best
-            venues = "-".join(sorted((cheap["venue"], rich["venue"])))
-            found["spread"].append({
-                "id": f"spread:{base}:{venues}",
-                "kind": "spread",
+        change = delta.get("change")
+        if (
+            change is not None and abs(change) >= MIN_MOVE
+            and _liquid(delta, MIN_TURN_MOVE)
+            and (width is None or width <= 0.02)
+        ):
+            side = "up" if change > 0 else "down"
+            found["move"].append({
+                "id": f"move:{base}:delta",
+                "kind": "move",
                 "base": base,
                 "summary": (
-                    f"Buy {LABELS.get(cheap['venue'], cheap['venue'])}"
-                    f" · sell {LABELS.get(rich['venue'], rich['venue'])}"
+                    f"Delta {side} {abs(change) * 100:.1f}% · {_usd_short(delta.get('turnover') or 0)} 24h"
                 ),
+                "period": "24h",
+                "edge": round(abs(change), 8),
+                "gross": round(abs(change), 8),
+                "score": abs(change),
+                "apr": None,
+                "legs": [_leg(delta, "long" if change > 0 else "short")],
+                "suggest": _suggest("surge", delta),
+                "running": [],
+            })
+        if width is not None and MIN_BOOK_NET <= (width - FEE_MAKER_RT) <= MAX_BOOK and _liquid(delta, MIN_TURN_DELTA):
+            net = width - FEE_MAKER_RT
+            turn = float(delta.get("turnover") or 0)
+            found["book"].append({
+                "id": f"book:{base}:delta",
+                "kind": "book",
+                "base": base,
+                "summary": f"Delta book {width * 100:.2f}% · {_usd_short(turn)} 24h",
                 "period": "trade",
                 "edge": round(net, 8),
-                "gross": round(gross, 8),
+                "gross": round(width, 8),
+                "score": net * max(turn, 1),
                 "apr": None,
-                "legs": [_leg(cheap, "buy"), _leg(rich, "sell")],
-                "suggest": _suggest("edge", cheap, rich),
+                "legs": [_leg(delta, "")],
+                "suggest": _suggest("stack", delta),
                 "running": [],
             })
 
     for q in quotes:
-        if not _liquid(q, MIN_TURN_SINGLE):
+        if q.get("venue") == "delta":
             continue
-        # Missing turnover (no 24h print) only counts when the book itself is real.
+        if not _turn_ok(q, MIN_TURN_OTHER):
+            continue
         if q.get("turnover") is None and not _tight(q, 0.01):
             continue
         width = _width(q)
-        if width is not None and q.get("turnover") and width <= MAX_BOOK:
-            net = width - FEE_MAKER_RT
-            if net >= MIN_BOOK_NET:
-                found["book"].append({
-                    "id": f"book:{base}:{q['venue']}",
-                    "kind": "book",
-                    "base": base,
-                    "summary": f"Wide book on {LABELS.get(q['venue'], q['venue'])}",
-                    "period": "trade",
-                    "edge": round(net, 8),
-                    "gross": round(width, 8),
-                    "apr": None,
-                    "legs": [_leg(q, "")],
-                    "suggest": _suggest("stack", q),
-                    "running": [],
-                })
-        if width is not None and width > 0.03:
+        if width is not None and width > 0.02:
             continue
+        change = q.get("change")
+        if (
+            change is not None and abs(change) >= 0.06
+            and (q.get("turnover") or 0) >= 1_000_000
+            and not any(x.get("venue") == "delta" and x.get("change") is not None for x in quotes)
+        ):
+            side = "up" if change > 0 else "down"
+            found["move"].append({
+                "id": f"move:{base}:{q['venue']}",
+                "kind": "move",
+                "base": base,
+                "summary": (
+                    f"{LABELS.get(q['venue'], q['venue'])} {side} {abs(change) * 100:.1f}%"
+                    f" · {_usd_short(q.get('turnover') or 0)} 24h"
+                ),
+                "period": "24h",
+                "edge": round(abs(change), 8),
+                "gross": round(abs(change), 8),
+                "score": abs(change) * 0.5,
+                "apr": None,
+                "legs": [_leg(q, "long" if change > 0 else "short")],
+                "suggest": _suggest("surge", q),
+                "running": [],
+            })
         index = q.get("index")
         mark = q["mark"]
-        if index and index > 0:
+        if index and index > 0 and (q.get("turnover") or 0) >= MIN_TURN_OTHER:
             basis = (mark - index) / index
             if abs(basis) >= MIN_BASIS and abs(basis) <= MAX_DISLOC:
                 side = "short" if basis > 0 else "long"
@@ -356,13 +518,14 @@ def _score_base(base: str, quotes: list[dict], found: dict[str, list[dict]]) -> 
                     "period": "basis",
                     "edge": round(abs(basis), 8),
                     "gross": round(abs(basis), 8),
+                    "score": abs(basis),
                     "apr": None,
                     "legs": [_leg(q, side)],
                     "suggest": _suggest("stack", q),
                     "running": [],
                 })
         fund = q.get("fund_8h")
-        if fund is not None and abs(fund) >= MIN_CARRY and _tight(q):
+        if fund is not None and abs(fund) >= MIN_CARRY and _tight(q) and (q.get("turnover") or 0) >= MIN_TURN_OTHER:
             side = "short" if fund > 0 else "long"
             found["carry"].append({
                 "id": f"carry:{base}:{q['venue']}",
@@ -375,11 +538,57 @@ def _score_base(base: str, quotes: list[dict], found: dict[str, list[dict]]) -> 
                 "period": "8h",
                 "edge": round(abs(fund), 8),
                 "gross": round(abs(fund), 8),
+                "score": abs(fund),
                 "apr": round(abs(fund) * 3 * 365, 4),
                 "legs": [_leg(q, side)],
                 "suggest": _suggest("stack", q),
                 "running": [],
             })
+
+    if delta:
+        width = _width(delta)
+        if width is None or width <= 0.02:
+            index = delta.get("index")
+            mark = delta["mark"]
+            if index and index > 0 and _liquid(delta, MIN_TURN_DELTA):
+                basis = (mark - index) / index
+                if abs(basis) >= MIN_BASIS and abs(basis) <= MAX_DISLOC:
+                    side = "short" if basis > 0 else "long"
+                    word = "Rich vs index" if basis > 0 else "Cheap vs index"
+                    found["basis"].append({
+                        "id": f"basis:{base}:delta",
+                        "kind": "basis",
+                        "base": base,
+                        "summary": f"{word} · {side} Delta",
+                        "period": "basis",
+                        "edge": round(abs(basis), 8),
+                        "gross": round(abs(basis), 8),
+                        "score": abs(basis) + 0.01,
+                        "apr": None,
+                        "legs": [_leg(delta, side)],
+                        "suggest": _suggest("stack", delta),
+                        "running": [],
+                    })
+            fund = delta.get("fund_8h")
+            if fund is not None and abs(fund) >= MIN_CARRY and _tight(delta) and _liquid(delta, MIN_TURN_DELTA):
+                side = "short" if fund > 0 else "long"
+                found["carry"].append({
+                    "id": f"carry:{base}:delta",
+                    "kind": "carry",
+                    "base": base,
+                    "summary": (
+                        f"{side.capitalize()} Delta"
+                        f" · funding {'pays shorts' if fund > 0 else 'pays longs'}"
+                    ),
+                    "period": "8h",
+                    "edge": round(abs(fund), 8),
+                    "gross": round(abs(fund), 8),
+                    "score": abs(fund) + 0.01,
+                    "apr": round(abs(fund) * 3 * 365, 4),
+                    "legs": [_leg(delta, side)],
+                    "suggest": _suggest("stack", delta),
+                    "running": [],
+                })
 
 
 def _bot_matches(bot: dict, leg: dict) -> bool:
@@ -496,6 +705,7 @@ def _quote(**kwargs) -> dict | None:
     turn = _num(kwargs.get("turnover"))
     if turn is not None and turn < 0:
         turn = None
+    trades = _num(kwargs.get("trades"))
     return {
         "venue": venue,
         "symbol": symbol,
@@ -506,6 +716,9 @@ def _quote(**kwargs) -> dict | None:
         "ask": ask,
         "fund_8h": kwargs.get("fund_8h"),
         "turnover": turn,
+        "change": kwargs.get("change"),
+        "trades": None if trades is None else int(trades),
+        "trade_window": kwargs.get("trade_window"),
     }
 
 
@@ -533,10 +746,53 @@ async def _delta(client: httpx.AsyncClient) -> list[dict]:
             ask=quotes.get("best_ask"),
             fund_8h=None if fund is None else fund / 100.0,
             turnover=rec.get("turnover_usd"),
+            change=_pct(rec.get("mark_change_24h")),
         )
         if row:
             out.append(row)
+    hot = sorted(out, key=lambda r: r.get("turnover") or 0, reverse=True)[:36]
+    if hot:
+        await asyncio.gather(*[_delta_prints(client, base, row) for row in hot])
     return out
+
+
+def _trade_ts(raw) -> float | None:
+    v = _num(raw)
+    if v is None or v <= 0:
+        return None
+    if v > 1e15:
+        return v / 1e6
+    if v > 1e12:
+        return v / 1e3
+    return v
+
+
+async def _delta_prints(client: httpx.AsyncClient, base: str, row: dict) -> None:
+    """Recent public prints. Delta timestamps are microseconds."""
+    try:
+        r = await client.get(f"{base}/v2/trades/{row['symbol']}")
+        if r.status_code >= 400:
+            return
+        data = r.json() if r.content else {}
+        trades = data.get("result") if isinstance(data, dict) else None
+        if not isinstance(trades, list) or not trades:
+            row["trades"] = 0
+            return
+        now = time.time()
+        times = []
+        for rec in trades:
+            if not isinstance(rec, dict):
+                continue
+            ts = _trade_ts(rec.get("timestamp") or rec.get("created_at"))
+            if ts is None:
+                continue
+            if now - ts <= 60:
+                times.append(ts)
+        row["trades"] = len(times)
+        if times:
+            row["trade_window"] = max(1.0, max(times) - min(times))
+    except Exception:
+        return
 
 
 async def _binance(client: httpx.AsyncClient) -> list[dict]:
@@ -558,11 +814,11 @@ async def _binance(client: httpx.AsyncClient) -> list[dict]:
     for rec in books.json() or []:
         if isinstance(rec, dict) and rec.get("symbol"):
             book[str(rec["symbol"])] = rec
-    turn = {}
+    day_map: dict[str, dict] = {}
     if day.status_code < 400:
         for rec in day.json() or []:
             if isinstance(rec, dict) and rec.get("symbol"):
-                turn[str(rec["symbol"])] = _num(rec.get("quoteVolume"))
+                day_map[str(rec["symbol"])] = rec
     out = []
     for rec in prem.json() or []:
         if not isinstance(rec, dict):
@@ -572,6 +828,7 @@ async def _binance(client: httpx.AsyncClient) -> list[dict]:
             continue
         bk = book.get(sym) or {}
         h = hours.get(sym, 8.0)
+        day_row = day_map.get(sym) or {}
         row = _quote(
             venue="binance",
             symbol=sym,
@@ -580,7 +837,8 @@ async def _binance(client: httpx.AsyncClient) -> list[dict]:
             bid=bk.get("bidPrice"),
             ask=bk.get("askPrice"),
             fund_8h=_rate_8h(rec.get("lastFundingRate"), h),
-            turnover=turn.get(sym),
+            turnover=_num(day_row.get("quoteVolume")),
+            change=_pct(day_row.get("priceChangePercent")),
         )
         if row:
             out.append(row)
@@ -610,6 +868,7 @@ async def _bybit(client: httpx.AsyncClient) -> list[dict]:
             ask=rec.get("ask1Price"),
             fund_8h=_rate_8h(rec.get("fundingRate"), h),
             turnover=rec.get("turnover24h"),
+            change=_num(rec.get("price24hPcnt")),
         )
         if row:
             out.append(row)
@@ -663,6 +922,7 @@ async def _kucoin(client: httpx.AsyncClient) -> list[dict]:
             ask=bk.get("bestAskPrice"),
             fund_8h=_rate_8h(rec.get("fundingFeeRate"), h),
             turnover=vol,
+            change=_num(bk.get("priceChgPct")),
         )
         if row:
             out.append(row)
@@ -689,14 +949,14 @@ async def _aster(client: httpx.AsyncClient) -> list[dict]:
         for rec in books.json() or []:
             if isinstance(rec, dict) and rec.get("symbol"):
                 book[str(rec["symbol"])] = rec
-    turn = {}
+    day_map: dict[str, dict] = {}
     if day.status_code < 400:
         blob = day.json() if day.content else []
         if isinstance(blob, dict):
             blob = [blob]
         for rec in blob or []:
             if isinstance(rec, dict) and rec.get("symbol"):
-                turn[str(rec["symbol"])] = _num(rec.get("quoteVolume"))
+                day_map[str(rec["symbol"])] = rec
     raw = prem.json() if prem.content else []
     if isinstance(raw, dict):
         raw = [raw]
@@ -708,6 +968,7 @@ async def _aster(client: httpx.AsyncClient) -> list[dict]:
         if "_" in sym or not (sym.endswith("USDT") or sym.endswith("USDC") or sym.endswith("USD")):
             continue
         bk = book.get(sym) or {}
+        day_row = day_map.get(sym) or {}
         row = _quote(
             venue="aster",
             symbol=sym,
@@ -716,7 +977,8 @@ async def _aster(client: httpx.AsyncClient) -> list[dict]:
             bid=bk.get("bidPrice"),
             ask=bk.get("askPrice"),
             fund_8h=_rate_8h(rec.get("lastFundingRate"), hours.get(sym, 8.0)),
-            turnover=turn.get(sym),
+            turnover=_num(day_row.get("quoteVolume")),
+            change=_pct(day_row.get("priceChangePercent")),
         )
         if row:
             out.append(row)

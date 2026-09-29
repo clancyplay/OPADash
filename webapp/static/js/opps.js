@@ -1,9 +1,11 @@
 const OPP_KINDS = [
   { id: 'all', label: 'All' },
-  { id: 'funding', label: 'Funding arb' },
   { id: 'spread', label: 'Spread arb' },
-  { id: 'basis', label: 'Basis' },
+  { id: 'tape', label: 'Printing' },
+  { id: 'move', label: 'Moving' },
   { id: 'book', label: 'Book spread' },
+  { id: 'funding', label: 'Funding arb' },
+  { id: 'basis', label: 'Basis' },
   { id: 'carry', label: 'Funding carry' },
 ];
 const OPP_KIND_LABEL = {
@@ -12,8 +14,10 @@ const OPP_KIND_LABEL = {
   basis: 'Basis',
   book: 'Book',
   carry: 'Carry',
+  tape: 'Tape',
+  move: 'Move',
 };
-const OPP_PERIOD = { '8h': '/ 8h', trade: '/ trade', basis: 'to index' };
+const OPP_PERIOD = { '8h': '/ 8h', trade: '/ trade', basis: 'to index', flow: 'book', '24h': '24h move' };
 const LS_OPP_KIND = 'opadash.oppKind';
 const LS_OPP_NOTIONAL = 'opadash.oppNotional';
 const LS_OPP_AUTO = 'opadash.oppAuto';
@@ -29,7 +33,7 @@ let oppLoading = false;
 
 function oppNotional() {
   const n = Number((document.getElementById('oppNotional') || {}).value);
-  if (!isFinite(n) || n < 100) return 10000;
+  if (!isFinite(n) || n < 100) return 500;
   return Math.min(n, 5000000);
 }
 
@@ -50,6 +54,14 @@ function oppPct(frac, digits) {
   return sign + p.toFixed(d) + '%';
 }
 
+function oppCompactUsd(n) {
+  const v = Math.abs(Number(n) || 0);
+  if (v >= 1e9) return '$' + (v / 1e9).toFixed(1) + 'B';
+  if (v >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return '$' + (v / 1e3).toFixed(0) + 'k';
+  return '$' + v.toFixed(0);
+}
+
 function oppPx(v) {
   const n = Number(v);
   if (!isFinite(n) || n <= 0) return '—';
@@ -61,7 +73,12 @@ function initOpps() {
   oppKind = lsGet(LS_OPP_KIND, 'all');
   if (!OPP_KINDS.some(k => k.id === oppKind)) oppKind = 'all';
   const notional = document.getElementById('oppNotional');
-  if (notional) notional.value = lsGet(LS_OPP_NOTIONAL, '10000');
+  if (notional) {
+    let saved = lsGet(LS_OPP_NOTIONAL, '');
+    if (!saved || saved === '10000') saved = '500';
+    notional.value = saved;
+    lsSet(LS_OPP_NOTIONAL, saved);
+  }
   const auto = document.getElementById('oppAuto');
   if (auto) auto.checked = lsGet(LS_OPP_AUTO, '1') !== '0';
   renderOppKinds();
@@ -179,6 +196,9 @@ function oppLegHtml(leg) {
   bits.push('<span class="sym">' + escHtml((leg.venue_label || leg.venue) + ' ' + leg.symbol) + '</span>');
   const meta = [];
   if (leg.mark) meta.push(oppPx(leg.mark));
+  if (leg.change != null && Math.abs(leg.change) >= 0.005) meta.push(oppPct(leg.change) + ' 24h');
+  if (leg.turnover) meta.push(oppCompactUsd(leg.turnover) + ' 24h');
+  if (leg.trades != null) meta.push(leg.trades + '/min');
   if (leg.fund_8h != null) meta.push('fund ' + oppPct(leg.fund_8h));
   if (leg.basis != null && Math.abs(leg.basis) >= 0.00005) meta.push('basis ' + oppPct(leg.basis));
   if (leg.spread != null && leg.spread > 0) meta.push('book ' + oppPct(leg.spread, 3));
@@ -190,6 +210,7 @@ function oppCard(r) {
   const n = oppNotional();
   const profit = (Number(r.edge) || 0) * n;
   const period = OPP_PERIOD[r.period] || '';
+  const prints = r.kind === 'tape' ? Number((r.legs && r.legs[0] && r.legs[0].trades) || 0) : 0;
   const apr = r.apr != null ? '<span class="apr"> · ' + (Number(r.apr) * 100).toFixed(0) + '% APR</span>' : '';
   const run = r.running || [];
   const suggest = (r.suggest || {}).label || '';
@@ -197,7 +218,9 @@ function oppCard(r) {
     '<div class="opp-top">' +
       '<span class="opp-tag ' + escHtml(r.kind) + '">' + escHtml(OPP_KIND_LABEL[r.kind] || r.kind) + '</span>' +
       '<b>' + escHtml(r.base) + '</b>' +
-      '<div class="opp-profit">' + oppMoney(profit) + '<small>' + escHtml(period) + '</small></div>' +
+      '<div class="opp-profit">' + (r.kind === 'tape'
+        ? (prints + '<small>/ min</small>')
+        : (oppMoney(profit) + '<small>' + escHtml(period) + '</small>')) + '</div>' +
     '</div>' +
     '<p class="opp-sum">' + escHtml(r.summary || '') + apr + '</p>' +
     '<div class="opp-legs">' + (r.legs || []).map(oppLegHtml).join('') + '</div>' +
@@ -242,7 +265,8 @@ function renderOpps() {
       if (!row || typeof openOppLaunch !== 'function') return;
       const run = (row.running || []).map(x => (x.strategy || 'bot') + ' on ' + (x.account_name || x.account || 'sub')).join(', ');
       const note = (row.summary || '') + (run ? ' · already ' + run : '');
-      openOppLaunch(row.suggest || {}, note);
+      const spec = Object.assign({}, row.suggest || {}, { max_usd: oppNotional() });
+      openOppLaunch(spec, note);
     };
   });
 }

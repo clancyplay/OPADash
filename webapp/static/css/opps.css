@@ -120,6 +120,8 @@
 .opp-tag.basis { color: #f5c16c; border-color: rgba(245, 165, 36, .45); background: rgba(245, 165, 36, .12); }
 .opp-tag.book { color: #d7b3ff; border-color: rgba(179, 136, 255, .45); background: rgba(179, 136, 255, .12); }
 .opp-tag.carry { color: #7fd1e8; border-color: rgba(80, 190, 220, .45); background: rgba(80, 190, 220, .12); }
+.opp-tag.tape { color: #f3d27a; border-color: rgba(243, 210, 122, .5); background: rgba(243, 210, 122, .12); }
+.opp-tag.move { color: #ff9b7a; border-color: rgba(255, 140, 100, .5); background: rgba(255, 140, 100, .12); }
 
 .opp-sum { margin: 0; font-size: 13px; line-height: 1.4; }
 .opp-sum .apr { color: var(--muted); }

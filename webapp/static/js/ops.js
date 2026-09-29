@@ -119,6 +119,11 @@ async function openOppLaunch(spec, note) {
     const ev = document.getElementById('opsP_EDGE_VENUE');
     if (ev && [...ev.options].some(o => o.value === spec.edge_venue)) ev.value = spec.edge_venue;
   }
+  if (spec.max_usd) {
+    const maxEl = document.getElementById('opsP_MAX_POSITION');
+    if (maxEl) maxEl.value = String(Math.round(Number(spec.max_usd)));
+    if (typeof setOpsMaxUnit === 'function') setOpsMaxUnit('usd');
+  }
   onOpsContractMeta();
   applyOpsLaunchLead();
   setOpsMsg('opsLaunchMsg', note || '', false);
