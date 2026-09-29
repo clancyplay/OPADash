@@ -1,6 +1,7 @@
 const OPP_KINDS = [
   { id: 'all', label: 'All' },
   { id: 'spread', label: 'Spread arb' },
+  { id: 'far', label: 'Far fills' },
   { id: 'tape', label: 'Printing' },
   { id: 'move', label: 'Moving' },
   { id: 'book', label: 'Book spread' },
@@ -11,6 +12,7 @@ const OPP_KINDS = [
 const OPP_KIND_LABEL = {
   funding: 'Funding',
   spread: 'Spread',
+  far: 'Far fill',
   basis: 'Basis',
   book: 'Book',
   carry: 'Carry',
@@ -202,6 +204,7 @@ function oppLegHtml(leg) {
   if (leg.fund_8h != null) meta.push('fund ' + oppPct(leg.fund_8h));
   if (leg.basis != null && Math.abs(leg.basis) >= 0.00005) meta.push('basis ' + oppPct(leg.basis));
   if (leg.spread != null && leg.spread > 0) meta.push('book ' + oppPct(leg.spread, 3));
+  if (leg.walk != null && leg.walk > 0) meta.push('walk ' + oppPct(leg.walk, 3));
   if (meta.length) bits.push('<span>' + meta.join(' · ') + '</span>');
   return '<div class="opp-leg">' + bits.join('') + '</div>';
 }

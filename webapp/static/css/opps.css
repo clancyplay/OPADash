@@ -117,6 +117,7 @@
 }
 .opp-tag.funding { color: #8ab4ff; border-color: rgba(41, 98, 255, .45); background: rgba(41, 98, 255, .12); }
 .opp-tag.spread { color: #7dcea0; border-color: rgba(38, 166, 154, .45); background: rgba(38, 166, 154, .12); }
+.opp-tag.far { color: #9ad67a; border-color: rgba(120, 190, 70, .5); background: rgba(120, 190, 70, .12); }
 .opp-tag.basis { color: #f5c16c; border-color: rgba(245, 165, 36, .45); background: rgba(245, 165, 36, .12); }
 .opp-tag.book { color: #d7b3ff; border-color: rgba(179, 136, 255, .45); background: rgba(179, 136, 255, .12); }
 .opp-tag.carry { color: #7fd1e8; border-color: rgba(80, 190, 220, .45); background: rgba(80, 190, 220, .12); }

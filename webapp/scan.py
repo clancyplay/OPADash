@@ -43,17 +43,23 @@ MIN_TURN_MOVE = 40_000.0
 MIN_MOVE = 0.04          # 4% on the day
 MIN_PRINTS = 3           # trades in the last minute
 
+MIN_FAR_BOOK = 0.0012      # 12 bp book before a back quote has room
+MAX_FAR_BOOK = 0.03        # past this the book is usually empty
+MIN_FAR_COVER = 0.35       # prints must cover this much of the book
+
 _CAPS = {
-    "spread": 28, "tape": 24, "move": 24, "book": 24,
+    "spread": 28, "far": 24, "tape": 24, "move": 24, "book": 24,
     "funding": 18, "basis": 14, "carry": 14,
 }
-_KINDS = ("spread", "tape", "move", "book", "funding", "basis", "carry")
+_KINDS = ("spread", "far", "tape", "move", "book", "funding", "basis", "carry")
 
 NOTES = (
     "Sized for a $500 start. Delta contracts are listed first. "
     "Spread is buy-the-ask / sell-the-bid after a 0.10% taker haircut, and a Delta leg wins over a wider pair elsewhere. "
+    "Far fill is one Delta contract: the book is wide and prints crossed it, or last-minute prints already traded past the touch, so a quote behind it can still get hit. "
+    "The $ figure is that distance after one maker fee, not a locked fill. "
     "Tape is Delta names that are both liquid and printing in the last minute. "
-    "Move is the 24h price change on this notional, not a locked fill. "
+    "Move is the 24h price change on this notional. "
     "Book is one Delta bid-to-ask capture after a 0.04% maker haircut. "
     "Funding and carry are per 8 hours. "
     "Delta funding is published in percent and converted before compare."
@@ -228,6 +234,8 @@ def _leg(row: dict, side: str = "") -> dict:
         "change": None if row.get("change") is None else round(float(row["change"]), 6),
         "turnover": None if row.get("turnover") is None else round(float(row["turnover"]), 0),
         "trades": None if row.get("trades") is None else int(row["trades"]),
+        "walk": None if row.get("print_low") is None or row.get("print_high") is None or mark <= 0
+        else round((float(row["print_high"]) - float(row["print_low"])) / mark, 6),
     }
 
 
@@ -451,6 +459,34 @@ def _score_base(base: str, quotes: list[dict], found: dict[str, list[dict]]) -> 
                 "suggest": _suggest("surge", delta),
                 "running": [],
             })
+        far = _far_fill(delta, width)
+        if far:
+            reach, travel, mode = far
+            if mode == "book":
+                summary = (
+                    f"Delta book {(width or 0) * 100:.2f}%"
+                    f" · prints covered {travel * 100:.2f}%"
+                    f" · a quote behind the touch can fill"
+                )
+            else:
+                summary = (
+                    f"Delta prints walked {travel * 100:.2f}% in the last minute"
+                    f" · a quote {(travel * 50):.2f}% behind the touch can still fill"
+                )
+            found["far"].append({
+                "id": f"far:{base}:delta",
+                "kind": "far",
+                "base": base,
+                "summary": summary,
+                "period": "trade",
+                "edge": round(reach, 8),
+                "gross": round(travel, 8),
+                "score": reach * max(float(delta.get("turnover") or 0), 1),
+                "apr": None,
+                "legs": [_leg(delta, "")],
+                "suggest": _suggest("stack", delta),
+                "running": [],
+            })
         if width is not None and MIN_BOOK_NET <= (width - FEE_MAKER_RT) <= MAX_BOOK and _liquid(delta, MIN_TURN_DELTA):
             net = width - FEE_MAKER_RT
             turn = float(delta.get("turnover") or 0)
@@ -589,6 +625,44 @@ def _score_base(base: str, quotes: list[dict], found: dict[str, list[dict]]) -> 
                     "suggest": _suggest("stack", delta),
                     "running": [],
                 })
+
+
+def _far_fill(row: dict, width: float | None) -> tuple[float, float, str] | None:
+    """Single-exchange far fill. Two ways a quote behind the touch still gets hit.
+
+    book: the spread itself is wide and recent prints crossed it.
+    path: the touch is tighter, but last-minute prints already traded past it.
+    Profit is that distance after one maker fee. Path uses half the print range,
+    the distance you can sit back and still be where trades printed.
+    """
+    if not _liquid(row, MIN_TURN_DELTA):
+        return None
+    lo, hi = row.get("print_low"), row.get("print_high")
+    mark = row.get("mark") or 0
+    age = row.get("print_age")
+    if not lo or not hi or not mark or hi <= lo or age is None or age > 90:
+        return None
+    travel = (hi - lo) / mark
+    fee = FEE_MAKER_RT / 2
+
+    book_net = None
+    covered = 0.0
+    if width is not None and MIN_FAR_BOOK <= width <= MAX_FAR_BOOK:
+        covered = min(travel, width)
+        if covered >= MIN_FAR_COVER * width:
+            book_net = covered - fee
+
+    path_net = None
+    trades = int(row.get("trades") or 0)
+    past_touch = width is None or travel >= width * 1.5
+    if trades >= MIN_PRINTS and travel >= 0.002 and past_touch:
+        path_net = (travel * 0.5) - fee
+
+    if book_net and book_net > 0 and (path_net is None or book_net >= path_net):
+        return book_net, covered, "book"
+    if path_net and path_net > 0:
+        return path_net, travel, "path"
+    return None
 
 
 def _bot_matches(bot: dict, leg: dict) -> bool:
@@ -750,7 +824,19 @@ async def _delta(client: httpx.AsyncClient) -> list[dict]:
         )
         if row:
             out.append(row)
-    hot = sorted(out, key=lambda r: r.get("turnover") or 0, reverse=True)[:36]
+    # Top turnover keeps the tape. Extra slots go to wide books further down the list.
+    by_turn = sorted(out, key=lambda r: r.get("turnover") or 0, reverse=True)
+    hot = list(by_turn[:28])
+    seen = {r["symbol"] for r in hot}
+    wide = [
+        row for row in by_turn
+        if row["symbol"] not in seen
+        and (_width(row) or 0) >= MIN_FAR_BOOK
+        and _liquid(row, MIN_TURN_DELTA)
+    ]
+    wide.sort(key=lambda r: _width(r) or 0, reverse=True)
+    for row in wide[:14]:
+        hot.append(row)
     if hot:
         await asyncio.gather(*[_delta_prints(client, base, row) for row in hot])
     return out
@@ -779,18 +865,27 @@ async def _delta_prints(client: httpx.AsyncClient, base: str, row: dict) -> None
             row["trades"] = 0
             return
         now = time.time()
-        times = []
+        recent = []
         for rec in trades:
             if not isinstance(rec, dict):
                 continue
             ts = _trade_ts(rec.get("timestamp") or rec.get("created_at"))
-            if ts is None:
+            px = _num(rec.get("price"))
+            if ts is None or not px or px <= 0 or now - ts > 180:
                 continue
-            if now - ts <= 60:
-                times.append(ts)
-        row["trades"] = len(times)
-        if times:
+            recent.append((ts, px))
+        minute = [(ts, px) for ts, px in recent if now - ts <= 60]
+        row["trades"] = len(minute)
+        if minute:
+            times = [ts for ts, _px in minute]
             row["trade_window"] = max(1.0, max(times) - min(times))
+        # Last minute when it is actually printing; otherwise the last three minutes.
+        sample = minute if len(minute) >= 3 else recent
+        if len(sample) >= 3:
+            prices = [px for _ts, px in sample]
+            row["print_low"] = min(prices)
+            row["print_high"] = max(prices)
+            row["print_age"] = now - max(ts for ts, _px in sample)
     except Exception:
         return
 
