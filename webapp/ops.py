@@ -18,24 +18,28 @@ GEOM_LENS = [
         "hint": "Cover-side edge off the hook",
         "pct_key": "HEM_PCT", "ticks_key": "HEM_TICKS",
         "pct_default": "0.1", "ticks_default": "4",
+        "auto_key": "HEM_AUTO",
     },
     {
         "id": "span", "label": "Span",
         "hint": "Other edge, measured from the hem",
         "pct_key": "SPAN_PCT", "ticks_key": "SPAN_TICKS",
         "pct_default": "0.5", "ticks_default": "10",
+        "auto_key": "SPAN_AUTO",
     },
     {
         "id": "step", "label": "Step",
         "hint": "First same-side gap behind an edge",
         "pct_key": "STEP_PCT", "ticks_key": "STEP_TICKS",
         "pct_default": "0.1", "ticks_default": "4",
+        "auto_key": "STEP_AUTO",
     },
     {
         "id": "tail", "label": "Tail",
         "hint": "Same-side gaps behind both edges",
         "pct_key": "TAIL_PCT", "ticks_key": "STEP_TICKS",
         "pct_default": "0.1", "ticks_default": "4",
+        "auto_key": "STEP_AUTO",
     },
     {
         "id": "k", "label": "K",
@@ -109,10 +113,14 @@ def _max(label="Max", default="10000"):
     }]
 
 
-def _geom(lenses, hint="", defaults=None):
+def _geom(lenses, hint="", defaults=None, auto=None, auto_defaults=None):
     row = {"key": "GEOM", "type": "geom", "lenses": list(lenses), "group": "geometry", "hint": hint}
     if defaults:
         row["lens_defaults"] = defaults
+    if auto:
+        row["auto"] = list(auto)
+    if auto_defaults:
+        row["auto_defaults"] = auto_defaults
     return row
 
 
@@ -123,7 +131,7 @@ def _fate():
     ]
 
 
-def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=False, fate=True, hook=True, quote_ms="150", place_secs="20"):
+def _ladder(*, auto=True, auto_defaults=None, touch=False, vol=False, fate=True, hook=True, quote_ms="150", place_secs="20"):
     """Hem/span/step makers: stack, clip, chop, fade, flip."""
     rows = _max() + [_ORDERS]
     if hook:
@@ -131,24 +139,18 @@ def _ladder(*, fit=True, fit_default=False, span_spread=False, touch=False, vol=
     rows.append(_IGNORE)
     rows.append(_geom(
         ["hem", "span", "step"],
-        "Each edge is % of price, or whole ticks. Ticks win. Fit auto takes hem/span/step from the live book — you cannot type them while it is on. Span spread is only for when Fit auto is off.",
+        "Each edge is % of price, or whole ticks. Ticks win. Auto fits that one edge from the live book — you cannot type it while Auto is on. Step × sits on the Step row.",
+        auto=["hem", "span", "step"] if auto else None,
+        auto_defaults=auto_defaults,
     ))
-    if fit:
-        rows.append({"key": "FIT_AUTO", "label": "Fit auto", "type": "bool", "default": fit_default, "group": "geometry"})
-    if span_spread:
-        rows.append({
-            "key": "SPAN_SPREAD", "label": "Span spread", "type": "bool", "default": False, "group": "geometry",
-            "hide_if_any": ["FIT_AUTO"],
-            "hint": "Only when Fit auto is off. If the live bid–ask is wider than span, hang inner quotes on the spread.",
-        })
     if touch:
         rows.append({
             "key": "TOUCH_TICKS", "label": "Touch ticks", "type": "int", "default": "1", "group": "geometry",
             "min": 0, "wide": True,
-            "show_if_any": ["SPAN_SPREAD", "FIT_AUTO"],
-            "hint": "How far inside the BBO when quotes follow the spread. 0 joins the touch.",
+            "show_if_any": ["SPAN_AUTO"],
+            "hint": "How far inside the BBO when span is auto. 0 joins the touch.",
         })
-    rows.append(_MULT)
+    rows.append({**_MULT, "embed": True})
     rows.extend(_pace(quote_ms=quote_ms, place_secs=place_secs))
     if fate:
         rows.extend(_fate())
@@ -163,13 +165,13 @@ def _touch_like(*, k_default="0", step_default="0.05"):
         _ORDERS,
         _IGNORE,
         _geom(
-            ["k"],
-            "Offset from the touch. 0 joins BBO. Ticks win over %.",
-            defaults={"k": {"pct_default": k_default}},
+            ["k", "step"],
+            "K is the offset from the touch (0 joins BBO). Step is the same-side gap. Auto fits step from the live book.",
+            defaults={"k": {"pct_default": k_default}, "step": {"pct_default": step_default}},
+            auto=["step"],
+            auto_defaults={"step": True},
         ),
-        {"key": "STEP_AUTO", "label": "Fit step", "type": "bool", "default": True, "group": "geometry"},
-        {"key": "STEP_PCT", "label": "Step %", "type": "number", "default": step_default, "group": "geometry"},
-        _MULT,
+        {**_MULT, "embed": True},
         *_pace(place_secs="60"),
         *_fate(),
         {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
@@ -194,7 +196,7 @@ STRATEGIES = [
     {
         "id": "stack", "label": "Stack",
         "blurb": "Hem/span ladder hung off the hook.",
-        "params": _ladder(span_spread=True, touch=True, vol=False),
+        "params": _ladder(touch=True, vol=False),
     },
     {
         "id": "pair", "label": "Pair",
@@ -218,18 +220,21 @@ STRATEGIES = [
     },
     {
         "id": "flip", "label": "Flip",
-        "blurb": "Hem/span ladder; fit auto and touch clamp on.",
-        "params": _ladder(fit_default=True, touch=True, vol=True),
+        "blurb": "Hem/span ladder; hem/span/step auto from the live book.",
+        "params": _ladder(
+            auto_defaults={"hem": True, "span": True, "step": True},
+            touch=True, vol=True,
+        ),
     },
     {
         "id": "plain", "label": "Plain",
-        "blurb": "Hem/span/step only — no vol, fate, or fit auto.",
+        "blurb": "Hem/span/step only — no vol, fate, or auto fit.",
         "params": _max() + [
             {**_ORDERS, "default": "4"},
             _HOOK,
             _IGNORE,
             _geom(["hem", "span", "step"], "Each edge is % of price, or whole ticks. Ticks win."),
-            _MULT,
+            {**_MULT, "embed": True},
             *_pace(quote_ms="500", place_secs="60"),
             _DRY,
         ],
@@ -247,7 +252,7 @@ STRATEGIES = [
             _HOOK,
             _IGNORE,
             _geom(["hem", "span", "tail"], "Hem and span are the two edges. Tail is the stack behind them."),
-            _MULT,
+            {**_MULT, "embed": True},
             *_pace(place_secs="60"),
             *_fate(),
             {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},

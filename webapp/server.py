@@ -389,7 +389,7 @@ _SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold", "wallet_exch", 
 _SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr"}
 _SETUP_KEYS = (
     "hook", "hem", "span", "step", "hem_ticks", "span_ticks", "step_ticks", "step_mult",
-    "fit_auto", "span_spread", "vol_gate", "vol_stable",
+    "hem_auto", "span_auto", "step_auto", "fit_auto", "span_spread", "vol_gate", "vol_stable",
     "orders", "live_orders", "max_pos", "max_usd", "ignore", "ignore_usd",
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
     "quote_ms", "place_secs",
@@ -428,7 +428,7 @@ def _cfg_public(cfg: _SymbolConfig | None) -> dict | None:
 
 
 def _setup_public(setup: dict | None) -> dict | None:
-    """OPA6 live knobs (hem/span/FIT_AUTO/MAX_POSITION) — same payload Telegram uses."""
+    """OPA6 live knobs (hem/span/auto/MAX_POSITION) — same payload Telegram uses."""
     if not isinstance(setup, dict) or not setup:
         return None
     out: dict = {"kind": "setup"}
@@ -2009,14 +2009,14 @@ _SETUP_PAYLOAD_KEYS = frozenset({
     "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS", "K_TICKS", "TAILS",
     "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",
     "FATE_USD", "GRIND_USD", "QUOTE_MS", "PLACE_SECS", "IGNORE_MIN_SIZE",
-    "FIT_AUTO", "SPAN_SPREAD", "VOL_GATE", "STEP_AUTO", "DRY_RUN", "MAX_IN_USD",
+    "FIT_AUTO", "SPAN_SPREAD", "HEM_AUTO", "SPAN_AUTO", "STEP_AUTO", "VOL_GATE", "DRY_RUN", "MAX_IN_USD",
     "HOOK", "STEP_MULT", "MAX_POSITION", "PAIR_HEDGE", "PAIR_HEDGE_LOT", "FLIP", "EDGE_VENUE",
     "MOVE_PCT", "MOVE_SECS", "RISK_REWARD",
     "MOM_PCT", "MOM_SLOW_PCT", "CLIP_PCT", "TRAIL_PCT", "MOM_STOP_PCT",
     "max_usd", "max_pos",
 })
 _SETUP_BOOL = frozenset({
-    "FIT_AUTO", "SPAN_SPREAD", "VOL_GATE", "STEP_AUTO", "DRY_RUN", "MAX_IN_USD", "PAIR_HEDGE", "FLIP",
+    "FIT_AUTO", "SPAN_SPREAD", "HEM_AUTO", "SPAN_AUTO", "STEP_AUTO", "VOL_GATE", "DRY_RUN", "MAX_IN_USD", "PAIR_HEDGE", "FLIP",
 })
 _SETUP_INT = frozenset({
     "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS", "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",

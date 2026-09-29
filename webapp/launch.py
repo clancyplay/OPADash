@@ -319,6 +319,17 @@ def _pin_geom(knobs: dict[str, str]) -> dict[str, str]:
     """Ticks win over %. Unused *_TICKS must be 0 so a parent .env cannot leak."""
     if not any(k.startswith(("HEM_", "SPAN_", "STEP_", "TAIL_")) for k in knobs):
         return knobs
+
+    def _auto_on(name: str) -> bool:
+        return str(knobs.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
+
+    if _auto_on("HEM_AUTO"):
+        knobs["HEM_TICKS"] = "0"
+    if _auto_on("SPAN_AUTO"):
+        knobs["SPAN_TICKS"] = "0"
+    if _auto_on("STEP_AUTO"):
+        knobs["STEP_TICKS"] = "0"
+        knobs["TAIL_TICKS"] = "0"
     for ticks, alias in (("HEM_TICKS", None), ("SPAN_TICKS", None), ("STEP_TICKS", "TAIL_TICKS")):
         raw = knobs.get(ticks)
         try:

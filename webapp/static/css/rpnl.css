@@ -1248,9 +1248,24 @@ body.ops-open { overflow: hidden; }
   align-items: center;
   margin-bottom: 8px;
 }
+.rp-ops-len.has-auto {
+  grid-template-columns: 52px minmax(0, 1fr) auto auto;
+  grid-template-areas: "lab inp unit mode" ". hint hint hint";
+}
+.rp-ops-len.has-mult:not(.has-auto) {
+  grid-template-columns: 52px minmax(56px, 1fr) auto minmax(118px, .9fr);
+  grid-template-areas: "lab inp unit mult" ". hint hint hint";
+}
+.rp-ops-len.has-auto.has-mult {
+  grid-template-columns: 44px minmax(52px, 1fr) auto auto minmax(148px, 1.05fr);
+  grid-template-areas: "lab inp unit mode mult" ". hint hint hint hint";
+}
 .rp-ops-len-lab { grid-area: lab; font-size: 12px; font-weight: 700; color: #fff; }
 .rp-ops-len input { grid-area: inp; width: 100%; }
-.rp-ops-len .rp-ops-unit { grid-area: unit; }
+.rp-ops-len > .rp-ops-unit:not(.rp-ops-len-mode) { grid-area: unit; }
+.rp-ops-len-mode { grid-area: mode; flex: 0 0 auto; white-space: nowrap; }
+.rp-ops-len-mult { grid-area: mult; min-width: 0; }
+.rp-ops-len-mult select { width: 100%; min-height: 34px; font: inherit; font-size: 11px; }
 .rp-ops-unit {
   display: inline-flex;
   border: 1px solid var(--border2);
@@ -1284,8 +1299,8 @@ body.ops-open { overflow: hidden; }
   line-height: 1.45;
 }
 .rp-ops-geom-live b { color: #fff; font-weight: 650; }
-.rp-ops-geom.is-fit-lock input,
-.rp-ops-geom.is-fit-lock button { opacity: .55; cursor: not-allowed; }
+.rp-ops-len.is-auto input,
+.rp-ops-len.is-auto > .rp-ops-unit:not(.rp-ops-len-mode) button { opacity: .55; cursor: not-allowed; }
 .rp-ops-glossary {
   margin-top: 2px;
   padding: 10px 12px 12px;
@@ -1409,4 +1424,18 @@ body.ops-open { overflow: hidden; }
 @media (max-width: 720px) {
   .rp-ops-grid, .rp-ops-params { grid-template-columns: 1fr; }
   .rp-ops-glossary dl > div { grid-template-columns: 1fr; gap: 2px; }
+  .rp-ops-len.has-auto,
+  .rp-ops-len.has-mult:not(.has-auto),
+  .rp-ops-len.has-auto.has-mult {
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+  }
+  .rp-ops-len.has-auto {
+    grid-template-areas: "lab inp unit" "mode mode mode" ". hint hint";
+  }
+  .rp-ops-len.has-mult:not(.has-auto) {
+    grid-template-areas: "lab inp unit" "mult mult mult" ". hint hint";
+  }
+  .rp-ops-len.has-auto.has-mult {
+    grid-template-areas: "lab inp unit" "mode mode mode" "mult mult mult" ". hint hint";
+  }
 }

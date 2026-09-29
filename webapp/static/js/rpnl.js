@@ -774,8 +774,11 @@ function rpnlSetupBits(s) {
   if (step) bits.push(step);
   if (s.min_spread != null && Number(s.min_spread) > 0) bits.push('min spread ' + fmtG(s.min_spread) + '%');
   if (s.spread_pad != null && Number(s.spread_pad) > 0) bits.push('pad ' + fmtG(s.spread_pad) + '%');
-  if (s.fit_auto != null) bits.push('fit auto ' + (on(s.fit_auto) ? 'on' : 'off'));
-  if (s.span_spread != null) bits.push('span spread ' + (on(s.span_spread) ? 'on' : 'off'));
+  if (s.hem_auto != null) bits.push('hem ' + (on(s.hem_auto) ? 'auto' : 'manual'));
+  if (s.span_auto != null) bits.push('span ' + (on(s.span_auto) ? 'auto' : 'manual'));
+  if (s.step_auto != null) bits.push('step ' + (on(s.step_auto) ? 'auto' : 'manual'));
+  if (s.fit_auto != null && s.hem_auto == null) bits.push('fit auto ' + (on(s.fit_auto) ? 'on' : 'off'));
+  if (s.span_spread != null && s.span_auto == null) bits.push('span spread ' + (on(s.span_spread) ? 'on' : 'off'));
   if (s.quote_ms != null) bits.push('quote ' + fmtG(s.quote_ms) + 'ms');
   if (s.place_secs != null) bits.push('place ' + fmtG(s.place_secs) + 's');
   if (s.vol_gate != null) bits.push('vol gate ' + (on(s.vol_gate) ? 'on' : 'off'));
@@ -819,7 +822,7 @@ function rpnlSymbolBits(s) {
 
 function rpnlCfgBits(s) {
   if (!s) return [];
-  if (s.kind === 'setup' || s.hem != null || s.fit_auto != null || s.max_usd != null || s.k != null || s.edge != null || s.mode != null) {
+  if (s.kind === 'setup' || s.hem != null || s.hem_auto != null || s.fit_auto != null || s.max_usd != null || s.k != null || s.edge != null || s.mode != null) {
     return rpnlSetupBits(s);
   }
   return rpnlSymbolBits(s);
