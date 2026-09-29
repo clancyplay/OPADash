@@ -84,24 +84,29 @@
       <div id="ohlcChart"></div>
       <div class="chart-empty" id="ohlcEmpty">No price candles for this window</div>
       <div class="chart-legend" id="ohlcLegend"></div>
+      <div id="ohlcBrush" class="rpnl-brush" hidden></div>
+      <div class="rpnl-select-layer" data-rpnl-sel="ohlc" hidden></div>
     </div>
     <div class="rp-pane">
       <div class="rp-pane-lab" id="rpnlPaneLabel">Cumulative rPnL (₹)</div>
       <div id="rpnlChart"></div>
       <div class="chart-legend" id="rpnlLegend"></div>
       <div id="rpnlBrush" class="rpnl-brush" hidden></div>
-      <div id="rpnlSelectLayer" class="rpnl-select-layer" hidden></div>
+      <div class="rpnl-select-layer" data-rpnl-sel="rpnl" hidden></div>
     </div>
+    <div class="rp-select-hint" id="rpnlSelectHint" hidden>Drag across a chart to pick a time window</div>
   </div>
   <div class="rp-foot" id="rpnlTools">
     <div class="rp-dates">
       <label>From <input type="datetime-local" id="rpnlFrom" step="60" title="From (IST)" onchange="rpnlPinFromInputs()" /></label>
       <label>To <input type="datetime-local" id="rpnlTo" step="60" title="To (IST)" onchange="rpnlPinFromInputs()" /></label>
     </div>
-    <span class="range-mode" id="rpnlRangeMode">chart view</span>
-    <button class="btn" type="button" onclick="rpnlFollowView()" title="Keep the window locked to whatever is on screen">Follow</button>
-    <button class="btn" type="button" id="rpnlSelectBtn" onclick="toggleRpnlSelect()" title="Drag on the rPnL chart to pick a window">Select</button>
-    <button class="btn" type="button" onclick="rpnlJumpChartToRange()" title="Zoom the charts to the From/To times">Jump</button>
+    <button type="button" class="range-mode" id="rpnlRangeMode" onclick="rpnlRangeModeClick()" title="Selected window">Live window</button>
+    <div class="rp-range-acts">
+      <button class="btn" type="button" id="rpnlSelectBtn" onclick="toggleRpnlSelect()" title="Drag on a chart to pick a window">Select</button>
+      <button class="btn" type="button" id="rpnlClearBtn" hidden onclick="rpnlFollowView()" title="Drop the selected window">Clear</button>
+      <button class="btn" type="button" id="rpnlJumpBtn" hidden onclick="rpnlJumpChartToRange()" title="Zoom the charts to this window">Jump</button>
+    </div>
     <span class="rp-inspect">
       <button class="btn" type="button" data-rpnl-kind="logs" onclick="openRpnlKind('logs')">Logs</button>
       <button class="btn" type="button" data-rpnl-kind="fills" onclick="openRpnlKind('fills')">Fills</button>
@@ -126,7 +131,7 @@
           <div class="lg-cols-menu" id="rpnlLgColsMenu" hidden></div>
         </div>
         <button class="btn" type="button" onclick="rpnlKindReload()">Refresh</button>
-        <label class="rp-check" id="rpnlKindLiveWrap"><input type="checkbox" id="rpnlLogsLive" checked /> Live</label>
+        <label class="rp-check" id="rpnlKindLiveWrap"><input type="checkbox" id="rpnlLogsLive" checked onchange="onRpnlKindLiveChange()" /> Live</label>
         <button class="btn" type="button" onclick="exportRpnlOpenKind()" title="CSV of the current From/To + filters">Export CSV</button>
         <button class="btn" type="button" onclick="closeRpnlKind()">Close</button>
       </div>

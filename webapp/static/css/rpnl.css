@@ -603,8 +603,27 @@ body:has(#rpnl.visible) {
   pointer-events: none;
 }
 .rpnl-select-layer {
-  position: absolute; inset: 0; z-index: 7; cursor: col-resize;
-  background: rgba(41, 98, 255, .04);
+  position: absolute; inset: 0; z-index: 11; cursor: col-resize;
+  background: rgba(41, 98, 255, .05);
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.rp-select-hint {
+  position: absolute; left: 50%; top: 10px; z-index: 14;
+  transform: translateX(-50%);
+  pointer-events: none;
+  font-size: 12px; font-weight: 650;
+  padding: 6px 12px; border-radius: 999px;
+  background: rgba(18, 22, 31, .92);
+  border: 1px solid rgba(41, 98, 255, .55);
+  color: #fff;
+  white-space: nowrap;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .4);
+}
+#rpnl.selecting .rp-scroll,
+#rpnl.selecting .rp-charts {
+  touch-action: none;
 }
 
 /* Footer tools */
@@ -617,13 +636,15 @@ body:has(#rpnl.visible) {
   border-top: 1px solid var(--border);
   background: var(--surface);
   font-size: 12px;
+  position: relative;
+  min-width: 0;
+  overflow-x: hidden;
 }
-.rp-foot { min-width: 0; overflow-x: hidden; }
 .rp-dates {
   display: flex;
   gap: 8px;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 1 280px;
   max-width: 100%;
 }
 .rp-dates label {
@@ -638,15 +659,19 @@ body:has(#rpnl.visible) {
 }
 .rp-foot .range-mode {
   font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
-  padding: 2px 7px; border-radius: 4px; background: rgba(255, 255, 255, .05);
+  padding: 5px 9px; border-radius: 6px; background: rgba(255, 255, 255, .05);
   color: var(--muted); border: 1px solid var(--border);
+  font-family: inherit; cursor: pointer;
+  max-width: 100%;
 }
+.rp-foot .range-mode.sel { color: #ffb74d; border-color: rgba(255, 183, 77, .45); background: rgba(255, 183, 77, .1); }
+.rp-foot .range-mode.pin { color: #90caf9; border-color: rgba(41, 98, 255, .55); background: rgba(41, 98, 255, .12); }
 .rp-foot .btn.on {
   border-color: var(--accent);
   color: #fff;
+  background: rgba(41, 98, 255, .18);
 }
-.rp-foot .range-mode.sel { color: #ffb74d; border-color: rgba(255, 183, 77, .45); }
-.rp-foot { position: relative; }
+.rp-range-acts { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .rp-inspect { display: flex; gap: 4px; margin-left: auto; align-items: center; }
 .rp-logs {
   display: none;
@@ -681,6 +706,8 @@ body:has(#rpnl.visible) {
   background: var(--bg); color: var(--text);
   border: 1px solid var(--border); border-radius: 6px;
 }
+#rpnlKindScope[hidden],
+#rpnlKindLiveWrap[hidden] { display: none !important; }
 .rp-logs-stage {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -949,9 +976,28 @@ body:has(#rpnl.visible) {
   }
 
   .rp-foot {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "dates dates"
+      "mode acts"
+      "inspect inspect";
+    align-items: center;
     padding: 8px max(8px, var(--safe-r)) calc(12px + var(--safe-b)) max(8px, var(--safe-l));
     gap: 6px;
     overflow: visible;
+  }
+  .rp-dates { grid-area: dates; }
+  .rp-foot .range-mode { grid-area: mode; justify-self: start; }
+  .rp-range-acts { grid-area: acts; justify-self: end; }
+  .rp-inspect { grid-area: inspect; }
+  .rp-select-hint {
+    top: 8px;
+    font-size: 11px;
+    padding: 5px 10px;
+    max-width: calc(100% - 24px);
+    white-space: normal;
+    text-align: center;
   }
   .rp-dates {
     display: grid;
@@ -985,8 +1031,9 @@ body:has(#rpnl.visible) {
   .rp-dates input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     width: 14px; height: 14px; padding: 0; margin: 0 0 0 2px;
   }
-  .rp-foot .btn { min-height: 28px !important; padding: 2px 8px !important; font-size: 11px !important; }
-  .rp-inspect { margin-left: 0; width: 100%; }
+  .rp-foot .btn { min-height: 32px !important; padding: 4px 10px !important; font-size: 12px !important; }
+  .rp-inspect { margin-left: 0; width: 100%; display: flex; }
+  .rp-inspect .btn { flex: 1 1 0; }
 
   #rpnl.page.visible.logs-open {
     grid-template-rows: auto minmax(0, 1fr);

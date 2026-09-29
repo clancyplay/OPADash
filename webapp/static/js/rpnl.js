@@ -94,6 +94,7 @@ let rpnlRangePinned = false;
 let rpnlSelectMode = false;
 let rpnlPinFrom = null;
 let rpnlPinTo = null;
+let rpnlSelDrag = null;
 let ohlcChart, ohlcSeries, ohlcHedgeMarkerSeries, ohlcVolSeries;
 let ohlcBarSeries, ohlcLineSeries, ohlcAreaSeries, ohlcQuoteMarkerSeries;
 let ohlcMaSeries = { 7: null, 25: null, 99: null };
@@ -1124,7 +1125,7 @@ async function refreshRpnlLive() {
     paintOhlcHud(ohlcHoverTime);
     updateOhlcCountdown();
   } catch (e) {}
-  if (rpnlLogsOpen() && rpnlKind === 'logs') loadRpnlLogs(false);
+  if (rpnlLogsOpen() && rpnlKind === 'logs' && rpnlLogsLiveOn()) loadRpnlLogs(false);
   if (rpnlLogsOpen() && rpnlKind === 'fills' && rpnlFillsLiveOn()) {
     const now = Date.now();
     if (now - rpnlFillLiveAt > 2500) {
@@ -3466,6 +3467,31 @@ function rpnlActiveRange() {
   }
   return rpnlVisibleUnixRange();
 }
+function rpnlHasSelection() {
+  return !!(rpnlRangePinned && rpnlPinFrom != null && rpnlPinTo != null &&
+    Math.abs(Number(rpnlPinTo) - Number(rpnlPinFrom)) >= 1);
+}
+function rpnlSelectionBounds() {
+  if (!rpnlHasSelection()) return null;
+  const a = Math.min(Number(rpnlPinFrom), Number(rpnlPinTo));
+  const b = Math.max(Number(rpnlPinFrom), Number(rpnlPinTo));
+  return { from: a, to: b };
+}
+function rpnlFmtIstClock(unix) {
+  return new Date(unix * 1000).toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+}
+function rpnlFmtIstRange(from, to) {
+  const a = new Date(from * 1000);
+  const b = new Date(to * 1000);
+  const opts = { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false };
+  const left = a.toLocaleString('en-IN', opts);
+  const sameDay = a.toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata' }) ===
+    b.toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata' });
+  const right = sameDay ? rpnlFmtIstClock(to) : b.toLocaleString('en-IN', opts);
+  return left + ' – ' + right;
+}
 function rpnlSetRangeInputs(from, to, silent) {
   const a = document.getElementById('rpnlFrom');
   const b = document.getElementById('rpnlTo');
@@ -3482,9 +3508,43 @@ function rpnlSetRangeInputs(from, to, silent) {
 }
 function rpnlSetRangeMode() {
   const el = document.getElementById('rpnlRangeMode');
-  if (!el) return;
-  el.className = 'range-mode' + (rpnlSelectMode ? ' sel' : rpnlRangePinned ? ' pin' : '');
-  el.textContent = rpnlSelectMode ? 'drag to select' : (rpnlRangePinned ? 'pinned' : 'chart view');
+  const clearBtn = document.getElementById('rpnlClearBtn');
+  const jumpBtn = document.getElementById('rpnlJumpBtn');
+  const selBtn = document.getElementById('rpnlSelectBtn');
+  const hint = document.getElementById('rpnlSelectHint');
+  const page = document.getElementById('rpnl');
+  const pinned = rpnlHasSelection();
+  if (selBtn) {
+    selBtn.classList.toggle('on', rpnlSelectMode);
+    selBtn.setAttribute('aria-pressed', rpnlSelectMode ? 'true' : 'false');
+  }
+  if (clearBtn) clearBtn.hidden = !pinned;
+  if (jumpBtn) jumpBtn.hidden = !pinned;
+  if (hint) hint.hidden = !rpnlSelectMode;
+  if (page) page.classList.toggle('selecting', rpnlSelectMode);
+  if (el) {
+    el.className = 'range-mode' + (rpnlSelectMode ? ' sel' : pinned ? ' pin' : '');
+    if (rpnlSelectMode) {
+      el.textContent = 'Drag on chart';
+      el.title = 'Drag left or right on Price or rPnL';
+    } else if (pinned) {
+      const r = rpnlSelectionBounds();
+      const mins = Math.max(1, Math.round((r.to - r.from) / 60));
+      el.textContent = 'Selected · ' + mins + 'm';
+      el.title = rpnlFmtIstRange(r.from, r.to) + ' IST — tap to jump';
+    } else {
+      el.textContent = 'Live window';
+      el.title = 'Logs and fills follow the hours dropdown. Select a slice on the chart to pin.';
+    }
+  }
+  syncRpnlKindButtons();
+}
+function rpnlRangeModeClick() {
+  if (rpnlSelectMode) {
+    setRpnlSelectMode(false);
+    return;
+  }
+  if (rpnlHasSelection()) rpnlJumpChartToRange();
 }
 function rpnlSyncRangeFromView() {
   const r = rpnlVisibleUnixRange();
@@ -3493,6 +3553,7 @@ function rpnlSyncRangeFromView() {
   rpnlSetRangeMode();
 }
 function rpnlFollowView() {
+  rpnlSelDrag = null;
   rpnlRangePinned = false;
   rpnlPinFrom = rpnlPinTo = null;
   setRpnlSelectMode(false);
@@ -3510,12 +3571,13 @@ function rpnlPinFromInputs() {
   rpnlRangePinned = true;
   rpnlPinFrom = from;
   rpnlPinTo = to;
+  setRpnlSelectMode(false);
   rpnlSetRangeMode();
   rpnlPaintBrush();
   if (rpnlLogsOpen()) rpnlKindReload();
 }
 function rpnlJumpChartToRange() {
-  const r = rpnlActiveRange();
+  const r = rpnlSelectionBounds() || rpnlActiveRange();
   if (!r || !rpnlChart || !ohlcChart) return;
   rpnlBeginSync();
   try {
@@ -3526,91 +3588,138 @@ function rpnlJumpChartToRange() {
   rpnlSetLiveShift(false);
   syncOhlcGoLive();
 }
-function setRpnlSelectMode(on) {
-  rpnlSelectMode = !!on;
-  const layer = document.getElementById('rpnlSelectLayer');
-  const btn = document.getElementById('rpnlSelectBtn');
-  if (layer) layer.hidden = !rpnlSelectMode;
-  if (btn) {
-    btn.style.borderColor = rpnlSelectMode ? 'var(--accent)' : '';
-    btn.style.color = rpnlSelectMode ? '#fff' : '';
-  }
-  if (rpnlChart) {
-    rpnlChart.applyOptions({
+function rpnlApplySelectHandle(chart) {
+  if (!chart) return;
+  try {
+    chart.applyOptions({
       handleScroll: { mouseWheel: true, pressedMouseMove: !rpnlSelectMode, horzTouchDrag: !rpnlSelectMode, vertTouchDrag: false },
       handleScale: { axisPressedMouseMove: { time: !rpnlSelectMode, price: !rpnlSelectMode }, mouseWheel: !rpnlSelectMode, pinch: !rpnlSelectMode },
     });
+  } catch (e) {}
+}
+function setRpnlSelectMode(on) {
+  const next = !!on;
+  if (!next && rpnlSelDrag && rpnlSelDrag.started) {
+    rpnlRangePinned = !!rpnlSelDrag.prevPinned;
+    rpnlPinFrom = rpnlSelDrag.prevFrom;
+    rpnlPinTo = rpnlSelDrag.prevTo;
+    rpnlSelDrag = null;
   }
+  rpnlSelectMode = next;
+  document.querySelectorAll('.rpnl-select-layer').forEach(function (layer) {
+    layer.hidden = !rpnlSelectMode;
+  });
+  rpnlApplySelectHandle(rpnlChart);
+  rpnlApplySelectHandle(ohlcChart);
   rpnlSetRangeMode();
+  rpnlPaintBrush();
 }
 function toggleRpnlSelect() {
   setRpnlSelectMode(!rpnlSelectMode);
-  if (rpnlSelectMode) toast('Drag across the rPnL chart to pin a window', '');
 }
-function rpnlPaintBrush() {
-  const box = document.getElementById('rpnlBrush');
-  if (!box || !rpnlChart) return;
-  if (!rpnlRangePinned || rpnlPinFrom == null || rpnlPinTo == null) {
+function rpnlPaintOneBrush(box, chart) {
+  if (!box || !chart) return;
+  if (rpnlPinFrom == null || rpnlPinTo == null || (!rpnlHasSelection() && !rpnlSelDrag)) {
     box.hidden = true;
     return;
   }
-  const ts = rpnlChart.timeScale();
+  const a = Math.min(Number(rpnlPinFrom), Number(rpnlPinTo));
+  const b = Math.max(Number(rpnlPinFrom), Number(rpnlPinTo));
   let x1, x2;
   try {
-    x1 = ts.timeToCoordinate(Math.min(rpnlPinFrom, rpnlPinTo));
-    x2 = ts.timeToCoordinate(Math.max(rpnlPinFrom, rpnlPinTo));
+    x1 = chart.timeScale().timeToCoordinate(a);
+    x2 = chart.timeScale().timeToCoordinate(b);
   } catch (e) { box.hidden = true; return; }
   if (x1 == null || x2 == null) { box.hidden = true; return; }
-  const left = Math.min(x1, x2);
-  const width = Math.max(2, Math.abs(x2 - x1));
   box.hidden = false;
-  box.style.left = left + 'px';
-  box.style.width = width + 'px';
+  box.style.left = Math.min(x1, x2) + 'px';
+  box.style.width = Math.max(2, Math.abs(x2 - x1)) + 'px';
+}
+function rpnlPaintBrush() {
+  rpnlPaintOneBrush(document.getElementById('rpnlBrush'), rpnlChart);
+  rpnlPaintOneBrush(document.getElementById('ohlcBrush'), ohlcChart);
 }
 function bindRpnlSelectLayer() {
-  const layer = document.getElementById('rpnlSelectLayer');
-  if (!layer || layer.dataset.bound) return;
-  layer.dataset.bound = '1';
-  let startX = null;
-  const xToTime = (clientX) => {
-    const rect = (document.getElementById('rpnlChart') || layer).getBoundingClientRect();
-    const x = clientX - rect.left;
-    try { return rpnlChart.timeScale().coordinateToTime(x); } catch (e) { return null; }
-  };
-  layer.addEventListener('mousedown', (ev) => {
-    if (!rpnlSelectMode) return;
-    ev.preventDefault();
-    startX = ev.clientX;
-    const t = xToTime(ev.clientX);
-    if (t == null) return;
-    rpnlRangePinned = true;
-    rpnlPinFrom = rpnlPinTo = Number(t);
-    rpnlPaintBrush();
+  document.querySelectorAll('.rpnl-select-layer').forEach(function (layer) {
+    if (layer.dataset.bound) return;
+    layer.dataset.bound = '1';
+    const which = layer.getAttribute('data-rpnl-sel') === 'ohlc' ? 'ohlc' : 'rpnl';
+    const chartOf = function () { return which === 'ohlc' ? ohlcChart : rpnlChart; };
+    const elOf = function () {
+      return document.getElementById(which === 'ohlc' ? 'ohlcChart' : 'rpnlChart') || layer;
+    };
+    const xToTime = function (clientX) {
+      const chart = chartOf();
+      if (!chart) return null;
+      const rect = elOf().getBoundingClientRect();
+      const x = clientX - rect.left;
+      let t;
+      try { t = chart.timeScale().coordinateToTime(x); } catch (e) { return null; }
+      if (t == null) return null;
+      if (typeof t === 'number' && isFinite(t)) return t;
+      if (typeof t === 'object' && t.timestamp != null) return Number(t.timestamp);
+      const n = Number(t);
+      return isFinite(n) ? n : null;
+    };
+    layer.addEventListener('pointerdown', function (ev) {
+      if (!rpnlSelectMode) return;
+      if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const t = xToTime(ev.clientX);
+      if (t == null) return;
+      rpnlSelDrag = {
+        id: ev.pointerId,
+        startX: ev.clientX,
+        started: true,
+        prevPinned: rpnlRangePinned,
+        prevFrom: rpnlPinFrom,
+        prevTo: rpnlPinTo,
+      };
+      try { layer.setPointerCapture(ev.pointerId); } catch (e) {}
+      rpnlRangePinned = true;
+      rpnlPinFrom = rpnlPinTo = Number(t);
+      rpnlSetRangeInputs(rpnlPinFrom, rpnlPinTo, true);
+      rpnlPaintBrush();
+    });
+    layer.addEventListener('pointermove', function (ev) {
+      if (!rpnlSelDrag || rpnlSelDrag.id !== ev.pointerId) return;
+      ev.preventDefault();
+      const t = xToTime(ev.clientX);
+      if (t == null) return;
+      rpnlPinTo = Number(t);
+      rpnlSetRangeInputs(rpnlPinFrom, rpnlPinTo, true);
+      rpnlPaintBrush();
+    });
+    const endDrag = function (ev) {
+      if (!rpnlSelDrag || (ev && rpnlSelDrag.id !== ev.pointerId)) return;
+      const drag = rpnlSelDrag;
+      rpnlSelDrag = null;
+      try { layer.releasePointerCapture(drag.id); } catch (e) {}
+      const t = ev ? xToTime(ev.clientX) : null;
+      if (t != null) rpnlPinTo = Number(t);
+      const dist = ev ? Math.abs(ev.clientX - drag.startX) : 0;
+      if (dist < 12) {
+        rpnlRangePinned = !!drag.prevPinned;
+        rpnlPinFrom = drag.prevFrom;
+        rpnlPinTo = drag.prevTo;
+        rpnlSetRangeInputs(rpnlPinFrom, rpnlPinTo, true);
+        rpnlSetRangeMode();
+        rpnlPaintBrush();
+        return;
+      }
+      if (rpnlPinFrom != null && rpnlPinTo != null && rpnlPinFrom === rpnlPinTo) {
+        rpnlPinTo = rpnlPinFrom + 60;
+      }
+      rpnlRangePinned = true;
+      rpnlSetRangeInputs(rpnlPinFrom, rpnlPinTo, true);
+      setRpnlSelectMode(false);
+      rpnlPaintBrush();
+      if (rpnlLogsOpen()) rpnlKindReload();
+    };
+    layer.addEventListener('pointerup', endDrag);
+    layer.addEventListener('pointercancel', endDrag);
   });
-  layer.addEventListener('mousemove', (ev) => {
-    if (startX == null) return;
-    const t = xToTime(ev.clientX);
-    if (t == null) return;
-    rpnlPinTo = Number(t);
-    rpnlSetRangeInputs(rpnlPinFrom, rpnlPinTo, true);
-    rpnlPaintBrush();
-  });
-  const endDrag = (ev) => {
-    if (startX == null) return;
-    startX = null;
-    const t = xToTime(ev.clientX);
-    if (t != null) rpnlPinTo = Number(t);
-    if (rpnlPinFrom != null && rpnlPinTo != null && rpnlPinFrom === rpnlPinTo) {
-      rpnlPinTo = rpnlPinFrom + 60;
-    }
-    rpnlSetRangeInputs(rpnlPinFrom, rpnlPinTo, true);
-    rpnlSetRangeMode();
-    rpnlPaintBrush();
-    setRpnlSelectMode(false);
-    if (rpnlLogsOpen()) rpnlKindReload();
-  };
-  layer.addEventListener('mouseup', endDrag);
-  layer.addEventListener('mouseleave', (ev) => { if (startX != null) endDrag(ev); });
 }
 function rpnlExportFilters() {
   const r = rpnlActiveRange();
@@ -3661,25 +3770,21 @@ function rpnlKindSearchVal() {
 }
 
 function rpnlKindScopeVal() {
+  if (rpnlHasSelection()) return 'contract';
   const el = document.getElementById('rpnlKindScope');
   return (el && el.value) === 'all' ? 'all' : 'contract';
 }
 
 function rpnlLogWindow(liveTail) {
-  if (rpnlRangePinned && rpnlPinFrom != null && rpnlPinTo != null && !liveTail) {
-    const a = Math.min(rpnlPinFrom, rpnlPinTo);
-    const b = Math.max(rpnlPinFrom, rpnlPinTo);
-    if (b - a > 120) return { since: String(Math.floor(a)), until: String(Math.floor(b) + 1) };
+  const sel = rpnlSelectionBounds();
+  if (sel) {
+    return { since: String(Math.floor(sel.from)), until: String(Math.floor(sel.to) + 1) };
   }
   const v = rpnlCurrentHours != null ? rpnlCurrentHours : rpnlHoursSel();
   const hours = v === 'today' ? 24 : (Number(v) || 24);
   const now = Date.now() / 1000;
-  let since = Math.floor(now - hours * 3600);
-  if (liveTail && rpnlRangePinned && rpnlPinFrom != null) {
-    since = Math.min(Math.floor(rpnlPinFrom), since);
-  }
   return {
-    since: String(since),
+    since: String(Math.floor(now - hours * 3600)),
     until: String(Math.floor(now + 120)),
   };
 }
@@ -3706,7 +3811,7 @@ function rpnlLogQs(extra) {
 function rpnlTableQs(extra) {
   const picked = currentRpnlSel();
   const all = rpnlKindScopeVal() === 'all';
-  const live = rpnlKind === 'fills' && rpnlFillsLiveOn();
+  const live = !rpnlHasSelection() && rpnlKind === 'fills' && rpnlFillsLiveOn();
   const win = rpnlLogWindow(live);
   const strat = picked.strategy || (strategyIsAll(currentStrategy) ? '' : currentStrategy);
   const p = {
@@ -3731,9 +3836,19 @@ function rpnlFmtLogTime(unixSecs) {
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 }
 
+function rpnlKindRangeBit() {
+  const r = rpnlSelectionBounds();
+  return r ? rpnlFmtIstRange(r.from, r.to) : '';
+}
 function rpnlLogsStatus(text) {
   const st = document.getElementById('rpnlLogsStatus');
-  if (st) st.textContent = text;
+  if (!st) return;
+  const bit = rpnlKindRangeBit();
+  if (!text || /error|failed|invalid|Need /i.test(text)) {
+    st.textContent = text || '';
+    return;
+  }
+  st.textContent = bit && text.indexOf(bit) < 0 ? text + ' · ' + bit : text;
 }
 
 function rpnlTrimLogs(box) {
@@ -3769,8 +3884,17 @@ function syncRpnlKindButtons() {
   document.querySelectorAll('[data-rpnl-kind]').forEach(function (el) {
     el.classList.toggle('on', open && el.getAttribute('data-rpnl-kind') === rpnlKind);
   });
+  const pinned = rpnlHasSelection();
   const live = document.getElementById('rpnlKindLiveWrap');
-  if (live) live.style.display = (rpnlKind === 'logs' || rpnlKind === 'fills') ? '' : 'none';
+  if (live) {
+    live.hidden = pinned;
+    live.style.display = pinned ? 'none' : ((rpnlKind === 'logs' || rpnlKind === 'fills') ? '' : 'none');
+  }
+  const scope = document.getElementById('rpnlKindScope');
+  if (scope) {
+    scope.hidden = pinned;
+    if (pinned) scope.value = 'contract';
+  }
   const panel = document.getElementById('rpnlLogs');
   if (panel) panel.setAttribute('data-kind', rpnlKind);
   if (rpnlKind !== 'logs') {
@@ -3783,7 +3907,7 @@ function syncRpnlKindButtons() {
 function rpnlKindTitle() {
   const meta = RPNL_KIND_META[rpnlKind] || { label: rpnlKind };
   const picked = currentRpnlSel();
-  const all = rpnlKindScopeVal() === 'all';
+  const all = !rpnlHasSelection() && rpnlKindScopeVal() === 'all';
   const el = document.getElementById('rpnlLogsTitle');
   if (!el) return;
   if (all) {
@@ -3868,6 +3992,11 @@ function closeRpnlKind() {
 }
 
 document.addEventListener('keydown', function (ev) {
+  if (ev.key === 'Escape' && rpnlSelectMode) {
+    setRpnlSelectMode(false);
+    ev.preventDefault();
+    return;
+  }
   if (ev.key !== 'Escape' || !rpnlLogsOpen()) return;
   const peek = document.getElementById('rpnlLgPeek');
   if (peek && !peek.hidden) {
@@ -3999,8 +4128,17 @@ function rpnlKindCell(col, v, row) {
 }
 
 function rpnlFillsLiveOn() {
+  if (rpnlHasSelection()) return false;
   const el = document.getElementById('rpnlLogsLive');
   return !el || el.checked;
+}
+function rpnlLogsLiveOn() {
+  if (rpnlHasSelection()) return false;
+  const el = document.getElementById('rpnlLogsLive');
+  return !el || el.checked;
+}
+function onRpnlKindLiveChange() {
+  if (rpnlLogsOpen()) rpnlKindReload();
 }
 
 function rpnlKindMaxId() {
@@ -4083,7 +4221,7 @@ async function loadRpnlKindLive() {
       rpnlFillPaintSel();
     }
     const st = document.getElementById('rpnlLogsStatus');
-    if (st) st.textContent = rpnlKindOffset + ' of ' + Math.max(rpnlKindTotal, rpnlKindOffset).toLocaleString() + ' · live';
+    if (st) rpnlLogsStatus(rpnlKindOffset + ' of ' + Math.max(rpnlKindTotal, rpnlKindOffset).toLocaleString() + ' · live');
     rpnlKindTitle();
     const box = document.getElementById('rpnlLogsBox');
     if (box && box.scrollTop < 48) box.scrollTop = 0;
@@ -4126,7 +4264,7 @@ async function loadRpnlKindTable(reset) {
           ' in this window.</div>';
         rpnlKindNoMore = true;
         rpnlKindTitle();
-        if (st) st.textContent = 'empty';
+        rpnlLogsStatus('empty');
         return;
       }
       const selTh = rpnlKind === 'fills'
@@ -4142,7 +4280,7 @@ async function loadRpnlKindTable(reset) {
     if (!tb) return;
     if (!rows.length) {
       rpnlKindNoMore = true;
-      if (st) st.textContent = rpnlKindOffset + ' of ' + rpnlKindTotal.toLocaleString() + ' · end';
+      rpnlLogsStatus(rpnlKindOffset + ' of ' + rpnlKindTotal.toLocaleString() + ' · end');
       return;
     }
     tb.insertAdjacentHTML('beforeend', rows.map(function (row) {
@@ -4164,13 +4302,11 @@ async function loadRpnlKindTable(reset) {
     rpnlKindOffset += rows.length;
     if (rpnlKindOffset >= rpnlKindTotal) rpnlKindNoMore = true;
     rpnlKindTitle();
-    if (st) {
-      st.textContent = rpnlKindOffset + ' of ' + rpnlKindTotal.toLocaleString() +
-        (rpnlKindNoMore ? '' : ' · scroll for more');
-    }
+    rpnlLogsStatus(rpnlKindOffset + ' of ' + rpnlKindTotal.toLocaleString() +
+      (rpnlKindNoMore ? '' : ' · scroll for more'));
     if (reset) box.scrollTop = 0;
   } catch (e) {
-    if (st) st.textContent = e.message || 'error';
+    rpnlLogsStatus(e.message || 'error');
   } finally {
     rpnlKindBusy = false;
   }
@@ -4180,8 +4316,7 @@ async function loadRpnlLogs(reset) {
   if (!rpnlLogsOpen() || rpnlKind !== 'logs' || rpnlLogsBusy) return;
   const box = document.getElementById('rpnlLogsBox');
   if (!box) return;
-  const liveEl = document.getElementById('rpnlLogsLive');
-  const live = !liveEl || liveEl.checked;
+  const live = rpnlLogsLiveOn();
   if (!reset && !live && rpnlLogsLastId) return;
   rpnlLogsBusy = true;
   try {
