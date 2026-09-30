@@ -18,28 +18,28 @@ GEOM_LENS = [
         "hint": "Cover-side edge off the hook",
         "pct_key": "HEM_PCT", "ticks_key": "HEM_TICKS",
         "pct_default": "0.1", "ticks_default": "4",
-        "auto_key": "HEM_AUTO",
+        "bound": True,
     },
     {
         "id": "span", "label": "Span",
         "hint": "Other edge, measured from the hem",
         "pct_key": "SPAN_PCT", "ticks_key": "SPAN_TICKS",
         "pct_default": "0.5", "ticks_default": "10",
-        "auto_key": "SPAN_AUTO",
+        "bound": True,
     },
     {
         "id": "step", "label": "Step",
         "hint": "First same-side gap behind an edge",
         "pct_key": "STEP_PCT", "ticks_key": "STEP_TICKS",
         "pct_default": "0.1", "ticks_default": "4",
-        "auto_key": "STEP_AUTO",
+        "bound": True,
     },
     {
         "id": "tail", "label": "Tail",
         "hint": "Same-side gaps behind both edges",
         "pct_key": "TAIL_PCT", "ticks_key": "STEP_TICKS",
         "pct_default": "0.1", "ticks_default": "4",
-        "auto_key": "STEP_AUTO",
+        "bound": True,
     },
     {
         "id": "k", "label": "K",
@@ -47,8 +47,14 @@ GEOM_LENS = [
         "pct_key": "K_PCT", "ticks_key": "K_TICKS",
         "pct_default": "0", "ticks_default": "0",
         "allow_zero": True,
+        "bound": False,
     },
 ]
+_GEOM_HINT = (
+    "Min and max per edge, as % of price or whole ticks. Ticks win. "
+    "Blank min+max follows the live book. Same min and max locks that value. "
+    "Min only is a floor (max can be anything). Step × sits on the Step row."
+)
 
 _HOOK = {
     "key": "HOOK", "label": "Hook", "type": "select", "default": "position", "group": "book",
@@ -114,13 +120,9 @@ def _max(label="Max", default="10000"):
 
 
 def _geom(lenses, hint="", defaults=None, auto=None, auto_defaults=None):
-    row = {"key": "GEOM", "type": "geom", "lenses": list(lenses), "group": "geometry", "hint": hint}
+    row = {"key": "GEOM", "type": "geom", "lenses": list(lenses), "group": "geometry", "hint": hint or _GEOM_HINT}
     if defaults:
         row["lens_defaults"] = defaults
-    if auto:
-        row["auto"] = list(auto)
-    if auto_defaults:
-        row["auto_defaults"] = auto_defaults
     return row
 
 
@@ -137,18 +139,13 @@ def _ladder(*, auto=True, auto_defaults=None, touch=False, vol=False, fate=True,
     if hook:
         rows.append(_HOOK)
     rows.append(_IGNORE)
-    rows.append(_geom(
-        ["hem", "span", "step"],
-        "Each edge is % of price, or whole ticks. Ticks win. Auto fits that edge from the live book; typing a number switches it to manual. Step × sits on the Step row.",
-        auto=["hem", "span", "step"] if auto else None,
-        auto_defaults=auto_defaults,
-    ))
+    rows.append(_geom(["hem", "span", "step"], _GEOM_HINT))
     if touch:
         rows.append({
             "key": "TOUCH_TICKS", "label": "Touch ticks", "type": "int", "default": "1", "group": "geometry",
             "min": 0, "wide": True,
             "show_if_any": ["SPAN_AUTO"],
-            "hint": "How far inside the BBO when span is auto. 0 joins the touch.",
+            "hint": "How far inside the BBO when span follows the book. 0 joins the touch.",
         })
     rows.append({**_MULT, "embed": True})
     rows.extend(_pace(quote_ms=quote_ms, place_secs=place_secs))
@@ -166,10 +163,8 @@ def _touch_like(*, k_default="0", step_default="0.05"):
         _IGNORE,
         _geom(
             ["k", "step"],
-            "K is the offset from the touch (0 joins BBO). Step is the same-side gap. Auto fits step from the live book.",
+            "K is the offset from the touch (0 joins BBO). Step min/max is the same-side gap. Blank follows the book.",
             defaults={"k": {"pct_default": k_default}, "step": {"pct_default": step_default}},
-            auto=["step"],
-            auto_defaults={"step": True},
         ),
         {**_MULT, "embed": True},
         *_pace(place_secs="60"),
@@ -220,20 +215,17 @@ STRATEGIES = [
     },
     {
         "id": "flip", "label": "Flip",
-        "blurb": "Hem/span ladder; hem/span/step auto from the live book.",
-        "params": _ladder(
-            auto_defaults={"hem": True, "span": True, "step": True},
-            touch=True, vol=True,
-        ),
+        "blurb": "Hem/span ladder; blank min/max follows the live book.",
+        "params": _ladder(touch=True, vol=True),
     },
     {
         "id": "plain", "label": "Plain",
-        "blurb": "Hem/span/step only — no vol, fate, or auto fit.",
+        "blurb": "Hem/span/step only — no vol or fate.",
         "params": _max() + [
             {**_ORDERS, "default": "4"},
             _HOOK,
             _IGNORE,
-            _geom(["hem", "span", "step"], "Each edge is % of price, or whole ticks. Ticks win."),
+            _geom(["hem", "span", "step"], _GEOM_HINT),
             {**_MULT, "embed": True},
             *_pace(quote_ms="500", place_secs="60"),
             _DRY,
@@ -251,7 +243,7 @@ STRATEGIES = [
             {"key": "TAILS", "label": "Tails / side", "type": "int", "default": "2", "group": "size"},
             _HOOK,
             _IGNORE,
-            _geom(["hem", "span", "tail"], "Hem and span are the two edges. Tail is the stack behind them."),
+            _geom(["hem", "span", "tail"], "Hem, span, and tail each have min and max. Blank follows the book."),
             {**_MULT, "embed": True},
             *_pace(place_secs="60"),
             *_fate(),

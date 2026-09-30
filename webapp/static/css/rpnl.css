@@ -179,6 +179,11 @@ body:has(#rpnl.visible) {
 }
 .rpnl-pill .p-max,
 .rpnl-pill .p-bal { font-size: 10px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.rpnl-pill .p-geom {
+  font-size: 10px; color: #9aa3b8; margin-top: 3px;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .rpnl-pill .p-mode { font-size: 10px; color: #ffb74d; margin-top: 3px; }
 .rpnl-pill .p-mode.stop { color: #ffb74d; font-weight: 650; letter-spacing: .2px; }
 .rpnl-pill .p-mode.bad { color: var(--red); font-weight: 650; }
@@ -279,6 +284,11 @@ body:has(#rpnl.visible) {
   font-size: 10px; color: #9aa3b8; line-height: 1.3;
   background: rgba(255, 255, 255, .045); border: 1px solid var(--border);
   border-radius: 4px; padding: 2px 6px; white-space: nowrap;
+}
+.rpnl-inspect .p-cfg span.p-geom {
+  background: rgba(41, 98, 255, .12);
+  border-color: rgba(41, 98, 255, .28);
+  color: #c5d4f5;
 }
 .rpnl-inspect .p-cfg.none { color: var(--muted); font-size: 11px; }
 .rpnl-inspect .p-acts { display: flex; flex-wrap: nowrap; gap: 4px; flex: 1 1 auto; align-items: center; }
@@ -1246,24 +1256,71 @@ body.ops-open { overflow: hidden; }
   grid-template-areas: "lab inp unit" ". hint hint";
   gap: 3px 8px;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
-.rp-ops-len.has-auto {
-  grid-template-columns: 52px minmax(0, 1fr) auto auto;
-  grid-template-areas: "lab inp unit mode" ". hint hint hint";
+.rp-ops-len.has-bound {
+  grid-template-columns: 58px minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-areas: "lab min max unit" ". hint hint hint";
 }
-.rp-ops-len.has-mult:not(.has-auto) {
+.rp-ops-len.has-mult:not(.has-bound) {
   grid-template-columns: 52px minmax(56px, 1fr) auto minmax(118px, .9fr);
   grid-template-areas: "lab inp unit mult" ". hint hint hint";
 }
-.rp-ops-len.has-auto.has-mult {
-  grid-template-columns: 44px minmax(52px, 1fr) auto auto minmax(148px, 1.05fr);
-  grid-template-areas: "lab inp unit mode mult" ". hint hint hint hint";
+.rp-ops-len.has-bound.has-mult {
+  grid-template-columns: 58px minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-areas:
+    "lab min max unit"
+    ". mult mult mult"
+    ". hint hint hint";
 }
-.rp-ops-len-lab { grid-area: lab; font-size: 12px; font-weight: 700; color: #fff; }
-.rp-ops-len input { grid-area: inp; width: 100%; }
-.rp-ops-len > .rp-ops-unit:not(.rp-ops-len-mode) { grid-area: unit; }
-.rp-ops-len-mode { grid-area: mode; flex: 0 0 auto; white-space: nowrap; }
+.rp-ops-len-lab {
+  grid-area: lab; font-size: 12px; font-weight: 700; color: #fff;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  line-height: 1.15;
+}
+.rp-ops-bound-mode {
+  font-size: 9px; font-weight: 800; font-style: normal; letter-spacing: .35px;
+  text-transform: uppercase; padding: 2px 6px; border-radius: 999px;
+  background: rgba(255,255,255,.06); color: #8b93a7;
+}
+.rp-ops-len[data-mode="lock"] .rp-ops-bound-mode {
+  background: rgba(41, 98, 255, .22); color: #b4ccff;
+}
+.rp-ops-len[data-mode="floor"] .rp-ops-bound-mode {
+  background: rgba(38, 166, 154, .18); color: #80cbc4;
+}
+.rp-ops-len[data-mode="cap"] .rp-ops-bound-mode {
+  background: rgba(255, 167, 38, .16); color: #ffcc80;
+}
+.rp-ops-len[data-mode="range"] .rp-ops-bound-mode {
+  background: rgba(121, 134, 203, .2); color: #9fa8da;
+}
+.rp-ops-len[data-mode="book"] .rp-ops-bound-mode {
+  background: rgba(255,255,255,.06); color: #8b93a7;
+}
+.rp-ops-len input { width: 100%; }
+.rp-ops-len > input { grid-area: inp; }
+.rp-ops-len > .rp-ops-unit { grid-area: unit; }
+.rp-ops-bound {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.rp-ops-bound:nth-of-type(1) { grid-area: min; }
+.rp-ops-bound-min { grid-area: min; }
+.rp-ops-bound-max { grid-area: max; }
+.rp-ops-len.has-bound > .rp-ops-unit,
+.rp-ops-len.has-bound > .rp-ops-len-mult { align-self: end; }
+.rp-ops-bound span {
+  font-size: 10px; font-weight: 700; letter-spacing: .3px;
+  text-transform: uppercase; color: #8b93a7;
+}
+.rp-ops-bound input {
+  min-height: 34px;
+  width: 100%;
+}
+.rp-ops-bound input::placeholder { color: #5c6578; font-weight: 500; }
+.rp-ops-len.is-lock .rp-ops-bound input {
+  box-shadow: inset 0 0 0 1px rgba(41, 98, 255, .35);
+}
 .rp-ops-len-mult { grid-area: mult; min-width: 0; }
 .rp-ops-len-mult select { width: 100%; min-height: 34px; font: inherit; font-size: 11px; }
 .rp-ops-unit {
@@ -1299,7 +1356,7 @@ body.ops-open { overflow: hidden; }
   line-height: 1.45;
 }
 .rp-ops-geom-live b { color: #fff; font-weight: 650; }
-.rp-ops-len.is-auto > .rp-ops-unit:not(.rp-ops-len-mode) button { opacity: .85; }
+.rp-ops-len.is-follow > .rp-ops-unit button { opacity: .9; }
 .rp-ops-glossary {
   margin-top: 2px;
   padding: 10px 12px 12px;
@@ -1418,23 +1475,25 @@ body.ops-open { overflow: hidden; }
 .rp-ops-wallets { margin-bottom: 8px; }
 @media (min-width: 721px) {
   .rp-ops { align-items: center; padding: 24px 16px; }
-  .rp-ops-panel { border-radius: 14px; width: min(580px, calc(100% - 32px)); }
+  .rp-ops-panel { border-radius: 14px; width: min(640px, calc(100% - 32px)); }
 }
 @media (max-width: 720px) {
   .rp-ops-grid, .rp-ops-params { grid-template-columns: 1fr; }
   .rp-ops-glossary dl > div { grid-template-columns: 1fr; gap: 2px; }
-  .rp-ops-len.has-auto,
-  .rp-ops-len.has-mult:not(.has-auto),
-  .rp-ops-len.has-auto.has-mult {
+  .rp-ops-len.has-bound,
+  .rp-ops-len.has-mult:not(.has-bound),
+  .rp-ops-len.has-bound.has-mult {
+    grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+  .rp-ops-len.has-bound {
+    grid-template-areas: "lab min max unit" ". hint hint hint";
+  }
+  .rp-ops-len.has-mult:not(.has-bound) {
     grid-template-columns: 44px minmax(0, 1fr) auto;
-  }
-  .rp-ops-len.has-auto {
-    grid-template-areas: "lab inp unit" "mode mode mode" ". hint hint";
-  }
-  .rp-ops-len.has-mult:not(.has-auto) {
     grid-template-areas: "lab inp unit" "mult mult mult" ". hint hint";
   }
-  .rp-ops-len.has-auto.has-mult {
-    grid-template-areas: "lab inp unit" "mode mode mode" "mult mult mult" ". hint hint";
+  .rp-ops-len.has-bound.has-mult {
+    grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr) auto;
+    grid-template-areas: "lab min max unit" "mult mult mult mult" ". hint hint hint";
   }
 }

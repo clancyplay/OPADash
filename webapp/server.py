@@ -385,11 +385,14 @@ def _hedge_venue_label(raw: str | None) -> str:
     return codes.get(v, codes.get(v.lower(), v))
 
 
-_SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold", "wallet_exch", "hook", "role", "hedge_of", "hedge_via"}
+_SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold", "wallet_exch", "hook", "role", "hedge_of", "hedge_via", "geom"}
 _SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr"}
 _SETUP_KEYS = (
     "hook", "hem", "span", "step", "hem_ticks", "span_ticks", "step_ticks", "step_mult",
     "hem_auto", "span_auto", "step_auto", "fit_auto", "span_spread", "vol_gate", "vol_stable",
+    "hem_min", "hem_max", "span_min", "span_max", "step_min", "step_max",
+    "hem_min_ticks", "hem_max_ticks", "span_min_ticks", "span_max_ticks",
+    "step_min_ticks", "step_max_ticks", "geom", "touch_ticks",
     "orders", "live_orders", "max_pos", "max_usd", "ignore", "ignore_usd",
     "stop_pause", "fate", "k", "k_ticks", "flatten", "flow_gate", "edge",
     "quote_ms", "place_secs",
@@ -437,7 +440,8 @@ def _setup_public(setup: dict | None) -> dict | None:
             continue
         val = setup[key]
         if key in _SETUP_STR_KEYS and isinstance(val, str):
-            if 0 < len(val) <= 160:
+            lim = 240 if key == "geom" else 160
+            if 0 < len(val) <= lim:
                 out[key] = val
             continue
         if isinstance(val, bool):
@@ -2011,6 +2015,8 @@ _SETUP_PAYLOAD_KEYS = frozenset({
     "FATE_USD", "GRIND_USD", "QUOTE_MS", "PLACE_SECS", "IGNORE_MIN_SIZE",
     "FIT_AUTO", "SPAN_SPREAD", "HEM_AUTO", "SPAN_AUTO", "STEP_AUTO", "VOL_GATE", "DRY_RUN", "MAX_IN_USD",
     "HOOK", "STEP_MULT", "MAX_POSITION", "PAIR_HEDGE", "PAIR_HEDGE_LOT", "FLIP", "EDGE_VENUE",
+    "HEM_MIN_PCT", "HEM_MAX_PCT", "SPAN_MIN_PCT", "SPAN_MAX_PCT", "STEP_MIN_PCT", "STEP_MAX_PCT",
+    "HEM_MIN_TICKS", "HEM_MAX_TICKS", "SPAN_MIN_TICKS", "SPAN_MAX_TICKS", "STEP_MIN_TICKS", "STEP_MAX_TICKS",
     "MOVE_PCT", "MOVE_SECS", "RISK_REWARD",
     "MOM_PCT", "MOM_SLOW_PCT", "CLIP_PCT", "TRAIL_PCT", "MOM_STOP_PCT",
     "max_usd", "max_pos",
@@ -2021,9 +2027,11 @@ _SETUP_BOOL = frozenset({
 _SETUP_INT = frozenset({
     "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS", "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",
     "K_TICKS", "TAILS", "PAIR_HEDGE_LOT", "QUOTE_MS",
+    "HEM_MIN_TICKS", "HEM_MAX_TICKS", "SPAN_MIN_TICKS", "SPAN_MAX_TICKS", "STEP_MIN_TICKS", "STEP_MAX_TICKS",
 })
 _SETUP_NUM = frozenset({
     "HEM_PCT", "SPAN_PCT", "STEP_PCT", "TAIL_PCT", "K_PCT", "EDGE_PCT",
+    "HEM_MIN_PCT", "HEM_MAX_PCT", "SPAN_MIN_PCT", "SPAN_MAX_PCT", "STEP_MIN_PCT", "STEP_MAX_PCT",
     "FATE_USD", "GRIND_USD", "MAX_POSITION", "max_usd", "max_pos",
     "PLACE_SECS", "IGNORE_MIN_SIZE",
     "MOVE_PCT", "MOVE_SECS", "RISK_REWARD",

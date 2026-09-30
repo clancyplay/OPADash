@@ -386,29 +386,46 @@ function opsGeomDef(id) {
   return opsGeomLens().find(g => g.id === id) || {};
 }
 
-function opsGeomAutoIds() {
-  const p = opsGeomParam() || {};
-  return Array.isArray(p.auto) ? p.auto : [];
+function opsGeomHasBounds(g) {
+  const row = (typeof g === 'string') ? opsGeomDef(g) : (g || {});
+  if (!row || !row.id || row.id === 'k') return false;
+  return row.bound !== false;
 }
 
-function opsGeomCanAuto(id) {
-  return opsGeomAutoIds().indexOf(id) >= 0;
+function opsGeomPrefix(g) {
+  const id = (typeof g === 'string') ? g : (g && g.id);
+  if (id === 'tail') return 'STEP';
+  return String(id || '').toUpperCase();
 }
 
 function opsGeomAutoKey(g) {
-  if (!g) return '';
-  if (g.auto_key) return g.auto_key;
-  if (g.id === 'k') return '';
-  if (g.id === 'tail') return 'STEP_AUTO';
-  return String(g.id || '').toUpperCase() + '_AUTO';
+  const prefix = opsGeomPrefix(g);
+  return prefix ? prefix + '_AUTO' : '';
+}
+
+function opsGeomModeFromVals(a, b) {
+  a = String(a == null ? '' : a).trim();
+  b = String(b == null ? '' : b).trim();
+  if (a === '' && b === '') return 'book';
+  if (a !== '' && b !== '' && Number(a) === Number(b)) return 'lock';
+  if (a !== '' && b === '') return 'floor';
+  if (a === '' && b !== '') return 'cap';
+  return 'range';
+}
+
+function opsGeomFollows(id) {
+  if (!opsGeomHasBounds(id)) return false;
+  return opsGeomMode(id) !== 'lock';
+}
+
+function opsGeomMode(id) {
+  const minEl = document.getElementById('opsG_' + id + '_min');
+  const maxEl = document.getElementById('opsG_' + id + '_max');
+  return opsGeomModeFromVals(minEl && minEl.value, maxEl && maxEl.value);
 }
 
 function opsGeomAutoOn(id) {
-  const row = document.querySelector('#opsGeom [data-geom="' + id + '"]');
-  if (!row) return false;
-  const btn = row.querySelector('.rp-ops-len-mode button.on');
-  if (btn) return btn.getAttribute('data-auto') === '1';
-  return row.dataset.auto === '1';
+  return opsGeomFollows(id);
 }
 
 function opsGeomMultLens() {
@@ -470,98 +487,117 @@ function persistOpsGeom() {
   const state = opsGeomState();
   opsGeomLens().forEach(g => {
     const row = document.querySelector('#opsGeom [data-geom="' + g.id + '"]');
-    const inp = document.getElementById('opsG_' + g.id);
-    if (!row || !inp) return;
+    if (!row) return;
     const unit = opsGeomRowUnit(g.id);
+    if (opsGeomHasBounds(g)) {
+      const minEl = document.getElementById('opsG_' + g.id + '_min');
+      const maxEl = document.getElementById('opsG_' + g.id + '_max');
+      const minV = minEl ? minEl.value : '';
+      const maxV = maxEl ? maxEl.value : '';
+      if (unit === 'ticks') {
+        row.dataset.minTicks = minV;
+        row.dataset.maxTicks = maxV;
+      } else {
+        row.dataset.minPct = minV;
+        row.dataset.maxPct = maxV;
+      }
+      state[g.id] = {
+        unit: unit,
+        min_pct: row.dataset.minPct || '',
+        max_pct: row.dataset.maxPct || '',
+        min_ticks: row.dataset.minTicks || '',
+        max_ticks: row.dataset.maxTicks || '',
+      };
+      return;
+    }
+    const inp = document.getElementById('opsG_' + g.id);
+    if (!inp) return;
     if (unit === 'ticks') row.dataset.ticks = inp.value;
     else row.dataset.pct = inp.value;
     state[g.id] = {
       unit: unit,
       pct: row.dataset.pct || g.pct_default,
       ticks: row.dataset.ticks || g.ticks_default,
-      auto: row.dataset.auto === '1',
     };
   });
   saveOpsGeomState(state);
 }
 
-function setOpsGeomUnit(id, unit, keepAuto) {
+function setOpsGeomUnit(id, unit) {
   const row = document.querySelector('#opsGeom [data-geom="' + id + '"]');
-  const inp = document.getElementById('opsG_' + id);
-  if (!row || !inp) return;
-  if (!keepAuto && opsGeomAutoOn(id)) {
-    row.dataset.auto = '0';
-    row.dataset.dirty = '1';
-    row.classList.remove('is-auto');
-    row.querySelectorAll('.rp-ops-len-mode button').forEach(b => {
-      b.classList.toggle('on', b.getAttribute('data-auto') !== '1');
-    });
-  }
+  if (!row) return;
   const prev = opsGeomRowUnit(id);
-  if (prev === 'ticks') row.dataset.ticks = inp.value;
-  else row.dataset.pct = inp.value;
+  const g = opsGeomDef(id);
+  const tickMin = g.allow_zero ? '0' : '0';
   row.querySelectorAll('.rp-ops-unit:not(.rp-ops-len-mode) button').forEach(b => {
     b.classList.toggle('on', b.getAttribute('data-unit') === unit);
   });
-  inp.step = unit === 'ticks' ? '1' : 'any';
-  const g = opsGeomDef(id);
-  const tickMin = g.allow_zero ? '0' : '1';
-  inp.min = unit === 'ticks' ? tickMin : '0';
-  const next = unit === 'ticks'
-    ? (Number(row.dataset.ticks) > 0 ? row.dataset.ticks : (g.ticks_default || '4'))
-    : (row.dataset.pct || g.pct_default || '0.1');
-  inp.value = next;
-  persistOpsGeom();
-  syncOpsDependentFields();
-}
-
-function setOpsGeomAuto(id, on) {
-  if (!opsGeomCanAuto(id)) return;
-  const row = document.querySelector('#opsGeom [data-geom="' + id + '"]');
-  if (!row) return;
-  const want = !!on;
-  if (want && opsGeomRowUnit(id) === 'ticks') {
-    row.dataset.auto = '0';
-    setOpsGeomUnit(id, 'pct', true);
+  if (opsGeomHasBounds(id)) {
+    const minEl = document.getElementById('opsG_' + id + '_min');
+    const maxEl = document.getElementById('opsG_' + id + '_max');
+    if (minEl && maxEl) {
+      if (prev === 'ticks') {
+        row.dataset.minTicks = minEl.value;
+        row.dataset.maxTicks = maxEl.value;
+      } else {
+        row.dataset.minPct = minEl.value;
+        row.dataset.maxPct = maxEl.value;
+      }
+      const nextMin = unit === 'ticks' ? (row.dataset.minTicks || '') : (row.dataset.minPct || '');
+      const nextMax = unit === 'ticks' ? (row.dataset.maxTicks || '') : (row.dataset.maxPct || '');
+      minEl.value = nextMin;
+      maxEl.value = nextMax;
+      minEl.step = maxEl.step = unit === 'ticks' ? '1' : 'any';
+      minEl.min = maxEl.min = unit === 'ticks' ? tickMin : '0';
+    }
+  } else {
+    const inp = document.getElementById('opsG_' + id);
+    if (inp) {
+      if (prev === 'ticks') row.dataset.ticks = inp.value;
+      else row.dataset.pct = inp.value;
+      inp.step = unit === 'ticks' ? '1' : 'any';
+      inp.min = unit === 'ticks' ? (g.allow_zero ? '0' : '1') : '0';
+      const next = unit === 'ticks'
+        ? (row.dataset.ticks || g.ticks_default || '0')
+        : (row.dataset.pct || g.pct_default || '0');
+      inp.value = next;
+    }
   }
-  row.dataset.auto = want ? '1' : '0';
-  if (want) row.dataset.dirty = '0';
-  row.classList.toggle('is-auto', want);
-  row.querySelectorAll('.rp-ops-len-mode button').forEach(b => {
-    b.classList.toggle('on', (b.getAttribute('data-auto') === '1') === want);
-  });
   persistOpsGeom();
   syncOpsDependentFields();
 }
 
 function onOpsGeomInput(id) {
-  const row = document.querySelector('#opsGeom [data-geom="' + id + '"]');
-  if (row) row.dataset.dirty = '1';
-  if (opsGeomAutoOn(id)) {
-    setOpsGeomAuto(id, false);
-    return;
-  }
   persistOpsGeom();
+  syncOpsDependentFields();
   updateOpsGeomSum();
+}
+
+function opsGeomBoundBit(g) {
+  const name = String(g.label || g.id || '').toLowerCase();
+  if (!opsGeomHasBounds(g)) {
+    const inp = document.getElementById('opsG_' + g.id);
+    const n = inp ? inp.value : '';
+    const unit = opsGeomRowUnit(g.id);
+    return name + ' ' + n + (unit === 'ticks' ? 't' : '%');
+  }
+  const minEl = document.getElementById('opsG_' + g.id + '_min');
+  const maxEl = document.getElementById('opsG_' + g.id + '_max');
+  const a = String((minEl && minEl.value) || '').trim();
+  const b = String((maxEl && maxEl.value) || '').trim();
+  const unit = opsGeomRowUnit(g.id) === 'ticks' ? 't' : '%';
+  if (a === '' && b === '') return name + ' book';
+  if (a !== '' && b !== '' && Number(a) === Number(b)) return name + ' ' + a + unit;
+  if (a !== '' && b === '') return name + ' ≥' + a + unit;
+  if (a === '' && b !== '') return name + ' ≤' + b + unit;
+  return name + ' ' + a + '–' + b + unit;
 }
 
 function updateOpsGeomSum() {
   const el = document.getElementById('opsGeomSum');
   if (!el) return;
   el.classList.remove('is-note');
-  const bits = opsGeomLens().map(g => {
-    if (opsGeomAutoOn(g.id)) {
-      if (!opsEdit) return g.label.toLowerCase() + ' auto';
-      const inp = document.getElementById('opsG_' + g.id);
-      const n = inp ? inp.value : '';
-      const unit = opsGeomRowUnit(g.id);
-      return g.label.toLowerCase() + ' auto ' + n + (unit === 'ticks' ? 't' : '%');
-    }
-    const inp = document.getElementById('opsG_' + g.id);
-    const n = inp ? inp.value : '';
-    const unit = opsGeomRowUnit(g.id);
-    return g.label.toLowerCase() + ' ' + n + (unit === 'ticks' ? 't' : '%');
-  });
+  const bits = opsGeomLens().map(opsGeomBoundBit);
   const mult = (document.getElementById('opsP_STEP_MULT') || {}).value;
   if (mult) bits.push('×' + mult);
   el.textContent = bits.join(' · ');
@@ -572,42 +608,65 @@ function renderOpsGeom() {
   if (!lens.length) return '';
   const saved = opsGeomState();
   const spec = opsGeomParam() || {};
-  const hint = spec.hint || 'Each edge is % of price, or whole ticks. Ticks win.';
-  const autoDefs = spec.auto_defaults && typeof spec.auto_defaults === 'object' ? spec.auto_defaults : {};
+  const hint = spec.hint || 'Min and max per edge. Blank follows the book. Same min and max locks that value.';
   const multId = opsGeomMultLens();
   const mult = opsMultParam();
   const rows = lens.map(g => {
     const st = saved[g.id] || {};
-    const canAuto = opsGeomCanAuto(g.id);
-    const autoOn = !opsEdit && canAuto && (st.auto != null ? !!st.auto : !!autoDefs[g.id]);
-    const unit = autoOn ? 'pct' : (st.unit === 'ticks' ? 'ticks' : 'pct');
-    const pct = st.pct != null && st.pct !== '' ? st.pct : g.pct_default;
-    const ticks = st.ticks != null && st.ticks !== '' ? st.ticks : g.ticks_default;
-    const val = unit === 'ticks' ? ticks : pct;
-    const tickMin = g.allow_zero ? '0' : '1';
+    const hasBound = opsGeomHasBounds(g);
+    const unit = st.unit === 'ticks' ? 'ticks' : 'pct';
     const hasMult = g.id === multId;
     let extra = '';
-    if (canAuto) {
-      extra += '<div class="rp-ops-unit rp-ops-len-mode" role="group" aria-label="' + escHtml(g.label) + ' auto">' +
-        '<button type="button" data-auto="1"' + (autoOn ? ' class="on"' : '') +
-          ' onclick="setOpsGeomAuto(\'' + escHtml(g.id) + '\', true)">auto</button>' +
-        '<button type="button" data-auto="0"' + (!autoOn ? ' class="on"' : '') +
-          ' onclick="setOpsGeomAuto(\'' + escHtml(g.id) + '\', false)">manual</button>' +
-      '</div>';
-    }
     if (hasMult) {
       extra += '<div class="rp-ops-len-mult" title="How the step grows down the ladder">' +
         '<select id="opsP_STEP_MULT" aria-label="Step ×" onchange="updateOpsGeomSum()">' +
         opsSelectOptions(mult) + '</select></div>';
     }
-    return '<div class="rp-ops-len' + (hasMult ? ' has-mult' : '') + (canAuto ? ' has-auto' : '') +
-      (autoOn ? ' is-auto' : '') + '" data-geom="' + escHtml(g.id) +
-      '" data-pct="' + escHtml(pct) + '" data-ticks="' + escHtml(ticks) +
-      '" data-auto="' + (autoOn ? '1' : '0') + '">' +
-      '<span class="rp-ops-len-lab">' + escHtml(g.label) + '</span>' +
-      '<input id="opsG_' + escHtml(g.id) + '" type="number" min="' + (unit === 'ticks' ? tickMin : '0') +
-        '" step="' + (unit === 'ticks' ? '1' : 'any') + '" inputmode="decimal" value="' + escHtml(val) +
-        '" oninput="onOpsGeomInput(\'' + escHtml(g.id) + '\')" />' +
+    const tickMin = g.allow_zero ? '0' : '0';
+    if (!hasBound) {
+      const pct = st.pct != null && st.pct !== '' ? st.pct : g.pct_default;
+      const ticks = st.ticks != null && st.ticks !== '' ? st.ticks : g.ticks_default;
+      const val = unit === 'ticks' ? ticks : pct;
+      return '<div class="rp-ops-len' + (hasMult ? ' has-mult' : '') + '" data-geom="' + escHtml(g.id) +
+        '" data-pct="' + escHtml(pct) + '" data-ticks="' + escHtml(ticks) + '">' +
+        '<span class="rp-ops-len-lab">' + escHtml(g.label) + '</span>' +
+        '<input id="opsG_' + escHtml(g.id) + '" type="number" min="' + (unit === 'ticks' ? (g.allow_zero ? '0' : '1') : '0') +
+          '" step="' + (unit === 'ticks' ? '1' : 'any') + '" inputmode="decimal" value="' + escHtml(val) +
+          '" oninput="onOpsGeomInput(\'' + escHtml(g.id) + '\')" />' +
+        '<div class="rp-ops-unit" role="group" aria-label="' + escHtml(g.label) + ' unit">' +
+          '<button type="button" data-unit="pct"' + (unit === 'pct' ? ' class="on"' : '') +
+            ' onclick="setOpsGeomUnit(\'' + escHtml(g.id) + '\',\'pct\')">%</button>' +
+          '<button type="button" data-unit="ticks"' + (unit === 'ticks' ? ' class="on"' : '') +
+            ' onclick="setOpsGeomUnit(\'' + escHtml(g.id) + '\',\'ticks\')">ticks</button>' +
+        '</div>' +
+        extra +
+        '<span class="rp-ops-len-hint">' + escHtml(g.hint || '') + '</span>' +
+      '</div>';
+    }
+    let minPct = st.min_pct != null ? st.min_pct : '';
+    let maxPct = st.max_pct != null ? st.max_pct : '';
+    let minTicks = st.min_ticks != null ? st.min_ticks : '';
+    let maxTicks = st.max_ticks != null ? st.max_ticks : '';
+    const minVal = unit === 'ticks' ? minTicks : minPct;
+    const maxVal = unit === 'ticks' ? maxTicks : maxPct;
+    const mode = opsGeomModeFromVals(minVal, maxVal);
+    return '<div class="rp-ops-len has-bound' + (hasMult ? ' has-mult' : '') + '" data-geom="' + escHtml(g.id) +
+      '" data-mode="' + mode + '" data-min-pct="' + escHtml(minPct) + '" data-max-pct="' + escHtml(maxPct) +
+      '" data-min-ticks="' + escHtml(minTicks) + '" data-max-ticks="' + escHtml(maxTicks) + '">' +
+      '<span class="rp-ops-len-lab">' + escHtml(g.label) +
+        '<span class="rp-ops-bound-mode">' + mode + '</span></span>' +
+      '<label class="rp-ops-bound rp-ops-bound-min">' +
+        '<span>min</span>' +
+        '<input id="opsG_' + escHtml(g.id) + '_min" type="number" min="' + (unit === 'ticks' ? tickMin : '0') +
+          '" step="' + (unit === 'ticks' ? '1' : 'any') + '" inputmode="decimal" placeholder="any" value="' + escHtml(minVal) +
+          '" oninput="onOpsGeomInput(\'' + escHtml(g.id) + '\')" />' +
+      '</label>' +
+      '<label class="rp-ops-bound rp-ops-bound-max">' +
+        '<span>max</span>' +
+        '<input id="opsG_' + escHtml(g.id) + '_max" type="number" min="' + (unit === 'ticks' ? tickMin : '0') +
+          '" step="' + (unit === 'ticks' ? '1' : 'any') + '" inputmode="decimal" placeholder="any" value="' + escHtml(maxVal) +
+          '" oninput="onOpsGeomInput(\'' + escHtml(g.id) + '\')" />' +
+      '</label>' +
       '<div class="rp-ops-unit" role="group" aria-label="' + escHtml(g.label) + ' unit">' +
         '<button type="button" data-unit="pct"' + (unit === 'pct' ? ' class="on"' : '') +
           ' onclick="setOpsGeomUnit(\'' + escHtml(g.id) + '\',\'pct\')">%</button>' +
@@ -746,23 +805,24 @@ function syncOpsDependentFields() {
 }
 
 function opsFitAutoOn() {
-  return opsGeomAutoIds().some(opsGeomAutoOn);
+  return opsGeomLens().some(g => opsGeomHasBounds(g) && opsGeomFollows(g.id));
 }
 
 function syncOpsFitLock() {
   opsGeomLens().forEach(g => {
     const row = document.querySelector('#opsGeom [data-geom="' + g.id + '"]');
     if (!row) return;
-    const on = opsGeomAutoOn(g.id);
-    row.classList.toggle('is-auto', on);
-    const inp = document.getElementById('opsG_' + g.id);
-    if (inp) inp.disabled = false;
-    row.querySelectorAll('.rp-ops-unit:not(.rp-ops-len-mode) button').forEach(el => { el.disabled = false; });
+    const bounded = opsGeomHasBounds(g);
+    const mode = bounded ? opsGeomMode(g.id) : '';
+    row.classList.toggle('is-follow', bounded && mode !== 'lock');
+    row.classList.toggle('is-lock', bounded && mode === 'lock');
+    if (mode) row.setAttribute('data-mode', mode);
+    else row.removeAttribute('data-mode');
+    const badge = row.querySelector('.rp-ops-bound-mode');
+    if (badge) badge.textContent = mode || '';
   });
   const geom = document.getElementById('opsGeom');
   if (geom) geom.classList.toggle('is-fit-lock', false);
-  const stepPct = document.getElementById('opsP_STEP_PCT');
-  if (stepPct) stepPct.disabled = opsGeomAutoOn('step');
   paintOpsGeomLive();
 }
 
@@ -789,6 +849,7 @@ function opsFmtKnob(v) {
 
 function opsGeomLiveBits(s) {
   if (!s) return [];
+  if (s.geom) return String(s.geom).split(' · ').map(b => String(b || '').trim()).filter(Boolean);
   return opsGeomLens().map(g => {
     const ticksKey = g.id === 'k' ? 'k_ticks' : (g.id === 'tail' ? 'step_ticks' : g.id + '_ticks');
     const pctKey = g.id === 'k' ? 'k' : (g.id === 'tail' ? 'step' : g.id);
@@ -803,33 +864,6 @@ function opsGeomLiveBits(s) {
 
 function applyLiveToGeomInputs(s) {
   if (!s) return;
-  opsGeomLens().forEach(g => {
-    if (!opsGeomAutoOn(g.id)) return;
-    const ticksKey = g.id === 'k' ? 'k_ticks' : (g.id === 'tail' ? 'step_ticks' : g.id + '_ticks');
-    const pctKey = g.id === 'k' ? 'k' : (g.id === 'tail' ? 'step' : g.id);
-    const ticks = s[ticksKey] != null ? s[ticksKey] : s[g.id + '_ticks'];
-    const pct = s[pctKey] != null ? s[pctKey] : s[g.id];
-    const row = document.querySelector('#opsGeom [data-geom="' + g.id + '"]');
-    const inp = document.getElementById('opsG_' + g.id);
-    if (!row || !inp) return;
-    if (pct != null && pct !== '') row.dataset.pct = String(pct);
-    if (ticks != null && ticks !== '') row.dataset.ticks = String(ticks);
-    if (document.activeElement === inp || row.dataset.dirty === '1') return;
-    const useTicks = !opsGeomAutoOn(g.id) && ticks != null && Number(ticks) > 0;
-    row.querySelectorAll('.rp-ops-unit:not(.rp-ops-len-mode) button').forEach(b => {
-      b.classList.toggle('on', b.getAttribute('data-unit') === (useTicks ? 'ticks' : 'pct'));
-    });
-    inp.step = useTicks ? '1' : 'any';
-    inp.min = useTicks ? (g.allow_zero ? '0' : '1') : '0';
-    if (useTicks) inp.value = String(ticks);
-    else if (pct != null && pct !== '') inp.value = String(pct);
-  });
-  const stepPct = document.getElementById('opsP_STEP_PCT');
-  const stepRow = document.querySelector('#opsGeom [data-geom="step"]');
-  if (stepPct && s.step != null && opsGeomAutoOn('step') &&
-      document.activeElement !== stepPct && !(stepRow && stepRow.dataset.dirty === '1')) {
-    stepPct.value = String(s.step);
-  }
   updateOpsGeomSum();
 }
 
@@ -868,15 +902,15 @@ function renderOpsGlossary() {
         : 'Inventory cap. USD is notional; lots are venue contracts.');
     } else if (p.type === 'geom') {
       const lenses = p.lenses || [];
-      if (lenses.indexOf('hem') >= 0) add('hem', 'Hem', 'Cover-side edge off the hook. Auto fits it from the live book.');
-      if (lenses.indexOf('span') >= 0) add('span', 'Span', 'Far edge, measured from the hem. Auto fits it from the live book.');
-      if (lenses.indexOf('step') >= 0 || lenses.indexOf('tail') >= 0) add('step', 'Step', 'First same-side gap behind an edge. Auto fits it from the live book.');
+      if (lenses.indexOf('hem') >= 0) add('hem', 'Hem', 'Cover-side edge off the hook. Min/max, or blank to follow the book.');
+      if (lenses.indexOf('span') >= 0) add('span', 'Span', 'Far edge, measured from the hem. Min/max, or blank to follow the book.');
+      if (lenses.indexOf('step') >= 0 || lenses.indexOf('tail') >= 0) add('step', 'Step', 'First same-side gap behind an edge. Min/max, or blank to follow the book.');
       if (lenses.indexOf('k') >= 0) add('k', 'K', 'Offset from the touch. 0 joins the bid–ask.');
-      if (Array.isArray(p.auto) && p.auto.length) add('auto', 'Auto / manual', 'Auto fits that edge from the live book. Typing a number switches it to manual and keeps the value you type.');
+      add('bounds', 'Min / max', 'Blank both follows the live book. Same number locks that edge. Min only is a floor; max can be anything.');
     } else if (p.key === 'ORDERS') add('orders', 'Orders / side', 'How many quotes hang on each side.');
     else if (p.key === 'HOOK') add('hook', 'Hook', 'What the ladder hangs off — mid, inventory, or last.');
     else if (p.key === 'STEP_MULT') add('sm', 'Step ×', 'How the step grows down the ladder. Lives on the Step row.');
-    else if (p.key === 'TOUCH_TICKS') add('touch', 'Touch ticks', 'How far inside the BBO when span is auto. 0 joins the touch.');
+    else if (p.key === 'TOUCH_TICKS') add('touch', 'Touch ticks', 'How far inside the BBO when span follows the book. 0 joins the touch.');
     else if (p.key === 'FATE_USD') add('fate', 'Fate $', 'Pause if rPnL drops this far from the peak.');
     else if (p.key === 'GRIND_USD') add('grind', 'Grind $', 'Pause if window rPnL is this negative.');
     else if (p.key === 'VOL_GATE') add('vol', 'Vol gate', 'Only quote while the tape is busy.');
@@ -944,25 +978,47 @@ function collectOpsGeom(out) {
   if (!document.getElementById('opsGeom')) return;
   persistOpsGeom();
   opsGeomLens().forEach(g => {
-    const row = document.querySelector('#opsGeom [data-geom="' + g.id + '"]');
-    const inp = document.getElementById('opsG_' + g.id);
-    if (!row || !inp) return;
-    const autoKey = opsGeomCanAuto(g.id) ? opsGeomAutoKey(g) : '';
-    const autoOn = opsGeomAutoOn(g.id);
-    if (autoKey) out[autoKey] = autoOn;
-    if (autoOn) {
-      out[g.pct_key] = row.dataset.pct || g.pct_default || '0.1';
-      out[g.ticks_key] = '0';
+    const prefix = opsGeomPrefix(g);
+    if (!opsGeomHasBounds(g)) {
+      const row = document.querySelector('#opsGeom [data-geom="' + g.id + '"]');
+      const inp = document.getElementById('opsG_' + g.id);
+      if (!row || !inp) return;
+      const unit = opsGeomRowUnit(g.id);
+      if (unit === 'ticks') {
+        const t = Math.max(0, Math.round(Number(inp.value) || 0));
+        out[g.ticks_key] = String(t);
+        out[g.pct_key] = row.dataset.pct || g.pct_default || '0';
+      } else {
+        out[g.pct_key] = inp.value !== '' ? String(inp.value) : (g.pct_default || '0');
+        out[g.ticks_key] = '0';
+      }
       return;
     }
+    const minEl = document.getElementById('opsG_' + g.id + '_min');
+    const maxEl = document.getElementById('opsG_' + g.id + '_max');
+    if (!minEl || !maxEl) return;
     const unit = opsGeomRowUnit(g.id);
+    const minRaw = String(minEl.value || '').trim();
+    const maxRaw = String(maxEl.value || '').trim();
+    const minN = minRaw === '' ? 0 : Number(minRaw);
+    const maxN = maxRaw === '' ? 0 : Number(maxRaw);
+    const locked = minRaw !== '' && maxRaw !== '' && Number(minRaw) === Number(maxRaw);
+    const autoKey = opsGeomAutoKey(g);
+    if (autoKey) out[autoKey] = !locked;
     if (unit === 'ticks') {
-      const t = Math.max(0, Math.round(Number(inp.value) || 0));
-      out[g.ticks_key] = String(t);
-      out[g.pct_key] = row.dataset.pct || g.pct_default;
+      out[prefix + '_MIN_TICKS'] = String(minRaw === '' ? 0 : Math.max(0, Math.round(minN)));
+      out[prefix + '_MAX_TICKS'] = String(maxRaw === '' ? 0 : Math.max(0, Math.round(maxN)));
+      out[prefix + '_MIN_PCT'] = '0';
+      out[prefix + '_MAX_PCT'] = '0';
+      out[g.ticks_key] = locked ? String(Math.max(0, Math.round(minN))) : '0';
+      out[g.pct_key] = g.pct_default || '0.1';
     } else {
-      out[g.pct_key] = inp.value !== '' ? String(inp.value) : g.pct_default;
+      out[prefix + '_MIN_PCT'] = String(minRaw === '' ? 0 : minN);
+      out[prefix + '_MAX_PCT'] = String(maxRaw === '' ? 0 : maxN);
+      out[prefix + '_MIN_TICKS'] = '0';
+      out[prefix + '_MAX_TICKS'] = '0';
       out[g.ticks_key] = '0';
+      out[g.pct_key] = locked ? String(minN) : (g.pct_default || '0.1');
     }
   });
   const ids = opsGeomLens().map(g => g.id);
@@ -974,16 +1030,35 @@ function collectOpsGeom(out) {
 function validateOpsGeom() {
   if (!document.getElementById('opsGeom')) return '';
   for (const g of opsGeomLens()) {
-    if (opsGeomAutoOn(g.id) && opsEdit) continue;
-    const inp = document.getElementById('opsG_' + g.id);
-    const n = Number(inp && inp.value);
-    const unit = opsGeomRowUnit(g.id);
-    if (g.allow_zero) {
-      if (!isFinite(n) || n < 0) return g.label + ' must be ≥ 0';
-    } else if (!isFinite(n) || !(n > 0)) {
-      return g.label + ' must be > 0';
+    if (!opsGeomHasBounds(g)) {
+      const inp = document.getElementById('opsG_' + g.id);
+      const n = Number(inp && inp.value);
+      const unit = opsGeomRowUnit(g.id);
+      if (g.allow_zero) {
+        if (!isFinite(n) || n < 0) return g.label + ' must be ≥ 0';
+      } else if (!isFinite(n) || !(n > 0)) {
+        return g.label + ' must be > 0';
+      }
+      if (unit === 'ticks' && n !== Math.round(n)) return g.label + ' ticks must be a whole number';
+      continue;
     }
-    if (unit === 'ticks' && n !== Math.round(n)) return g.label + ' ticks must be a whole number';
+    const minEl = document.getElementById('opsG_' + g.id + '_min');
+    const maxEl = document.getElementById('opsG_' + g.id + '_max');
+    const a = String((minEl && minEl.value) || '').trim();
+    const b = String((maxEl && maxEl.value) || '').trim();
+    const unit = opsGeomRowUnit(g.id);
+    if (a === '' && b === '') continue;
+    const minN = a === '' ? null : Number(a);
+    const maxN = b === '' ? null : Number(b);
+    if (a !== '' && (!isFinite(minN) || minN < 0)) return g.label + ' min is invalid';
+    if (b !== '' && (!isFinite(maxN) || maxN < 0)) return g.label + ' max is invalid';
+    if (a !== '' && !(minN > 0) && !g.allow_zero) return g.label + ' min must be > 0';
+    if (b !== '' && !(maxN > 0) && !g.allow_zero) return g.label + ' max must be > 0';
+    if (unit === 'ticks') {
+      if (a !== '' && minN !== Math.round(minN)) return g.label + ' min ticks must be a whole number';
+      if (b !== '' && maxN !== Math.round(maxN)) return g.label + ' max ticks must be a whole number';
+    }
+    if (a !== '' && b !== '' && minN > maxN) return g.label + ' min cannot be greater than max';
   }
   return '';
 }
@@ -1115,31 +1190,68 @@ function fillOpsFromSetup(s) {
     const ticks = s[ticksKey] != null ? s[ticksKey] : s[g.id + '_ticks'];
     const pct = s[pctKey] != null ? s[pctKey] : s[g.id];
     const row = document.querySelector('#opsGeom [data-geom="' + g.id + '"]');
-    const inp = document.getElementById('opsG_' + g.id);
-    if (!row || !inp) return;
-    if (pct != null && pct !== '') row.dataset.pct = String(pct);
-    if (ticks != null && ticks !== '') row.dataset.ticks = String(ticks);
-    const useTicks = ticks != null && Number(ticks) > 0;
+    if (!row) return;
+    if (!opsGeomHasBounds(g)) {
+      const inp = document.getElementById('opsG_' + g.id);
+      if (!inp) return;
+      if (pct != null && pct !== '') row.dataset.pct = String(pct);
+      if (ticks != null && ticks !== '') row.dataset.ticks = String(ticks);
+      const useTicks = ticks != null && Number(ticks) > 0;
+      row.querySelectorAll('.rp-ops-unit:not(.rp-ops-len-mode) button').forEach(b => {
+        b.classList.toggle('on', b.getAttribute('data-unit') === (useTicks ? 'ticks' : 'pct'));
+      });
+      inp.step = useTicks ? '1' : 'any';
+      inp.min = useTicks ? (g.allow_zero ? '0' : '1') : '0';
+      inp.value = useTicks ? String(ticks) : (pct != null && pct !== '' ? String(pct) : inp.value);
+      return;
+    }
+    const minEl = document.getElementById('opsG_' + g.id + '_min');
+    const maxEl = document.getElementById('opsG_' + g.id + '_max');
+    if (!minEl || !maxEl) return;
+    const minT = s[g.id + '_min_ticks'];
+    const maxT = s[g.id + '_max_ticks'];
+    const minP = s[g.id + '_min'];
+    const maxP = s[g.id + '_max'];
+    const hasNew = minT != null || maxT != null || minP != null || maxP != null;
+    let auto = s[g.id + '_auto'];
+    if (auto == null && g.id === 'step') auto = s.step_auto != null ? s.step_auto : s.fit_auto;
+    if (auto == null && g.id === 'hem') auto = s.hem_auto != null ? s.hem_auto : s.fit_auto;
+    if (auto == null && g.id === 'span') auto = s.span_auto != null ? s.span_auto : (s.span_spread != null ? s.span_spread : s.fit_auto);
+    const follow = auto == null ? true : opsBool(auto);
+    const tickLock = !follow && ticks != null && Number(ticks) > 0;
+    const useTicks = (Number(minT) > 0 || Number(maxT) > 0 || tickLock) && !(Number(minP) > 0 || Number(maxP) > 0 && Number(minT) <= 0 && Number(maxT) <= 0 && !tickLock);
     row.querySelectorAll('.rp-ops-unit:not(.rp-ops-len-mode) button').forEach(b => {
       b.classList.toggle('on', b.getAttribute('data-unit') === (useTicks ? 'ticks' : 'pct'));
     });
-    inp.step = useTicks ? '1' : 'any';
-    inp.min = useTicks ? (g.allow_zero ? '0' : '1') : '0';
-    inp.value = useTicks ? String(ticks) : (pct != null && pct !== '' ? String(pct) : inp.value);
-    if (opsGeomCanAuto(g.id)) {
-      let auto = s[g.id + '_auto'];
-      if (auto == null && g.id === 'step') auto = s.step_auto != null ? s.step_auto : s.fit_auto;
-      if (auto == null && g.id === 'hem') auto = s.hem_auto != null ? s.hem_auto : s.fit_auto;
-      if (auto == null && g.id === 'span') auto = s.span_auto != null ? s.span_auto : (s.span_spread != null ? s.span_spread : s.fit_auto);
-      if (useTicks) auto = false;
-      if (auto != null) {
-        const on = opsBool(auto);
-        row.dataset.auto = on ? '1' : '0';
-        row.classList.toggle('is-auto', on);
-        row.querySelectorAll('.rp-ops-len-mode button').forEach(b => {
-          b.classList.toggle('on', (b.getAttribute('data-auto') === '1') === on);
-        });
+    minEl.step = maxEl.step = useTicks ? '1' : 'any';
+    minEl.min = maxEl.min = '0';
+    const blankIfZero = (v) => (v == null || v === '' || Number(v) <= 0) ? '' : String(v);
+    if (useTicks) {
+      if (hasNew) {
+        minEl.value = blankIfZero(minT);
+        maxEl.value = blankIfZero(maxT);
+      } else if (!follow) {
+        minEl.value = String(ticks);
+        maxEl.value = String(ticks);
+      } else {
+        minEl.value = '';
+        maxEl.value = '';
       }
+      row.dataset.minTicks = minEl.value;
+      row.dataset.maxTicks = maxEl.value;
+    } else {
+      if (hasNew) {
+        minEl.value = blankIfZero(minP);
+        maxEl.value = blankIfZero(maxP);
+      } else if (!follow) {
+        minEl.value = pct != null && pct !== '' ? String(pct) : '';
+        maxEl.value = minEl.value;
+      } else {
+        minEl.value = blankIfZero(minP);
+        maxEl.value = blankIfZero(maxP);
+      }
+      row.dataset.minPct = minEl.value;
+      row.dataset.maxPct = maxEl.value;
     }
   });
   updateOpsGeomSum();
@@ -1275,6 +1387,18 @@ function opsRememberEdit(payload) {
   num('SPAN_PCT', 'span');
   num('STEP_PCT', 'step');
   num('K_PCT', 'k');
+  num('HEM_MIN_PCT', 'hem_min');
+  num('HEM_MAX_PCT', 'hem_max');
+  num('SPAN_MIN_PCT', 'span_min');
+  num('SPAN_MAX_PCT', 'span_max');
+  num('STEP_MIN_PCT', 'step_min');
+  num('STEP_MAX_PCT', 'step_max');
+  num('HEM_MIN_TICKS', 'hem_min_ticks');
+  num('HEM_MAX_TICKS', 'hem_max_ticks');
+  num('SPAN_MIN_TICKS', 'span_min_ticks');
+  num('SPAN_MAX_TICKS', 'span_max_ticks');
+  num('STEP_MIN_TICKS', 'step_min_ticks');
+  num('STEP_MAX_TICKS', 'step_max_ticks');
   num('EDGE_PCT', 'edge');
   num('ORDERS', 'orders');
   num('TAILS', 'tails');
@@ -1297,9 +1421,9 @@ function opsRememberEdit(payload) {
     s.max_pos = Number(payload.max_pos);
     delete s.max_usd;
   }
-  if (Number(s.hem_ticks) > 0) s.hem_auto = false;
-  if (Number(s.span_ticks) > 0) s.span_auto = false;
-  if (Number(s.step_ticks) > 0) s.step_auto = false;
+  if (Number(s.hem_min_ticks) > 0 && Number(s.hem_max_ticks) > 0 && Number(s.hem_min_ticks) === Number(s.hem_max_ticks)) s.hem_auto = false;
+  if (Number(s.span_min_ticks) > 0 && Number(s.span_max_ticks) > 0 && Number(s.span_min_ticks) === Number(s.span_max_ticks)) s.span_auto = false;
+  if (Number(s.step_min_ticks) > 0 && Number(s.step_max_ticks) > 0 && Number(s.step_min_ticks) === Number(s.step_max_ticks)) s.step_auto = false;
   opsEdit.settings = s;
   if (typeof currentRpnlRow === 'function') {
     const row = currentRpnlRow();
