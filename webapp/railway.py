@@ -584,6 +584,22 @@ def launch(
             copied = {}
     env = _infra_env(venue, copied)
     env.update(overlay)
+    if strategy == "arb":
+        other = str(knobs.get("ARB_VENUE") or "").strip().lower()
+        if other and other != venue:
+            from webapp.launch import VENUE_ENV
+            spec = VENUE_ENV.get(other)
+            if spec:
+                for name in (spec[0], spec[1], spec[3]):
+                    if name and copied.get(name) and name not in env:
+                        env[name] = copied[name]
+                for name in _VENUE_INFRA.get(other, ()):
+                    if copied.get(name):
+                        env[name] = copied[name]
+                sym = str(knobs.get("ARB_SYMBOL") or "").strip()
+                if sym:
+                    env["ARB_SYMBOL"] = sym
+                    env[spec[2]] = sym
 
     created = None
     static_ip = ""

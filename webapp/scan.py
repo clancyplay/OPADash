@@ -239,10 +239,16 @@ def _leg(row: dict, side: str = "") -> dict:
     }
 
 
+_ARB_VENUES = frozenset({"delta", "aster", "binance", "kucoin", "bybit", "coinbase"})
+
+
 def _suggest(strategy: str, row: dict, other: dict | None = None) -> dict:
     edge_venue = ""
-    if other and strategy == "edge":
+    arb_symbol = ""
+    if other and strategy in ("edge", "arb"):
         edge_venue = other["venue"]
+    if other and strategy == "arb":
+        arb_symbol = other.get("symbol") or ""
     label = f"{strategy} · {LABELS.get(row['venue'], row['venue'])} {row['symbol']}"
     if edge_venue:
         label += f" vs {LABELS.get(edge_venue, edge_venue)}"
@@ -251,6 +257,7 @@ def _suggest(strategy: str, row: dict, other: dict | None = None) -> dict:
         "venue": row["venue"],
         "contract": row["symbol"],
         "edge_venue": edge_venue,
+        "arb_symbol": arb_symbol,
         "label": label,
     }
 
@@ -407,7 +414,14 @@ def _score_base(base: str, quotes: list[dict], found: dict[str, list[dict]]) -> 
             "score": net,
             "apr": None,
             "legs": [_leg(cheap, "buy"), _leg(rich, "sell")],
-            "suggest": _suggest("edge", quote, other),
+            "suggest": _suggest("arb", quote, other)
+            if cheap.get("venue") in _ARB_VENUES and rich.get("venue") in _ARB_VENUES
+            else {
+                "strategy": "",
+                "venue": quote.get("venue") or "",
+                "contract": quote.get("symbol") or "",
+                "label": "both venues need a fill stream",
+            },
             "running": [],
         })
 

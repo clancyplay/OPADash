@@ -170,8 +170,12 @@ async function openOppLaunch(spec, note) {
     }
     onOpsStrategyChange();
     if (spec.edge_venue) {
-      const ev = document.getElementById('opsP_EDGE_VENUE');
+      const ev = document.getElementById('opsP_EDGE_VENUE') || document.getElementById('opsP_ARB_VENUE');
       if (ev && [...ev.options].some(o => o.value === spec.edge_venue)) ev.value = spec.edge_venue;
+    }
+    if (spec.arb_symbol) {
+      const sym = document.getElementById('opsP_ARB_SYMBOL');
+      if (sym) sym.value = spec.arb_symbol;
     }
     if (spec.max_usd) {
       const maxEl = document.getElementById('opsP_MAX_POSITION');
@@ -1292,6 +1296,14 @@ function fillOpsFromSetup(s) {
   setNum('opsP_TOUCH_TICKS', s.touch_ticks);
   setNum('opsP_EDGE_PCT', s.edge);
   setSel('opsP_EDGE_VENUE', s.edge_venue);
+  setSel('opsP_ARB_VENUE', s.arb_venue);
+  setNum('opsP_ARB_MIN_PCT', s.min_edge);
+  setNum('opsP_ARB_FEE_PCT', s.fee);
+  setNum('opsP_ARB_COOL_SECS', s.cool);
+  if (s.arb_symbol) {
+    const sym = document.getElementById('opsP_ARB_SYMBOL');
+    if (sym) sym.value = String(s.arb_symbol);
+  }
   setNum('opsP_MOVE_PCT', s.move_pct);
   setNum('opsP_MOVE_SECS', s.move_secs);
   setNum('opsP_RISK_REWARD', s.risk_reward);
@@ -1750,6 +1762,11 @@ function opsRememberEdit(payload) {
   if (payload.HOOK) s.hook = String(payload.HOOK);
   if (payload.STEP_MULT != null && payload.STEP_MULT !== '') s.step_mult = payload.STEP_MULT;
   if (payload.EDGE_VENUE) s.edge_venue = String(payload.EDGE_VENUE);
+  if (payload.ARB_VENUE) s.arb_venue = String(payload.ARB_VENUE);
+  if (payload.ARB_SYMBOL) s.arb_symbol = String(payload.ARB_SYMBOL);
+  num('ARB_MIN_PCT', 'min_edge');
+  num('ARB_FEE_PCT', 'fee');
+  num('ARB_COOL_SECS', 'cool');
   if (payload.max_usd != null) {
     s.max_usd = Number(payload.max_usd);
     delete s.max_pos;

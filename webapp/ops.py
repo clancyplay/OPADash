@@ -305,6 +305,29 @@ STRATEGIES = [
         ],
     },
     {
+        "id": "arb", "label": "Arb",
+        "blurb": "Buy the cheap ask and sell the rich bid on two venues. One pill, both legs. The other venue uses its own API key from the template, not this subaccount.",
+        "params": [
+            {"key": "MAX_POSITION", "label": "Shot $", "type": "number", "default": "200", "min": 1, "group": "size",
+             "hint": "USD notional on each leg. The pill max edits this live."},
+            {
+                "key": "ARB_VENUE", "label": "Other venue", "type": "select", "default": "coinbase", "group": "quote",
+                "launch_only": True,
+                "options": ["delta", "binance", "bybit", "kucoin", "coinbase", "aster"],
+                "hint": "Second book. Restart to change it. Needs that venue's key on the OPA6 template.",
+            },
+            {"key": "ARB_SYMBOL", "label": "Other symbol", "type": "text", "default": "", "group": "quote",
+             "launch_only": True, "hint": "Blank maps the coin, e.g. FARTCOIN-PERP. Restart to change it."},
+            {"key": "ARB_MIN_PCT", "label": "Min edge %", "type": "number", "default": "0.12", "min": 0, "group": "quote",
+             "hint": "Fire when the net gap, after the fee haircut, is at least this. Opps spread cards use 0.12."},
+            {"key": "ARB_FEE_PCT", "label": "Fee %", "type": "number", "default": "0.10", "min": 0, "group": "quote",
+             "hint": "Taker haircut taken off the gross gap before min edge. 0.10 is both legs."},
+            {"key": "ARB_COOL_SECS", "label": "Cool secs", "type": "number", "default": "3", "min": 0, "group": "pace",
+             "hint": "Wait after a shot before the next one."},
+            _DRY,
+        ],
+    },
+    {
         "id": "shop", "label": "Shop",
         "blurb": "Two-sided maker on Delta or Aster. Optional CoinDCX stockroom covers the inventory. Shelf is the position cap.",
         "params": [

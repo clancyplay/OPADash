@@ -23,6 +23,7 @@ _LOCK = _ROOT / "config" / "launches.lock"
 _BOT_ENV = _ROOT / "config" / "bots"
 
 BOTS = {
+    "arb": "strategies/arb.py",
     "clip": "strategies/clip.py",
     "edge": "strategies/edge.py",
     "fade": "strategies/fade.py",
@@ -565,6 +566,11 @@ _KNOB_SETUP = (
     ("HOOK", "hook", "str"),
     ("STEP_MULT", "step_mult", "str"),
     ("EDGE_VENUE", "edge_venue", "str"),
+    ("ARB_VENUE", "arb_venue", "str"),
+    ("ARB_SYMBOL", "arb_symbol", "str"),
+    ("ARB_MIN_PCT", "min_edge", "float"),
+    ("ARB_FEE_PCT", "fee", "float"),
+    ("ARB_COOL_SECS", "cool", "float"),
     ("PACKET", "packet", "int"),
     ("SHELF", "shelf", "int"),
     ("AISLE_PCT", "aisle", "float"),
