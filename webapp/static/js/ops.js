@@ -94,6 +94,56 @@ function openRpOpsEdit(row) {
   });
 }
 
+function pickOpsAccount(account, accountName) {
+  const sel = document.getElementById('opsAccount');
+  if (!sel) return;
+  const want = [account, accountName].map(v => String(v || '').trim()).filter(Boolean);
+  const hit = [...sel.options].find(o => want.includes(o.value) || want.includes(String(o.textContent || '').trim()));
+  if (hit) sel.value = hit.value;
+}
+
+async function openRpRestart(row) {
+  if (!row || row.live) return;
+  if (typeof rpnlIsPairHedge === 'function' && rpnlIsPairHedge(row)) {
+    toast('pair hedge is automatic — restart the option contracts', 'err');
+    return;
+  }
+  const venue = String(row.quote_venue || 'delta').toLowerCase();
+  const contract = row.quote_symbol || row.contract || '';
+  const strategy = String(row.strategy || '').toLowerCase();
+  const name = contract || row.contract || '';
+  opsEdit = null;
+  opsSkipSaved = true;
+  const box = document.getElementById('rpOps');
+  if (!box) return;
+  applyOpsMode();
+  box.hidden = false;
+  document.body.classList.add('ops-open');
+  try {
+    await bootRpOps();
+    const venueEl = document.getElementById('opsVenue');
+    if (venueEl && [...venueEl.options].some(o => o.value === venue)) {
+      venueEl.disabled = false;
+      venueEl.value = venue;
+    }
+    await onOpsVenueChange();
+    pickOpsAccount(row.account, row.account_name);
+    const inp = document.getElementById('opsContract');
+    if (inp) inp.value = contract;
+    const strat = document.getElementById('opsStrategy');
+    if (strat && strategy && [...strat.options].some(o => o.value === strategy)) strat.value = strategy;
+    onOpsStrategyChange();
+    if (row.settings) fillOpsFromSetup(row.settings);
+  } finally {
+    opsSkipSaved = false;
+  }
+  onOpsContractMeta();
+  applyOpsLaunchLead();
+  const title = document.getElementById('rpOpsTitle');
+  if (title) title.textContent = 'Restart ' + name;
+  setOpsMsg('opsLaunchMsg', 'Same contract, account, and last saved settings. Press Start to run it again.', false);
+}
+
 async function openOppLaunch(spec, note) {
   spec = spec || {};
   if (!spec.venue || !spec.contract) return;

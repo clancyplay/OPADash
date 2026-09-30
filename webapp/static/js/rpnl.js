@@ -665,10 +665,19 @@ function rpnlOrdersBtnHtml(r) {
     '<span class="ri-orders-n' + (n ? '' : ' zero') + '">' + n + '</span></button>';
 }
 
+function rpnlRestartBtnHtml() {
+  return '<button type="button" class="go" data-rp-restart="1" title="Open new contract with these settings" aria-label="Restart">' +
+    '<span class="act-ico" aria-hidden="true">↻</span>Restart</button>';
+}
+
 function rpnlActsHtml(r) {
   const ordersBtn = rpnlOrdersBtnHtml(r);
-  if (rpnlIsPairHedge(r) || !r.live) {
+  if (rpnlIsPairHedge(r)) {
     return '<div class="p-acts">' + ordersBtn + '</div>';
+  }
+  if (!r.live) {
+    const restart = rpnlIsBooting(r) ? '' : rpnlRestartBtnHtml();
+    return '<div class="p-acts">' + restart + ordersBtn + '</div>';
   }
   const s = r.settings || {};
   const mode = String(s.mode || '').trim().toLowerCase();
@@ -1298,6 +1307,13 @@ function renderRpnlInspect(row) {
         ev.preventDefault();
         ev.stopPropagation();
         if (typeof openRpOpsEdit === 'function') openRpOpsEdit(currentRpnlRow());
+        return;
+      }
+      const restart = ev.target.closest('[data-rp-restart]');
+      if (restart) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (typeof openRpRestart === 'function') openRpRestart(currentRpnlRow());
         return;
       }
       const act = ev.target.closest('[data-bot-cmd]');
