@@ -134,7 +134,10 @@ body:has(#rpnl.visible) {
   color: inherit;
   font-family: inherit;
   text-align: left;
+  user-select: none;
 }
+.rpnl-pill:focus { outline: none; }
+.rpnl-pill:focus-visible { border-color: var(--accent); }
 .rpnl-pill.active { border-color: var(--accent); background: rgba(41, 98, 255, .12); }
 .rpnl-pill .p-live {
   width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
@@ -156,6 +159,27 @@ body:has(#rpnl.visible) {
   display: flex; align-items: center; gap: 6px;
 }
 .rpnl-pill .rpnl-venue { margin-left: auto; }
+.rpnl-pill .p-setup-btn {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0 0 0 2px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid var(--border2);
+  background: rgba(255, 255, 255, .06);
+  color: #9aa3b8;
+  font: 700 11px/1 inherit;
+  font-style: italic;
+  cursor: pointer;
+}
+.rpnl-pill .p-setup-btn:hover { color: #fff; border-color: #6b7385; }
+.rpnl-pill .p-setup-btn.on {
+  background: rgba(41, 98, 255, .22);
+  border-color: rgba(41, 98, 255, .5);
+  color: #c5d4f5;
+  font-style: normal;
+}
 .rpnl-pill .rpnl-strat, .rpnl-strat {
   font-size: 9px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
   color: #b4c0d9; background: rgba(255,255,255,.07); border-radius: 4px;
@@ -272,9 +296,13 @@ body:has(#rpnl.visible) {
 .rpnl-inspect .ri-pos.short, .rpnl-inspect .ri-pos .dn { color: var(--red); }
 .rpnl-inspect .ri-split { display: flex; gap: 12px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .rpnl-inspect .ri-setup {
-  display: flex; flex-direction: column; gap: 4px;
-  padding-top: 6px; border-top: 1px solid var(--border);
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
 }
+.rpnl-inspect .ri-setup.open { display: flex; }
 .rpnl-inspect .ri-setup-h {
   font-size: 10px; font-weight: 700; letter-spacing: .4px;
   text-transform: uppercase; color: var(--muted);
@@ -861,6 +889,7 @@ body:has(#rpnl.visible) {
   .rpnl-pills { padding: 6px max(8px, var(--safe-r)); gap: 6px; }
   .rpnl-pill { padding: 6px 8px; min-width: 108px; border-radius: 8px; }
   .rpnl-pill .p-val { font-size: 13px; margin-top: 1px; }
+  .rpnl-pill .p-setup-btn { width: 22px; height: 22px; font-size: 12px; }
 
   .rpnl-inspect {
     padding: 5px max(8px, var(--safe-r)) 5px max(8px, var(--safe-l));

@@ -125,6 +125,7 @@ let ohlcOrderSig = '';
 let ohlcOrderOwner = null;
 let ohlcOrderScaleSeries = null;
 let riOrdersOpen = false;
+let riSetupOpen = false;
 let ohlcHiLine = null, ohlcLoLine = null, ohlcHiLoOwner = null;
 let ohlcMarkerSig = '';
 let rpnlMarkerSig = '';
@@ -1010,6 +1011,27 @@ function openOrdersSig(row, rows) {
   return JSON.stringify(openOrdersForInspect(row, rows).map(q => [q.symbol, q.side, q.price, q.qty, q.role]));
 }
 
+function setRiSetupOpen(on) {
+  riSetupOpen = !!on;
+  const box = document.getElementById('rpnlInspect');
+  const wrap = box && box.querySelector('.ri-setup');
+  if (wrap) {
+    wrap.classList.toggle('open', riSetupOpen);
+    if (riSetupOpen) wrap.removeAttribute('hidden');
+    else wrap.setAttribute('hidden', '');
+  }
+  const cur = (document.getElementById('rpnlSymbol') || {}).value || '';
+  document.querySelectorAll('.rpnl-pill [data-ri-setup]').forEach(btn => {
+    const pill = btn.closest('[data-rpnl-key]');
+    const mine = !!(riSetupOpen && pill && pill.dataset.rpnlKey === cur);
+    btn.classList.toggle('on', mine);
+    btn.setAttribute('aria-expanded', mine ? 'true' : 'false');
+  });
+  if (typeof resizeRpnlCharts === 'function') {
+    requestAnimationFrame(function () { resizeRpnlCharts(); });
+  }
+}
+
 function setRiOrdersOpen(on) {
   riOrdersOpen = !!on;
   const page = document.getElementById('rpnl');
@@ -1202,6 +1224,7 @@ function renderRpnlInspect(row) {
     box.dataset.sig = '';
     box.dataset.hedge = '';
     riOrdersOpen = false;
+    riSetupOpen = false;
     const page = document.getElementById('rpnl');
     if (page) page.classList.remove('orders-open');
     return;
@@ -1253,11 +1276,12 @@ function renderRpnlInspect(row) {
         '</div>' +
       '</div>' +
       '<div class="ri-row ri-tools">' + rpnlActsHtml(row) + '</div>' +
-      (cfgHtml ? '<div class="ri-setup">' + cfgHtml + '</div>' : '') +
+      (cfgHtml ? '<div class="ri-setup' + (riSetupOpen ? ' open' : '') + '"' + (riSetupOpen ? '' : ' hidden') + '>' + cfgHtml + '</div>' : '') +
       rpnlOrdersHtml(row) +
     '</div>';
   const page = document.getElementById('rpnl');
   if (page) page.classList.toggle('orders-open', riOrdersOpen);
+  setRiSetupOpen(riSetupOpen);
   if (!box.dataset.bound) {
     box.dataset.bound = '1';
     box.addEventListener('click', ev => {
@@ -1283,7 +1307,9 @@ function renderRpnlInspect(row) {
       sendBotCmd(act.closest('.rpnl-inspect') || box, act.getAttribute('data-bot-cmd'));
     });
     document.addEventListener('keydown', ev => {
-      if (ev.key === 'Escape' && riOrdersOpen) setRiOrdersOpen(false);
+      if (ev.key !== 'Escape') return;
+      if (riOrdersOpen) { setRiOrdersOpen(false); ev.preventDefault(); return; }
+      if (riSetupOpen) { setRiSetupOpen(false); ev.preventDefault(); }
     });
   }
 }
@@ -1346,6 +1372,13 @@ function rpnlPillAcctText(r, nameCount) {
   return dupe ? acct + ' #' + r.account : acct;
 }
 
+function rpnlPillSetupBtn(r, cur) {
+  if (rpnlIsPairHedge(r) || !(r && r.settings)) return '';
+  const mine = rpnlOptionValue(r) === cur && riSetupOpen;
+  return '<button type="button" class="p-setup-btn' + (mine ? ' on' : '') + '" data-ri-setup="toggle"' +
+    ' title="Setup" aria-label="Setup" aria-expanded="' + (mine ? 'true' : 'false') + '">i</button>';
+}
+
 function rpnlPillHtml(r, cur, nameCount) {
   const key = rpnlOptionValue(r);
   const active = key === cur ? ' active' : '';
@@ -1369,13 +1402,15 @@ function rpnlPillHtml(r, cur, nameCount) {
   const hedgeOf = rpnlHedgeOf(r);
   const via = r.settings && r.settings.hedge_via;
   const shownMode = hedgeBit ? '' : mode;
-  return '<button type="button" class="rpnl-pill' + active + liveCls + statusCls + (hedgeBit ? ' hedge' : '') + '" data-rpnl-key="' + escHtml(key) + '">' +
+  return '<div class="rpnl-pill' + active + liveCls + statusCls + (hedgeBit ? ' hedge' : '') + '" role="button" tabindex="0" data-rpnl-key="' + escHtml(key) + '">' +
     '<div class="p-name">' + rpnlLiveDot(r) +
       '<span class="p-sym">' + escHtml(qsym || '') + '</span>' +
       (acct ? '<span class="rpnl-acct">' + escHtml(acct) + '</span>' : '') +
       (strat ? '<span class="rpnl-strat">' + escHtml(strat) + '</span>' : '') +
       (hedgeBit ? '<span class="rpnl-hedge">Hedge</span>' : '') +
-      '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span></div>' +
+      '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span>' +
+      rpnlPillSetupBtn(r, cur) +
+    '</div>' +
     '<div class="p-val" style="color:' + mainCol + '">' + rpnlPillValInner(r) + '</div>' +
     (hedgeBit && hedgeOf ? '<div class="p-hedge" title="' + escHtml(hedgeOf) + '">of ' + escHtml(hedgeOf) + '</div>' : '') +
     (!hedgeBit && via ? '<div class="p-hedge via" title="' + escHtml(via) + '">hedged by ' + escHtml(via) + '</div>' : '') +
@@ -1383,7 +1418,7 @@ function rpnlPillHtml(r, cur, nameCount) {
     (geomBit ? '<div class="p-geom" title="' + escHtml(r.settings && r.settings.geom || geomBit) + '">' + escHtml(geomBit) + '</div>' : '') +
     (walletBit ? '<div class="p-bal">' + escHtml(walletBit) + '</div>' : '') +
     (shownMode ? '<div class="p-mode' + modeCls + '">' + escHtml(shownMode) + '</div>' : '') +
-    '</button>';
+    '</div>';
 }
 
 function rpnlPillMain(r) {
@@ -1564,6 +1599,20 @@ function renderRpnlSummary(rows, hours) {
         } else if (hedgeTag) {
           hedgeTag.remove();
         }
+        let setupBtn = nameEl.querySelector('[data-ri-setup]');
+        if (!rpnlIsPairHedge(r) && r.settings) {
+          if (!setupBtn) {
+            nameEl.insertAdjacentHTML('beforeend', rpnlPillSetupBtn(r, cur));
+            setupBtn = nameEl.querySelector('[data-ri-setup]');
+          }
+          const mine = el.dataset.rpnlKey === cur && riSetupOpen;
+          if (setupBtn) {
+            setupBtn.classList.toggle('on', mine);
+            setupBtn.setAttribute('aria-expanded', mine ? 'true' : 'false');
+          }
+        } else if (setupBtn) {
+          setupBtn.remove();
+        }
       }
       const hedgeOf = rpnlHedgeOf(r);
       const via = r.settings && r.settings.hedge_via;
@@ -1589,8 +1638,31 @@ function renderRpnlSummary(rows, hours) {
   if (!wrap.dataset.bound) {
     wrap.dataset.bound = '1';
     wrap.addEventListener('click', ev => {
-      const btn = ev.target.closest('[data-rpnl-key]');
-      if (btn) pickRpnlContract(btn.dataset.rpnlKey);
+      const pill = ev.target.closest('[data-rpnl-key]');
+      if (!pill) return;
+      const key = pill.dataset.rpnlKey;
+      const cur = (document.getElementById('rpnlSymbol') || {}).value || '';
+      if (ev.target.closest('[data-ri-setup]')) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (key === cur) {
+          setRiSetupOpen(!riSetupOpen);
+          return;
+        }
+        riSetupOpen = true;
+        pickRpnlContract(key, { keepSetup: true });
+        return;
+      }
+      if (key !== cur) riSetupOpen = false;
+      pickRpnlContract(key);
+    });
+    wrap.addEventListener('keydown', ev => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      if (ev.target.closest('[data-ri-setup]')) return;
+      const pill = ev.target.closest('[data-rpnl-key]');
+      if (!pill) return;
+      ev.preventDefault();
+      pickRpnlContract(pill.dataset.rpnlKey);
     });
   }
   renderRpnlInspect(currentRpnlRow(rows));
@@ -1621,9 +1693,10 @@ function ensureRpnlOption(key, label) {
   return opt;
 }
 
-function pickRpnlContract(key) {
+function pickRpnlContract(key, opts) {
   const sel = document.getElementById('rpnlSymbol');
   if (!sel) return;
+  if (!(opts && opts.keepSetup)) riSetupOpen = false;
   ensureRpnlOption(key, '');
   sel.value = key;
   loadRpnlFresh();
