@@ -2534,7 +2534,7 @@ async def _wait_bot_command(cmd_id: int | None, timeout: float = 28.0) -> dict:
     return last
 
 
-def _venue_symbol(quote: str, contract: str) -> str:
+def _exchange_symbol(quote: str, contract: str) -> str:
     raw = str(quote or contract or "").strip()
     return raw.upper().replace("-", "").replace("_", "")
 
@@ -2573,7 +2573,7 @@ async def ops_bot_stop(req: LaunchStopRequest) -> dict:
         contracts=contracts,
     )
     contract = canon_contract(req.contract or (rec or {}).get("contract") or "") or str(req.contract or (rec or {}).get("contract") or "")
-    symbol = _venue_symbol(req.quote, contract or str((rec or {}).get("contract") or ""))
+    symbol = _exchange_symbol(req.quote, contract or str((rec or {}).get("contract") or ""))
     account = str(req.account or (rec or {}).get("account") or "").strip()
     account_name = str(req.account_name or (rec or {}).get("account_name") or "").strip()
     strategy = str(req.strategy or (rec or {}).get("strategy") or "").strip()
