@@ -763,7 +763,7 @@ function rpnlSetupBits(s) {
   if (!hedge) {
   if (s.geom) {
     String(s.geom).split(' · ').forEach(function (b) {
-      if (b) bits.push(b);
+      if (b) bits.push(rpnlRoundGeomText(b));
     });
   } else {
     const hem = rpnlGeomBit('hem', s.hem_ticks, s.hem);
@@ -1289,9 +1289,17 @@ function rpnlPillMax(r) {
   return '';
 }
 
+function rpnlRoundGeomText(text) {
+  return String(text || '').replace(/\d+\.\d+/g, function (m) {
+    const n = Number(m);
+    if (!isFinite(n)) return m;
+    return n.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+  });
+}
+
 function rpnlPillGeom(r) {
   const g = r && r.settings && r.settings.geom;
-  return g ? String(g) : '';
+  return g ? rpnlRoundGeomText(g) : '';
 }
 
 function rpnlPillWallet(r) {
@@ -1342,7 +1350,7 @@ function rpnlPillHtml(r, cur, nameCount) {
     (hedgeBit && hedgeOf ? '<div class="p-hedge" title="' + escHtml(hedgeOf) + '">of ' + escHtml(hedgeOf) + '</div>' : '') +
     (!hedgeBit && via ? '<div class="p-hedge via" title="' + escHtml(via) + '">hedged by ' + escHtml(via) + '</div>' : '') +
     (maxBit ? '<div class="p-max">' + escHtml(maxBit) + '</div>' : '') +
-    (geomBit ? '<div class="p-geom" title="' + escHtml(geomBit) + '">' + escHtml(geomBit) + '</div>' : '') +
+    (geomBit ? '<div class="p-geom" title="' + escHtml(r.settings && r.settings.geom || geomBit) + '">' + escHtml(geomBit) + '</div>' : '') +
     (walletBit ? '<div class="p-bal">' + escHtml(walletBit) + '</div>' : '') +
     (shownMode ? '<div class="p-mode' + modeCls + '">' + escHtml(shownMode) + '</div>' : '') +
     '</button>';
@@ -1454,6 +1462,21 @@ function renderRpnlSummary(rows, hours) {
         balEl.textContent = walletBit;
       } else if (balEl) {
         balEl.remove();
+      }
+      const geomBit = rpnlIsPairHedge(r) ? '' : rpnlPillGeom(r);
+      let geomEl = el.querySelector('.p-geom');
+      if (geomBit) {
+        if (!geomEl) {
+          geomEl = document.createElement('div');
+          geomEl.className = 'p-geom';
+          const after = el.querySelector('.p-bal') || el.querySelector('.p-max') || el.querySelector('.p-val');
+          if (after && after.nextSibling) el.insertBefore(geomEl, after.nextSibling);
+          else el.appendChild(geomEl);
+        }
+        geomEl.textContent = geomBit;
+        geomEl.title = (r.settings && r.settings.geom) || geomBit;
+      } else if (geomEl) {
+        geomEl.remove();
       }
       const nameEl = el.querySelector('.p-name');
       if (nameEl) {

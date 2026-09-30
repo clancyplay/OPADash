@@ -180,7 +180,7 @@ body:has(#rpnl.visible) {
 .rpnl-pill .p-max,
 .rpnl-pill .p-bal { font-size: 10px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .rpnl-pill .p-geom {
-  font-size: 10px; color: #9aa3b8; margin-top: 3px;
+  font-size: 9px; color: #8b93a7; margin-top: 2px;
   max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -286,6 +286,8 @@ body:has(#rpnl.visible) {
   border-radius: 4px; padding: 2px 6px; white-space: nowrap;
 }
 .rpnl-inspect .p-cfg span.p-geom {
+  font-size: 9px;
+  padding: 1px 5px;
   background: rgba(41, 98, 255, .12);
   border-color: rgba(41, 98, 255, .28);
   color: #c5d4f5;
