@@ -10,6 +10,7 @@ import csv
 import hashlib
 import hmac
 import io
+import asyncio
 import logging
 import os
 import re
@@ -2464,6 +2465,26 @@ async def _stop_aliases(account: str, account_name: str = "") -> list[str]:
     return [a for a in aliases if a]
 
 
+async def _wait_bot_command(cmd_id: int | None, timeout: float = 28.0) -> dict:
+    """Poll until the live bot marks a queued command done or error."""
+    if not cmd_id or _db is None or not _db.pool:
+        return {"status": "skipped"}
+    deadline = time.time() + max(2.0, float(timeout))
+    last: dict = {"status": "pending"}
+    while time.time() < deadline:
+        row = await _db.get_bot_command(int(cmd_id))
+        if row:
+            last = row
+            st = str(row.get("status") or "")
+            if st in ("done", "error"):
+                return row
+        await asyncio.sleep(0.4)
+    last["status"] = last.get("status") or "timeout"
+    if last.get("status") not in ("done", "error"):
+        last["status"] = "timeout"
+    return last
+
+
 @app.post("/api/ops/bots/stop")
 async def ops_bot_stop(req: LaunchStopRequest) -> dict:
     aliases = await _stop_aliases(req.account, req.account_name)
@@ -2483,30 +2504,74 @@ async def ops_bot_stop(req: LaunchStopRequest) -> dict:
         )
     contract = canon_contract(req.contract or rec.get("contract") or "") or str(req.contract or rec.get("contract") or "")
     account = str(req.account or rec.get("account") or "").strip()
+    account_name = str(req.account_name or rec.get("account_name") or "").strip()
     strategy = str(req.strategy or rec.get("strategy") or "").strip()
+    venue = str(rec.get("venue") or "delta").strip().lower() or "delta"
+    cmd_id = None
     if _db is not None and _db.pool and contract and strategy:
         try:
-            await _db.insert_bot_command(
-                strategy, account, contract, "cancel", created_by="dashboard",
-            )
-            await _db.insert_bot_command(
-                strategy, account, contract, "stop", created_by="dashboard",
+            cmd_id = await _db.insert_bot_command(
+                strategy, account, contract, "flatten", created_by="dashboard",
             )
         except Exception as extra:
-            logger.debug("webapp: stop command queue failed — %s", extra)
+            logger.debug("webapp: flatten command queue failed — %s", extra)
+    if cmd_id:
+        waited = await _wait_bot_command(cmd_id, 28.0)
+        logger.info(
+            "webapp: flatten before stop %s %s %s status=%s err=%s",
+            strategy, contract, account or "-",
+            waited.get("status"), waited.get("error") or "",
+        )
+    sweep: dict = {"ok": True, "skipped": True}
+    try:
+        sweep = await dash_ops.vacate_account(account, account_name, contract, venue)
+        if not sweep.get("skipped") and not sweep.get("ok"):
+            await asyncio.sleep(0.8)
+            sweep = await dash_ops.vacate_account(account, account_name, contract, venue)
+    except Exception as extra:
+        logger.warning("webapp: venue vacate failed — %s", extra)
+        sweep = {"ok": False, "error": str(extra)[:160], "size": 0.0, "orders": -1}
     try:
         out = dash_launch.stop(str(rec.get("id") or ""))
     except KeyError:
         raise HTTPException(status_code=404, detail="bot not found")
     except (ValueError, RuntimeError) as extra:
         raise HTTPException(status_code=400, detail=str(extra))
+    try:
+        again = await dash_ops.vacate_account(account, account_name, contract, venue)
+        if not again.get("skipped"):
+            sweep = again
+    except Exception as extra:
+        logger.warning("webapp: venue vacate after stop failed — %s", extra)
     if _db is not None and _db.pool and contract and strategy:
         try:
             await _db.drop_live_bot(contract, account, strategy)
         except Exception as extra:
             logger.debug("webapp: drop live pill failed — %s", extra)
+    leftover = 0.0
+    try:
+        leftover = float(sweep.get("size") or 0)
+    except (TypeError, ValueError):
+        leftover = 0.0
+    try:
+        live_orders = int(sweep.get("orders") or 0)
+    except (TypeError, ValueError):
+        live_orders = 0
+    if not sweep.get("skipped") and (abs(leftover) > 1e-9 or live_orders > 0):
+        logger.error(
+            "webapp: stopped %s but venue leftover pos=%s orders=%s err=%s",
+            contract, leftover, live_orders, sweep.get("error") or "",
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Process stopped, but {contract} still has "
+                f"position {leftover:g} and {live_orders} open order(s). "
+                f"Retry Remove. {(sweep.get('error') or '')}".strip()
+            ),
+        )
     logger.info("webapp: stopped dash bot %s pid=%s", out.get("id"), out.get("pid"))
-    return {"ok": True, "bot": out}
+    return {"ok": True, "bot": out, "vacate": {k: sweep.get(k) for k in ("ok", "size", "orders", "skipped") if k in sweep}}
 
 
 @app.get("/api/ops/delta/wallets")

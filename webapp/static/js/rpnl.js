@@ -699,6 +699,20 @@ function rpnlActsHtml(r) {
   return html;
 }
 
+async function waitBotCommand(id, ms) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < (ms || 20000)) {
+    try {
+      const r = await fetch('/api/bot/command/' + id);
+      const d = await r.json().catch(() => ({}));
+      const st = String(d.status || '');
+      if (st === 'done' || st === 'error') return d;
+    } catch (e) {}
+    await new Promise(res => setTimeout(res, 400));
+  }
+  return { status: 'timeout' };
+}
+
 async function sendBotCmd(pill, cmd) {
   const contract = pill.dataset.contract || '';
   const account = pill.dataset.account || '';
@@ -708,8 +722,8 @@ async function sendBotCmd(pill, cmd) {
     toast('pair hedge is automatic — use the option contracts', 'err');
     return;
   }
-  if (cmd === 'flatten' && !confirm('Close ' + name + ' with a market flatten and stop quoting?')) return;
-  if (cmd === 'stop' && !confirm('Stop quoting ' + name + '? Open orders cancel; position stays.')) return;
+  if (cmd === 'flatten' && !confirm('Cancel every open order on ' + name + ' and market-close the position? Quoting stays off until Resume.')) return;
+  if (cmd === 'stop' && !confirm('Stop quoting ' + name + ' and cancel open orders? Position stays until Close or Remove.')) return;
   const body = {
     cmd: cmd, contract: contract, account: account,
     strategy: pill.dataset.strategy || currentRpnlSel().strategy || (strategyIsAll(currentStrategy) ? '' : currentStrategy),
@@ -725,9 +739,24 @@ async function sendBotCmd(pill, cmd) {
       toast((d && d.detail) || ('command failed ' + r.status), 'err');
       return;
     }
-    const msg = cmd === 'flatten' ? 'closing '
+    if ((cmd === 'flatten' || cmd === 'stop') && d.id) {
+      toast((cmd === 'flatten' ? 'closing ' : 'cancelling quotes on ') + name + '…', 'ok');
+      const waited = await waitBotCommand(d.id, 28000);
+      if (waited && waited.status === 'error') {
+        toast((waited.error || 'failed') + ' — retry', 'err');
+        setTimeout(() => { if (typeof loadRpnl === 'function') loadRpnl(true); }, 800);
+        return;
+      }
+      if (waited && waited.status === 'timeout') {
+        toast('still working on ' + name + ' — check open orders', 'err');
+        setTimeout(() => { if (typeof loadRpnl === 'function') loadRpnl(true); }, 800);
+        return;
+      }
+    }
+    const msg = cmd === 'flatten' ? 'closed '
       : cmd === 'clear' ? 'clearing pause + limits '
       : cmd === 'setup' ? 'updating '
+      : cmd === 'stop' ? 'stopped quotes on '
       : cmd + ' ';
     toast(msg + name, 'ok');
     setTimeout(() => { if (typeof loadRpnl === 'function') loadRpnl(true); }, 1200);

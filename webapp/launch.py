@@ -541,7 +541,7 @@ def stop(bot_id: str) -> dict:
             pass
         except PermissionError as exc:
             raise RuntimeError(f"cannot signal pid {pid}: {exc}") from exc
-        deadline = time.time() + 4
+        deadline = time.time() + 12
         while time.time() < deadline and _alive(pid):
             time.sleep(0.15)
         if _alive(pid):

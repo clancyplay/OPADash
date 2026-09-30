@@ -1517,11 +1517,11 @@ async function submitOpsRemove() {
   const rail = opsCatalog && opsCatalog.launch === 'railway';
   const name = opsEdit.qsym || opsEdit.contract || '';
   if (!confirm(rail
-    ? ('Delete the Railway service for ' + name + ' and drop its rPnL card? Open quotes cancel on shutdown.')
-    : ('Kill the process for ' + name + ' and drop its rPnL card? Open quotes cancel on shutdown.'))) return;
+    ? ('Flatten ' + name + ' (cancel every order + close the position), then delete the Railway service? Leftover quotes can take a loss.')
+    : ('Flatten ' + name + ' (cancel every order + close the position), then kill the process? Leftover quotes can take a loss.'))) return;
   const btn = document.getElementById('opsRemoveBtn');
   if (btn) btn.disabled = true;
-  setOpsMsg('opsLaunchMsg', rail ? 'Removing service…' : 'Stopping…', false);
+  setOpsMsg('opsLaunchMsg', 'Cancelling orders and flattening… this can take up to a minute', false);
   const known = opsBotForEdit();
   try {
     const r = await fetch('/api/ops/bots/stop', {
@@ -1587,8 +1587,8 @@ async function stopOpsBot(id) {
   const row = (opsBots || []).find(b => b.id === id) || {};
   const rail = row.kind === 'railway' || !!row.service;
   if (!id || !confirm(rail
-    ? 'Delete this Railway service? Open quotes cancel on shutdown.'
-    : 'Kill this process? Open quotes cancel on shutdown.')) return;
+    ? 'Flatten this contract (cancel orders + close position), then delete the Railway service?'
+    : 'Flatten this contract (cancel orders + close position), then kill the process?')) return;
   try {
     const r = await fetch('/api/ops/bots/stop', {
       method: 'POST',

@@ -873,3 +873,132 @@ async def transfer_delta(src: str, dest: str, amount: float, asset: str = "USD")
             err += " — parent key is still a sub-account login; use the main Delta account API key"
         raise RuntimeError(err)
     return {"ok": True, "from": src, "to": dest, "amount": amt, "asset": asset}
+
+
+def _norm_sym(value: str) -> str:
+    return str(value or "").strip().upper().replace("-", "").replace("_", "")
+
+
+def find_wallet(venue: str, *tags: str) -> dict | None:
+    """Match a Balances-page API key by account id or name."""
+    venue = str(venue or "delta").strip().lower()
+    aliases = {str(t or "").strip() for t in tags if str(t or "").strip()}
+    if not aliases:
+        return None
+    for acct in load_wallet_accounts():
+        if str(acct.get("exchange") or "").lower() != venue:
+            continue
+        names = {str(acct.get("id") or "").strip(), str(acct.get("name") or "").strip()}
+        names.discard("")
+        if names & aliases:
+            return acct
+    return None
+
+
+def _delta_err(data: Any, status: int) -> str:
+    fail = (data.get("error") if isinstance(data, dict) else None) or {}
+    if isinstance(fail, dict):
+        return str(fail.get("code") or fail.get("message") or fail or "")
+    if fail:
+        return str(fail)
+    if isinstance(data, dict):
+        return str(data.get("message") or "")
+    return str(status)
+
+
+async def _delta_call(client: httpx.AsyncClient, acct: dict, method: str, path: str, body: dict | None = None):
+    base = os.getenv("DELTA_REST_URL", "https://api.india.delta.exchange").rstrip("/")
+    payload = json.dumps(body, separators=(",", ":")) if body is not None else ""
+    headers = _delta_headers(method, path, payload, acct["api_key"], acct["api_secret"])
+    if method == "GET":
+        r = await client.get(base + path, headers=headers)
+    else:
+        r = await client.request(method, base + path, headers=headers, content=payload or None)
+    data: Any = r.json() if r.content else {}
+    return r.status_code, data
+
+
+def _delta_size(rows: Any, symbol: str) -> float:
+    want = _norm_sym(symbol)
+    if not want or not isinstance(rows, list):
+        return 0.0
+    for rec in rows:
+        if not isinstance(rec, dict):
+            continue
+        ps = _norm_sym(rec.get("product_symbol") or rec.get("symbol"))
+        if ps != want:
+            continue
+        try:
+            return float(rec.get("size") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+    return 0.0
+
+
+async def vacate_delta(acct: dict, symbol: str) -> dict:
+    """Cancel all Delta orders for this product and market-close leftover size."""
+    symbol = str(symbol or "").strip()
+    out = {"ok": False, "size": 0.0, "orders": -1, "error": ""}
+    if not acct or not symbol:
+        out["error"] = "missing account or symbol"
+        return out
+    timeout = httpx.Timeout(18.0, connect=6.0)
+    async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
+        st, data = await _delta_call(client, acct, "DELETE", "/v2/orders/all", {"product_symbol": symbol})
+        if st >= 400 or (isinstance(data, dict) and data.get("success") is False):
+            out["error"] = _delta_err(data, st) or f"cancel HTTP {st}"
+        await asyncio.sleep(0.35)
+        st, data = await _delta_call(client, acct, "GET", "/v2/positions/margined")
+        size = _delta_size(data.get("result") if isinstance(data, dict) else None, symbol)
+        out["size"] = size
+        if abs(size) > 1e-9:
+            side = "sell" if size > 0 else "buy"
+            body = {
+                "product_symbol": symbol,
+                "side": side,
+                "size": max(1, int(round(abs(size)))),
+                "order_type": "market_order",
+                "time_in_force": "ioc",
+                "reduce_only": True,
+            }
+            st, data = await _delta_call(client, acct, "POST", "/v2/orders", body)
+            if st >= 400 or (isinstance(data, dict) and data.get("success") is False):
+                bit = _delta_err(data, st) or f"close HTTP {st}"
+                out["error"] = (out["error"] + " · " if out["error"] else "") + bit
+            await asyncio.sleep(0.45)
+        await _delta_call(client, acct, "DELETE", "/v2/orders/all", {"product_symbol": symbol})
+        await asyncio.sleep(0.3)
+        st, data = await _delta_call(client, acct, "GET", "/v2/positions/margined")
+        leftover = _delta_size(data.get("result") if isinstance(data, dict) else None, symbol)
+        out["size"] = leftover
+        st, data = await _delta_call(client, acct, "GET", "/v2/orders?states=open,pending")
+        live = 0
+        listed = False
+        rows = data.get("result") if isinstance(data, dict) else None
+        if isinstance(rows, dict):
+            rows = rows.get("orders") or rows.get("data") or []
+        want = _norm_sym(symbol)
+        if isinstance(rows, list):
+            listed = True
+            for rec in rows:
+                if not isinstance(rec, dict):
+                    continue
+                ps = _norm_sym(rec.get("product_symbol") or rec.get("symbol"))
+                if ps == want:
+                    live += 1
+            out["orders"] = live
+        out["ok"] = abs(leftover) <= 1e-9 and (not listed or live == 0)
+        if not out["ok"] and not out["error"]:
+            out["error"] = f"leftover pos={leftover:g} orders={live}"
+    return out
+
+
+async def vacate_account(account: str, account_name: str, contract: str, venue: str = "delta") -> dict:
+    """Dash-side venue sweep using the Balances key for this subaccount."""
+    venue = str(venue or "delta").strip().lower()
+    if venue != "delta":
+        return {"ok": True, "skipped": True, "error": ""}
+    acct = find_wallet(venue, account, account_name)
+    if not acct:
+        return {"ok": True, "skipped": True, "error": "no wallet"}
+    return await vacate_delta(acct, contract)
