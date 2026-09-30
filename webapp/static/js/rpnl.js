@@ -126,7 +126,6 @@ let ohlcOrderOwner = null;
 let ohlcOrderScaleSeries = null;
 let riOrdersOpen = false;
 let riSetupOpen = false;
-let riClockOpen = false;
 let ohlcHiLine = null, ohlcLoLine = null, ohlcHiLoOwner = null;
 let ohlcMarkerSig = '';
 let rpnlMarkerSig = '';
@@ -1262,120 +1261,6 @@ function rpnlClockStatus(s) {
   return phase + win + next + secs + why + day;
 }
 
-function rpnlClockHtml(s) {
-  s = s || {};
-  const on = !!s.clock_on;
-  const sel = (cur, val, label) =>
-    '<option value="' + val + '"' + (cur === val ? ' selected' : '') + '>' + label + '</option>';
-  const orders = String(s.clock_orders || 'cancel');
-  const pos = String(s.clock_pos || 'hold');
-  const suggest = s.clock_suggest
-    ? '<div class="ri-clock-suggest"><span>' + escHtml(s.clock_suggest_why || s.clock_suggest) +
-      (s.clock_suggest_n ? ' · ' + s.clock_suggest_n + ' days' : '') +
-      '</span><button type="button" data-clock="accept">Accept</button></div>'
-    : '';
-  return '<details class="ri-clock"' + (riClockOpen ? ' open' : '') + '>' +
-    '<summary>Clock <span data-clock-status>' + escHtml(rpnlClockStatus(s)) + '</span></summary>' +
-    '<div class="ri-clock-grid">' +
-      '<label class="ck-on"><input id="ckOn" type="checkbox"' + (on ? ' checked' : '') + '> On</label>' +
-      '<label>Windows <input id="ckWindows" type="text" value="' + escHtml(s.clock_windows || '') +
-        '" placeholder="1-5 05:00-21:00" spellcheck="false"></label>' +
-      '<label>Zone <input id="ckTz" type="text" value="' + escHtml(s.clock_tz || 'Asia/Kolkata') + '"></label>' +
-      '<label>Wind-down min <input id="ckWind" type="number" min="0" step="1" value="' + escHtml(s.clock_wind != null ? s.clock_wind : 15) + '"></label>' +
-      '<label>Open delay min <input id="ckDelay" type="number" min="0" step="1" value="' + escHtml(s.clock_delay != null ? s.clock_delay : 0) + '"></label>' +
-      '<label>Orders at close <select id="ckOrders">' +
-        sel(orders, 'cancel', 'Cancel') + sel(orders, 'keep', 'Keep') + '</select></label>' +
-      '<label>Position at close <select id="ckPos">' +
-        sel(pos, 'hold', 'Hold') + sel(pos, 'flatten', 'Flatten') + sel(pos, 'cover', 'Cover') + '</select></label>' +
-      '<label>Day loss $ <input id="ckLoss" type="number" min="0" step="1" value="' + escHtml(s.clock_day_loss != null ? s.clock_day_loss : 0) + '"></label>' +
-      '<label>Day win $ <input id="ckWin" type="number" min="0" step="1" value="' + escHtml(s.clock_day_win != null ? s.clock_day_win : 0) + '"></label>' +
-      '<label>Reset <input id="ckReset" type="text" value="' + escHtml(s.clock_day_reset || '00:00') + '" placeholder="00:00"></label>' +
-      '<label>Max hold sec <input id="ckHold" type="number" min="0" step="1" value="' + escHtml(s.clock_hold != null ? s.clock_hold : 0) + '"></label>' +
-      '<label class="ck-on"><input id="ckArm" type="checkbox"' + (s.clock_arm ? ' checked' : '') + '> Arm required</label>' +
-    '</div>' +
-    suggest +
-    '<div class="ri-clock-acts">' +
-      '<button type="button" class="go" data-clock="apply">Apply</button>' +
-      '<button type="button" data-clock="arm">Arm</button>' +
-      '<button type="button" data-clock="disarm">Disarm</button>' +
-      '<button type="button" data-clock="open">Force open</button>' +
-      '<button type="button" data-clock="closed">Force closed</button>' +
-      '<button type="button" data-clock="auto">Auto</button>' +
-      '<button type="button" data-clock="skip">Skip next close</button>' +
-    '</div></details>';
-}
-
-function rpnlClockPayload() {
-  const num = id => {
-    const el = document.getElementById(id);
-    return el && el.value !== '' ? el.value : '0';
-  };
-  const text = id => {
-    const el = document.getElementById(id);
-    return el ? String(el.value || '').trim() : '';
-  };
-  const on = id => {
-    const el = document.getElementById(id);
-    return !!(el && el.checked);
-  };
-  return {
-    CLOCK: on('ckOn') ? 'true' : 'false',
-    CLOCK_WINDOWS: text('ckWindows'),
-    CLOCK_TZ: text('ckTz') || 'Asia/Kolkata',
-    CLOCK_WINDDOWN_MINS: num('ckWind'),
-    CLOCK_OPEN_DELAY_MINS: num('ckDelay'),
-    CLOCK_ORDERS: text('ckOrders') || 'cancel',
-    CLOCK_POS: text('ckPos') || 'hold',
-    CLOCK_DAY_LOSS_USD: num('ckLoss'),
-    CLOCK_DAY_WIN_USD: num('ckWin'),
-    CLOCK_DAY_RESET: text('ckReset') || '00:00',
-    CLOCK_HOLD_SECS: num('ckHold'),
-    CLOCK_ARM: on('ckArm') ? 'true' : 'false',
-  };
-}
-
-async function sendClock(box, cmd, payload) {
-  const contract = box.dataset.contract || '';
-  const account = box.dataset.account || '';
-  const name = box.dataset.qsym || contract;
-  if (!contract || !cmd) return;
-  if (box.dataset.hedge === '1') {
-    toast('pair hedge is automatic — use the option contracts', 'err');
-    return;
-  }
-  const body = {
-    cmd: cmd, contract: contract, account: account, payload: payload || {},
-    strategy: box.dataset.strategy || currentRpnlSel().strategy || (strategyIsAll(currentStrategy) ? '' : currentStrategy),
-  };
-  try {
-    const r = await fetch('/api/bot/command', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      toast((d && d.detail) || ('clock failed ' + r.status), 'err');
-      return;
-    }
-    if (d.id) {
-      const waited = await waitBotCommand(d.id, 20000);
-      if (waited && waited.status === 'error') {
-        toast(waited.error || 'clock rejected', 'err');
-        return;
-      }
-      if (waited && waited.status === 'timeout') {
-        toast('clock still applying on ' + name, 'err');
-        return;
-      }
-    }
-    toast('clock ' + cmd.replace('clock_', '') + ' ' + name, 'ok');
-    setTimeout(() => { if (typeof loadRpnl === 'function') loadRpnl(true); }, 800);
-  } catch (e) {
-    toast(String(e), 'err');
-  }
-}
-
 function renderRpnlInspect(row) {
   const box = document.getElementById('rpnlInspect');
   if (!box) return;
@@ -1416,23 +1301,13 @@ function renderRpnlInspect(row) {
   const hedgeOf = rpnlHedgeOf(row);
   const via = s && s.hedge_via;
   const cfgHtml = (!pairHedge && s) ? rpnlCfgHtml(s) : '';
-  const clockHtml = (!pairHedge && s) ? rpnlClockHtml(s) : '';
-  if (riClockOpen && box.querySelector('.ri-clock') && box.dataset.contract === (row.contract || '')) {
-    const st = box.querySelector('[data-clock-status]');
-    if (st) st.textContent = rpnlClockStatus(s);
-    return;
-  }
   box.className = 'rpnl-inspect open' + (pairHedge ? ' hedge' : '');
   box.dataset.contract = row.contract || '';
   box.dataset.account = row.account || '';
   box.dataset.strategy = row.strategy || '';
   box.dataset.qsym = qsym;
   box.dataset.hedge = pairHedge ? '1' : '';
-  if (box.dataset.sig === sig && box.innerHTML) {
-    const st = box.querySelector('[data-clock-status]');
-    if (st) st.textContent = rpnlClockStatus(s);
-    return;
-  }
+  if (box.dataset.sig === sig && box.innerHTML) return;
   box.dataset.sig = sig;
   box.innerHTML =
     '<div class="ri-bar">' +
@@ -1449,7 +1324,6 @@ function renderRpnlInspect(row) {
         '</div>' +
       '</div>' +
       '<div class="ri-row ri-tools">' + rpnlActsHtml(row) + '</div>' +
-      clockHtml +
       (cfgHtml ? '<div class="ri-setup' + (riSetupOpen ? ' open' : '') + '"' + (riSetupOpen ? '' : ' hidden') + '>' + cfgHtml + '</div>' : '') +
       rpnlOrdersHtml(row) +
     '</div>';
@@ -1488,27 +1362,6 @@ function renderRpnlInspect(row) {
         sendBotCmd(act.closest('.rpnl-inspect') || box, act.getAttribute('data-bot-cmd'));
         return;
       }
-      const clock = ev.target.closest('[data-clock]');
-      if (ev.target.closest('.ri-clock summary')) {
-        setTimeout(() => {
-          const det = box.querySelector('.ri-clock');
-          riClockOpen = !!(det && det.open);
-        }, 0);
-        return;
-      }
-      if (!clock) return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      const kind = clock.getAttribute('data-clock');
-      const host = clock.closest('.rpnl-inspect') || box;
-      if (kind === 'apply') sendClock(host, 'clock', rpnlClockPayload());
-      else if (kind === 'arm') sendClock(host, 'clock_arm', { CLOCK_ARMED: 'true', armed: true });
-      else if (kind === 'disarm') sendClock(host, 'clock_arm', { CLOCK_ARMED: 'false', armed: false });
-      else if (kind === 'open') sendClock(host, 'clock_force', { CLOCK_OVERRIDE: 'open', override: 'open' });
-      else if (kind === 'closed') sendClock(host, 'clock_force', { CLOCK_OVERRIDE: 'closed', override: 'closed' });
-      else if (kind === 'auto') sendClock(host, 'clock_force', { CLOCK_OVERRIDE: 'auto', override: 'auto' });
-      else if (kind === 'skip') sendClock(host, 'clock_skip', {});
-      else if (kind === 'accept') sendClock(host, 'clock_accept', {});
     });
     document.addEventListener('keydown', ev => {
       if (ev.key !== 'Escape') return;

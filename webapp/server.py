@@ -455,7 +455,9 @@ def _setup_public(setup: dict | None) -> dict | None:
         val = setup[key]
         if key in _SETUP_STR_KEYS and isinstance(val, str):
             lim = 400 if str(key).startswith("clock") else (240 if key == "geom" else 160)
-            if 0 < len(val) <= lim:
+            if str(key).startswith("clock") and len(val) <= lim:
+                out[key] = val
+            elif 0 < len(val) <= lim:
                 out[key] = val
             continue
         if isinstance(val, bool):
