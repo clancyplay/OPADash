@@ -1103,7 +1103,7 @@ async def _expand_balance_aliases(aliases: set[str]) -> set[str]:
     return aliases
 
 
-async def _pending_deploys(strategy: str) -> list[dict]:
+async def _pending_deploys(strategy: str, since: datetime | None = None) -> list[dict]:
     """Dash launches that exist on Railway (or locally) but have not pinged yet."""
     want = (strategy or "").strip().lower()
     try:
@@ -1116,6 +1116,12 @@ async def _pending_deploys(strategy: str) -> list[dict]:
         phase = _deploy_phase(bot)
         if not phase:
             continue
+        started_at = int(bot.get("started_at") or 0)
+        if since:
+            # Railway's service list has no deployment timestamp. Do not let an
+            # old status bypass the rPnL window merely because it is still queued.
+            if not started_at or datetime.fromtimestamp(started_at, timezone.utc) < since:
+                continue
         strat = str(bot.get("strategy") or "").strip().lower()
         if want and not strategy_is_all(want) and strat != want:
             continue
@@ -1149,6 +1155,7 @@ async def _pending_deploys(strategy: str) -> list[dict]:
             "account_name": name or aid or slug,
             "strategy": strat,
             "deploy": phase,
+            "started_at": started_at,
             "venue": venue,
             "aliases": aliases or {aid, name, slug} - {""},
         })
@@ -1168,9 +1175,11 @@ def _deploy_hit(rows: list[dict], boot: dict) -> dict | None:
     return None
 
 
-async def _stamp_deploys(rows: list[dict], strategy: str) -> None:
+async def _stamp_deploys(
+    rows: list[dict], strategy: str, since: datetime | None = None,
+) -> None:
     """Show a pill for a contract whose Railway deploy has not come online yet."""
-    for boot in await _pending_deploys(strategy):
+    for boot in await _pending_deploys(strategy, since=since):
         word = _DEPLOY_LABEL.get(boot["deploy"]) or "Queued"
         hit = _deploy_hit(rows, boot)
         if hit is not None:
@@ -1453,7 +1462,7 @@ async def rpnl_summary(
         row["label"] += f" · {strat} · Removed"
         out.append(row)
         existing.add(key)
-    await _stamp_deploys(out, strategy)
+    await _stamp_deploys(out, strategy, since=since)
     return out
 
 
