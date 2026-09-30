@@ -626,6 +626,66 @@ def launch(
     }
 
 
+_stale_acct_cache: dict[str, tuple[float, tuple[str, str, str]]] = {}
+
+
+def _wallet_by_tag() -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    try:
+        from webapp.ops import load_wallet_accounts
+        for acct in load_wallet_accounts():
+            for tag in (acct.get("name"), acct.get("id")):
+                text = str(tag or "").strip().lower()
+                if text:
+                    out[text] = acct
+    except Exception:
+        return out
+    return out
+
+
+def _resolve_listed_account(service_id: str, slug: str) -> tuple[str, str, str]:
+    """Map a service-name account onto the current wallet.
+
+    Renaming MainAccount → MA leaves the Railway service on the old slug.
+    DASH_ACCOUNT on the service is the stable id, so the chip follows the new name.
+    """
+    known = _wallet_by_tag()
+    hit = known.get(str(slug or "").strip().lower())
+    if hit:
+        return (
+            str(hit.get("id") or slug),
+            str(hit.get("name") or slug),
+            str(hit.get("exchange") or "").strip().lower(),
+        )
+    sid = str(service_id or "").strip()
+    now = time.time()
+    cached = _stale_acct_cache.get(sid)
+    if sid and cached and now - cached[0] < 45:
+        return cached[1]
+    env: dict[str, str] = {}
+    if sid:
+        try:
+            env = _variables(sid)
+        except Exception:
+            env = {}
+    aid = str(env.get("DASH_ACCOUNT") or "").strip()
+    venue = str(env.get("QUOTE_VENUE") or "").strip().lower()
+    hit = known.get(aid.lower()) if aid else None
+    if hit:
+        resolved = (
+            str(hit.get("id") or aid),
+            str(hit.get("name") or aid),
+            venue or str(hit.get("exchange") or "").strip().lower(),
+        )
+    elif aid:
+        resolved = (aid, aid, venue)
+    else:
+        resolved = (slug, slug, venue)
+    if sid:
+        _stale_acct_cache[sid] = (now, resolved)
+    return resolved
+
+
 def list_bots() -> list[dict]:
     if not ready():
         return []
@@ -646,16 +706,18 @@ def list_bots() -> list[dict]:
             status = str(dep.get("status") or "")
         alive = status.upper() not in ("CRASHED", "FAILED", "REMOVED", "SKIPPED")
         strategy, contract, account = _split_svc(name)
+        sid = str(svc.get("id") or "")
+        account, account_name, venue = _resolve_listed_account(sid, account)
         out.append({
-            "id": str(svc.get("id") or ""),
+            "id": sid,
             "pid": 0,
             "alive": alive,
             "kind": "railway",
             "strategy": strategy,
-            "venue": "",
+            "venue": venue,
             "contract": contract,
             "account": account,
-            "account_name": account,
+            "account_name": account_name,
             "started_at": 0,
             "log": "",
             "params": {},
