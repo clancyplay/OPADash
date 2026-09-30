@@ -7,16 +7,22 @@ Not derived from fills. Configure keys via:
   BAL_1_EXCHANGE=delta  BAL_1_NAME=ARB  BAL_1_ID=123  BAL_1_KEY=...  BAL_1_SECRET=...
   (repeat BAL_2_*, BAL_3_*, …)
 KuCoin also needs BAL_N_PASSPHRASE. Optional BAL_N_ASSET / BAL_N_STRATEGY.
+Coinbase uses a CDP key from portal.cdp.coinbase.com:
+  BAL_N_KEY=organizations/.../apiKeys/...
+  BAL_N_SECRET=<private key, PEM or base64>
+No passphrase. That key covers Advanced Trade spot and INTX perps.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import hashlib
 import hmac
 import json
 import logging
 import os
+import secrets
 import time
 from pathlib import Path
 from urllib.parse import urlencode
@@ -36,12 +42,15 @@ _LABELS = {
     "bybit": "Bybit",
     "coinbase": "Coinbase",
 }
-_SUPPORTED = {"delta", "binance", "coindcx", "kucoin", "bybit"}
+_SUPPORTED = {"delta", "binance", "coindcx", "kucoin", "bybit", "coinbase"}
 _ROOT = Path(__file__).resolve().parent.parent
 
 
 def _clean(v) -> str:
-    return str(v or "").strip()
+    s = str(v or "").strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+        s = s[1:-1].strip()
+    return s
 
 
 def _num(v, default: float = 0.0) -> float:
@@ -147,6 +156,7 @@ def load_wallet_accounts() -> list[dict]:
             ("coindcx", "COINDCX_API_KEY", "COINDCX_API_SECRET", os.getenv("COINDCX_ACCOUNT"), ""),
             ("kucoin", "KUCOIN_API_KEY", "KUCOIN_API_SECRET", os.getenv("KUCOIN_ACCOUNT"), "KUCOIN_WALLET_ASSET"),
             ("bybit", "BYBIT_API_KEY", "BYBIT_API_SECRET", os.getenv("BYBIT_ACCOUNT"), "BYBIT_WALLET_ASSET"),
+            ("coinbase", "COINBASE_API_KEY", "COINBASE_API_SECRET", os.getenv("COINBASE_ACCOUNT"), "COINBASE_WALLET_ASSET"),
         ]
         for exch, k_env, s_env, name, asset_env in fallbacks:
             rec = {
@@ -390,6 +400,182 @@ async def _bybit_wallet(client: httpx.AsyncClient, acct: dict, rate: float) -> d
     raise RuntimeError(last_err)
 
 
+def _cb_host(url: str) -> str:
+    u = (url or "").strip()
+    if "://" in u:
+        u = u.split("://", 1)[1]
+    return u.split("/")[0] or "api.coinbase.com"
+
+
+def _cb_amount(v) -> float:
+    if isinstance(v, dict):
+        return _num(v.get("value") or v.get("amount") or v.get("quantity"))
+    return _num(v)
+
+
+def _cb_err(status: int, data, raw: str = "") -> str:
+    if isinstance(data, dict):
+        err = data.get("message") or data.get("error") or data.get("error_details")
+        if isinstance(err, dict):
+            err = err.get("message") or err.get("error")
+        if err:
+            return str(err)[:180]
+    return (raw or "")[:180] or f"HTTP {status}"
+
+
+def _coinbase_private_key(secret: str):
+    try:
+        import jwt  # noqa: F401
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ed25519
+    except ImportError as exc:
+        raise RuntimeError("Coinbase wallets need PyJWT and cryptography (pip install -r requirements.txt)") from exc
+    text = (secret or "").replace("\\n", "\n").strip()
+    if text.lstrip().startswith("-----BEGIN"):
+        return serialization.load_pem_private_key(text.encode(), password=None)
+    try:
+        raw = base64.b64decode("".join(text.split()), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise RuntimeError("Coinbase secret is not PEM or base64") from exc
+    if len(raw) in (32, 64):
+        return ed25519.Ed25519PrivateKey.from_private_bytes(raw[:32])
+    try:
+        return serialization.load_der_private_key(raw, password=None)
+    except Exception as exc:
+        raise RuntimeError("Coinbase secret is not a CDP EC/Ed25519 private key") from exc
+
+
+def _coinbase_jwt(key: str, secret: str, method: str, host: str, path: str) -> str:
+    import jwt
+    from cryptography.hazmat.primitives.asymmetric import ec, ed25519
+    pk = _coinbase_private_key(secret)
+    if isinstance(pk, ed25519.Ed25519PrivateKey):
+        alg = "EdDSA"
+    elif isinstance(pk, ec.EllipticCurvePrivateKey):
+        alg = "ES256"
+    else:
+        raise RuntimeError("unsupported Coinbase key type")
+    now = int(time.time())
+    return jwt.encode(
+        {
+            "sub": key,
+            "iss": "cdp",
+            "nbf": now,
+            "exp": now + 120,
+            "uri": f"{method.upper()} {host}{path}",
+        },
+        pk,
+        algorithm=alg,
+        headers={"kid": key, "nonce": secrets.token_hex(), "typ": "JWT"},
+    )
+
+
+async def _coinbase_adv_get(client: httpx.AsyncClient, acct: dict, path: str) -> dict:
+    base = os.getenv("COINBASE_REST_URL", "https://api.coinbase.com").rstrip("/")
+    host = _cb_host(base)
+    token = _coinbase_jwt(acct["api_key"], acct["api_secret"], "GET", host, path)
+    r = await client.get(
+        base + path,
+        headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
+    )
+    data = r.json() if r.content else {}
+    if r.status_code >= 400:
+        raise RuntimeError(_cb_err(r.status_code, data, r.text))
+    return data if isinstance(data, dict) else {}
+
+
+def _cb_intx_equity(snap: dict) -> tuple[float, float, str]:
+    summary = snap.get("summary") if isinstance(snap.get("summary"), dict) else {}
+    rows = snap.get("portfolios") if isinstance(snap.get("portfolios"), list) else []
+    total = summary.get("total_balance")
+    avail = summary.get("max_withdrawal_amount") or summary.get("buying_power")
+    asset = ""
+    if isinstance(total, dict):
+        asset = str(total.get("currency") or "").upper()
+    native = _cb_amount(total)
+    if native <= 0 and rows:
+        row = rows[0] if isinstance(rows[0], dict) else {}
+        total = row.get("total_balance") or row.get("collateral")
+        native = _cb_amount(total)
+        if isinstance(total, dict):
+            asset = str(total.get("currency") or asset).upper()
+        elif isinstance(row.get("collateral"), str) or _num(row.get("collateral")):
+            native = max(native, _num(row.get("collateral")))
+    return native, (_cb_amount(avail) or native), (asset or "USD")
+
+
+async def _coinbase_wallet(client: httpx.AsyncClient, acct: dict, rate: float) -> dict:
+    """CDP JWT against Advanced Trade — covers INTX perps and spot USD/USDC."""
+    want = (acct.get("asset") or "").upper()
+    fiat = {want} if want else {"USD", "USDC", "USDT"}
+    native = 0.0
+    available = 0.0
+    asset = want or "USD"
+    uid = acct.get("id") or ""
+    errors: list[str] = []
+    authed = False
+    intx_got = False
+
+    try:
+        listed = await _coinbase_adv_get(client, acct, "/api/v3/brokerage/portfolios")
+        authed = True
+        ports = [p for p in (listed.get("portfolios") or []) if isinstance(p, dict) and p.get("uuid") and not p.get("deleted")]
+        intx_ids = [p["uuid"] for p in ports if str(p.get("type") or "").upper() == "INTX"]
+        for pid in intx_ids or [p["uuid"] for p in ports]:
+            try:
+                snap = await _coinbase_adv_get(client, acct, f"/api/v3/brokerage/intx/portfolio/{pid}")
+            except Exception as exc:
+                if intx_ids:
+                    errors.append(str(exc)[:120])
+                continue
+            n, a, ccy = _cb_intx_equity(snap)
+            if n <= 0 and a <= 0:
+                intx_got = True
+                uid = uid or str(pid)
+                continue
+            native += n
+            available += a
+            if ccy:
+                asset = ccy
+            uid = uid or str(pid)
+            intx_got = True
+            if intx_ids:
+                break
+    except Exception as exc:
+        errors.append(str(exc)[:160])
+
+    try:
+        data = await _coinbase_adv_get(client, acct, "/api/v3/brokerage/accounts")
+        authed = True
+        for acc in data.get("accounts") or []:
+            if not isinstance(acc, dict):
+                continue
+            plat = str(acc.get("platform") or "").upper()
+            if intx_got and "INTX" in plat:
+                continue
+            ccy = str(acc.get("currency") or "").upper()
+            if ccy not in fiat:
+                continue
+            avail = _cb_amount(acc.get("available_balance"))
+            hold = _cb_amount(acc.get("hold"))
+            native += avail + hold
+            available += avail
+            asset = ccy or asset
+            uid = uid or str(acc.get("uuid") or "")
+    except Exception as exc:
+        errors.append(str(exc)[:160])
+
+    if not authed:
+        raise RuntimeError(errors[0] if errors else "Coinbase auth failed")
+    return {
+        "balance": native * rate,
+        "native": native,
+        "asset": asset or "USD",
+        "uid": str(uid or acct.get("name") or ""),
+        "available": available,
+    }
+
+
 _idle_lock = asyncio.Lock()
 _idle_cache: dict = {"t": 0.0, "skip": frozenset(), "rows": []}
 
@@ -455,6 +641,7 @@ _FETCHERS = {
     "coindcx": _coindcx_wallet,
     "kucoin": _kucoin_wallet,
     "bybit": _bybit_wallet,
+    "coinbase": _coinbase_wallet,
 }
 
 

@@ -29,5 +29,13 @@
     "name": "ARBUSD hedge",
     "api_key": "REPLACE",
     "api_secret": "REPLACE"
+  },
+  {
+    "exchange": "coinbase",
+    "id": "cb-perp",
+    "name": "Perp",
+    "api_key": "organizations/ORG_ID/apiKeys/KEY_ID",
+    "api_secret": "REPLACE",
+    "asset": "USD"
   }
 ]

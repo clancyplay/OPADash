@@ -386,7 +386,12 @@ def _hedge_venue_label(raw: str | None) -> str:
     return codes.get(v, codes.get(v.lower(), v))
 
 
-_SETUP_STR_KEYS = {"mode", "mode_why", "trip_why", "probe_hold", "wallet_exch", "hook", "role", "hedge_of", "hedge_via", "geom"}
+_SETUP_STR_KEYS = {
+    "mode", "mode_why", "trip_why", "probe_hold", "wallet_exch", "hook", "role", "hedge_of", "hedge_via", "geom",
+    "clock_tz", "clock_phase", "clock_why", "clock_window", "clock_windows", "clock_next",
+    "stockroom", "crop", "expiry",
+    "clock_orders", "clock_pos", "clock_override", "clock_day_reset", "clock_suggest", "clock_suggest_why",
+}
 _SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr"}
 _SETUP_KEYS = (
     "hook", "hem", "span", "step", "hem_ticks", "span_ticks", "step_ticks", "step_mult",
@@ -401,6 +406,9 @@ _SETUP_KEYS = (
     "min_spread", "spread_pad",
     "role", "pair_hedge", "hedge_of", "hedge_via", "hedge_target", "hedge_pct", "hedge_lot",
     "bid_ticks", "ask_ticks",
+    "packet", "shelf", "aisle", "cover", "window", "shop_step", "reach", "pace_ms", "dust", "lot", "stockroom",
+    "exit", "otm", "max_coin", "crop", "expiry",
+    "fields", "basket", "silo", "fence", "fence_pct", "fence_lot",
     "pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr", "wallet_exch", "hold",
     "grind", "grind_window", "grind_rpnl", "grind_secs",
     "win_rpnl", "win_secs", "burst_rpnl", "burst_secs", "probing",
@@ -415,6 +423,11 @@ _SETUP_KEYS = (
     "probe_chop_ok", "probe_need_chop", "probe_trend_ok",
     "probe_win_rpnl", "probe_rpnl", "probe_rpnl_ready",
     "probe_upnl", "probe_upnl_ok",
+    "clock_on", "clock_tz", "clock_phase", "clock_why", "clock_window", "clock_windows",
+    "clock_next", "clock_left", "clock_orders", "clock_pos", "clock_wind", "clock_delay",
+    "clock_arm", "clock_armed", "clock_override",
+    "clock_day_loss", "clock_day_win", "clock_day_rpnl", "clock_day_reset",
+    "clock_hold", "clock_hold_left", "clock_suggest", "clock_suggest_why", "clock_suggest_n",
 )
 _SYMBOL_STRATS = {"opa3", "opa4"}
 
@@ -441,7 +454,7 @@ def _setup_public(setup: dict | None) -> dict | None:
             continue
         val = setup[key]
         if key in _SETUP_STR_KEYS and isinstance(val, str):
-            lim = 240 if key == "geom" else 160
+            lim = 400 if str(key).startswith("clock") else (240 if key == "geom" else 160)
             if 0 < len(val) <= lim:
                 out[key] = val
             continue
@@ -502,6 +515,8 @@ _LIVE_SETUP_KEYS = (
     "probe_chop_ok", "probe_need_chop", "probe_trend_ok",
     "probe_win_rpnl", "probe_rpnl", "probe_rpnl_ready",
     "probe_upnl", "probe_upnl_ok",
+    "clock_phase", "clock_why", "clock_left", "clock_next", "clock_window",
+    "clock_day_rpnl", "clock_hold_left", "clock_armed", "clock_override", "clock_suggest",
 )
 
 
@@ -2028,6 +2043,11 @@ _BOT_CMDS = {
     "set": "setup",
     "knobs": "setup",
     "edit": "setup",
+    "clock": "clock",
+    "clock_arm": "clock_arm",
+    "clock_force": "clock_force",
+    "clock_skip": "clock_skip",
+    "clock_accept": "clock_accept",
 }
 
 _MAX_POS_ABS_CAP = 50_000_000.0
@@ -2043,15 +2063,20 @@ _SETUP_PAYLOAD_KEYS = frozenset({
     "HEM_MIN_TICKS", "HEM_MAX_TICKS", "SPAN_MIN_TICKS", "SPAN_MAX_TICKS", "STEP_MIN_TICKS", "STEP_MAX_TICKS",
     "MOVE_PCT", "MOVE_SECS", "RISK_REWARD",
     "MOM_PCT", "MOM_SLOW_PCT", "CLIP_PCT", "TRAIL_PCT", "MOM_STOP_PCT",
+    "PACKET", "SHELF", "AISLE_PCT", "COVER_PCT", "STEP", "REACH", "PACE_MS", "DUST", "LOT", "WINDOW",
+    "EXIT_PCT", "OTM_PCT", "MAX_COIN",
+    "FIELDS", "BASKET", "SILO", "FENCE", "FENCE_PCT", "FENCE_LOT", "FIELD_DUST",
     "max_usd", "max_pos",
 })
 _SETUP_BOOL = frozenset({
     "FIT_AUTO", "SPAN_SPREAD", "HEM_AUTO", "SPAN_AUTO", "STEP_AUTO", "VOL_GATE", "DRY_RUN", "MAX_IN_USD", "PAIR_HEDGE", "FLIP",
+    "WINDOW", "FENCE",
 })
 _SETUP_INT = frozenset({
     "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS", "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",
     "K_TICKS", "TAILS", "PAIR_HEDGE_LOT", "QUOTE_MS",
     "HEM_MIN_TICKS", "HEM_MAX_TICKS", "SPAN_MIN_TICKS", "SPAN_MAX_TICKS", "STEP_MIN_TICKS", "STEP_MAX_TICKS",
+    "PACKET", "SHELF", "STEP", "REACH", "PACE_MS", "FIELDS", "BASKET", "SILO", "FENCE_LOT",
 })
 _SETUP_NUM = frozenset({
     "HEM_PCT", "SPAN_PCT", "STEP_PCT", "TAIL_PCT", "K_PCT", "EDGE_PCT",
@@ -2060,6 +2085,7 @@ _SETUP_NUM = frozenset({
     "PLACE_SECS", "IGNORE_MIN_SIZE",
     "MOVE_PCT", "MOVE_SECS", "RISK_REWARD",
     "MOM_PCT", "MOM_SLOW_PCT", "CLIP_PCT", "TRAIL_PCT", "MOM_STOP_PCT",
+    "AISLE_PCT", "COVER_PCT", "DUST", "LOT", "EXIT_PCT", "OTM_PCT", "MAX_COIN", "FENCE_PCT", "FIELD_DUST",
 })
 _SETUP_HOOK = frozenset({"position", "liquidity", "bid", "ask"})
 _SETUP_MULT = frozenset({"1", "2", "3", "log", "log2", "log10", "ln", "e"})
@@ -2102,7 +2128,7 @@ def _setup_payload(payload: dict | None) -> dict:
                 raise HTTPException(status_code=400, detail=f"{name} invalid")
             if n < 0:
                 raise HTTPException(status_code=400, detail=f"{name} must be ≥ 0")
-            if name in ("ORDERS", "PAIR_HEDGE_LOT", "QUOTE_MS") and n < 1:
+            if name in ("ORDERS", "PAIR_HEDGE_LOT", "QUOTE_MS", "PACKET", "SHELF", "PACE_MS", "FIELDS", "BASKET", "FENCE_LOT") and n < 1:
                 raise HTTPException(status_code=400, detail=f"{name} must be ≥ 1")
             out[name] = n
             continue
@@ -2115,6 +2141,8 @@ def _setup_payload(payload: dict | None) -> dict:
                 raise HTTPException(status_code=400, detail=f"{name} out of range")
             if name in ("max_usd", "max_pos", "MAX_POSITION") and n <= 0:
                 raise HTTPException(status_code=400, detail="max must be > 0")
+            if name == "LOT" and n <= 0:
+                raise HTTPException(status_code=400, detail="LOT must be > 0")
             out[name] = n
             continue
         if name == "HOOK":
@@ -2170,6 +2198,14 @@ async def bot_command(
             status_code=400,
             detail="pair hedge is managed automatically — stop/max the option contracts, not " + contract,
         )
+    if setup and (
+        str(setup.get("role") or "").lower() == "fence"
+        or str(setup.get("mode") or "").lower() == "fence"
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="harvest fence follows the fields — clock, max, and close go on a field card",
+        )
     if cmd == "max":
         payload = _max_payload(req.payload)
     elif cmd == "setup":
@@ -2182,7 +2218,7 @@ async def bot_command(
     if cmd_id is None:
         raise HTTPException(status_code=500, detail="failed to queue command")
     saved: dict = {}
-    if cmd in ("setup", "max") and isinstance(payload, dict):
+    if cmd in ("setup", "max", "clock", "clock_arm", "clock_force", "clock_accept") and isinstance(payload, dict):
         try:
             saved = await asyncio.to_thread(
                 dash_launch.persist_knobs,
