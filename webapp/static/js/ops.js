@@ -1978,7 +1978,6 @@ async function submitOpsRemove() {
 async function refreshOpsBots() {
   const box = document.getElementById('opsBots');
   if (!box) return;
-  refreshOpsRemoved();
   try {
     const r = await fetch('/api/ops/bots');
     const d = r.ok ? await r.json() : { bots: [] };
@@ -2007,36 +2006,6 @@ async function refreshOpsBots() {
       (b.alive ? '' : ' · dead') + '</div></div>' +
       '<button type="button" class="btn" data-ops-stop="' + escHtml(b.id) + '">' +
       (rail ? 'Delete' : 'Kill') + '</button>' +
-      '</div>';
-  }).join('');
-}
-
-async function refreshOpsRemoved() {
-  const box = document.getElementById('opsRemoved');
-  if (!box) return;
-  let rows = [];
-  try {
-    const r = await fetch('/api/ops/bots/removed?limit=15&days=14');
-    const d = r.ok ? await r.json() : { removed: [] };
-    rows = d.removed || [];
-  } catch (e) {
-    rows = [];
-  }
-  if (!rows.length) {
-    box.innerHTML = '<div class="rp-ops-empty">Nothing removed in the last 14 days.</div>';
-    return;
-  }
-  box.innerHTML = rows.map(r => {
-    const secs = Math.floor(Date.parse(r.removed_at) / 1000);
-    const ok = isFinite(secs);
-    const when = ok ? fmtIST(secs) : '';
-    const ago = ok ? fmtAgo(Math.max(0, Math.floor(Date.now() / 1000) - secs)) : '';
-    return '<div class="rp-ops-bot removed">' +
-      '<div><b>' + escHtml(r.contract) + '</b>' +
-      (r.strategy ? ' · ' + escHtml(r.strategy) : '') +
-      (r.venue ? ' <span class="rpnl-venue ' + escHtml(r.venue) + '">' + escHtml(r.venue) + '</span>' : '') +
-      '<div class="aid">' + escHtml(r.account_name || r.account || r.service || '') +
-      (when ? ' · ' + when : '') + (ago ? ' · ' + ago : '') + '</div></div>' +
       '</div>';
   }).join('');
 }

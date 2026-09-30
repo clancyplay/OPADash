@@ -2556,7 +2556,22 @@ async def ops_products(venue: str = Query("delta")) -> dict:
 
 @app.get("/api/ops/bots")
 async def ops_bots() -> dict:
-    return {"bots": await asyncio.to_thread(dash_launch.list_bots)}
+    bots = await asyncio.to_thread(dash_launch.list_bots)
+    if _db is None or not _db.pool:
+        return {"bots": []}
+    keys = await _db.get_live_ping_keys("all")
+    running = []
+    for bot in bots:
+        if not ping_is_live(
+            str(bot.get("contract") or ""),
+            str(bot.get("account") or ""),
+            keys,
+            str(bot.get("strategy") or ""),
+        ):
+            continue
+        bot["alive"] = True
+        running.append(bot)
+    return {"bots": running}
 
 
 @app.get("/api/ops/bots/removed")
