@@ -4,6 +4,8 @@ let opsProducts = [];
 let opsBots = [];
 let opsReady = false;
 let opsEdit = null;
+let opsSkipSaved = false;
+let opsSavedSeq = 0;
 
 function opsErr(d, status) {
   const det = d && d.detail;
@@ -37,7 +39,7 @@ function applyOpsMode() {
       meta.innerHTML = '<b>' + escHtml(opsEdit.qsym || opsEdit.contract || '') + '</b> · ' +
         escHtml(opsEdit.strategy || '') +
         (acct ? ' · ' + escHtml(acct) : '') +
-        '<div class="aid">Live until this process restarts — does not write .env</div>';
+        '<div class="aid">Saved to this contract’s env — restart keeps these values</div>';
     }
   }
 }
@@ -96,33 +98,38 @@ async function openOppLaunch(spec, note) {
   spec = spec || {};
   if (!spec.venue || !spec.contract) return;
   opsEdit = null;
+  opsSkipSaved = true;
   const box = document.getElementById('rpOps');
   if (!box) return;
   applyOpsMode();
   box.hidden = false;
   document.body.classList.add('ops-open');
-  await bootRpOps();
-  const venue = document.getElementById('opsVenue');
-  if (venue && [...venue.options].some(o => o.value === spec.venue)) {
-    venue.disabled = false;
-    venue.value = spec.venue;
-  }
-  await onOpsVenueChange();
-  const inp = document.getElementById('opsContract');
-  if (inp) inp.value = spec.contract;
-  const strat = document.getElementById('opsStrategy');
-  if (strat && spec.strategy && [...strat.options].some(o => o.value === spec.strategy)) {
-    strat.value = spec.strategy;
-  }
-  onOpsStrategyChange();
-  if (spec.edge_venue) {
-    const ev = document.getElementById('opsP_EDGE_VENUE');
-    if (ev && [...ev.options].some(o => o.value === spec.edge_venue)) ev.value = spec.edge_venue;
-  }
-  if (spec.max_usd) {
-    const maxEl = document.getElementById('opsP_MAX_POSITION');
-    if (maxEl) maxEl.value = String(Math.round(Number(spec.max_usd)));
-    if (typeof setOpsMaxUnit === 'function') setOpsMaxUnit('usd');
+  try {
+    await bootRpOps();
+    const venue = document.getElementById('opsVenue');
+    if (venue && [...venue.options].some(o => o.value === spec.venue)) {
+      venue.disabled = false;
+      venue.value = spec.venue;
+    }
+    await onOpsVenueChange();
+    const inp = document.getElementById('opsContract');
+    if (inp) inp.value = spec.contract;
+    const strat = document.getElementById('opsStrategy');
+    if (strat && spec.strategy && [...strat.options].some(o => o.value === spec.strategy)) {
+      strat.value = spec.strategy;
+    }
+    onOpsStrategyChange();
+    if (spec.edge_venue) {
+      const ev = document.getElementById('opsP_EDGE_VENUE');
+      if (ev && [...ev.options].some(o => o.value === spec.edge_venue)) ev.value = spec.edge_venue;
+    }
+    if (spec.max_usd) {
+      const maxEl = document.getElementById('opsP_MAX_POSITION');
+      if (maxEl) maxEl.value = String(Math.round(Number(spec.max_usd)));
+      if (typeof setOpsMaxUnit === 'function') setOpsMaxUnit('usd');
+    }
+  } finally {
+    opsSkipSaved = false;
   }
   onOpsContractMeta();
   applyOpsLaunchLead();
@@ -134,6 +141,7 @@ function closeRpOps() {
   if (box) box.hidden = true;
   document.body.classList.remove('ops-open');
   opsEdit = null;
+  opsSkipSaved = false;
   applyOpsMode();
   if (opsCatalog) fillOpsStrategies();
 }
@@ -225,6 +233,7 @@ function opsAccountRow() {
 
 function onOpsAccountChange() {
   renderOpsAccountSnap();
+  loadOpsSavedKnobs();
 }
 
 function opsMoney(a, preferAvail) {
@@ -322,18 +331,20 @@ async function loadOpsProducts(venue) {
 
 function onOpsContractMeta() {
   const el = document.getElementById('opsContractMeta');
-  if (!el) return;
   const pair = opsIsPair();
   const sy = ((document.getElementById('opsContract') || {}).value || '').trim().toUpperCase();
   const p = (opsProducts || []).find(x => String(x.symbol || '').toUpperCase() === sy);
-  if (!p) {
-    el.textContent = pair ? 'Option C-/P- symbol, call+put, or crop + expiry (BTC 250926)' : '';
-    return;
+  if (el) {
+    if (!p) {
+      el.textContent = pair ? 'Option C-/P- symbol, call+put, or crop + expiry (BTC 250926)' : '';
+    } else {
+      const bits = [];
+      if (p.tick != null && Number(p.tick) > 0) bits.push('tick ' + p.tick);
+      if (p.cv != null && Number(p.cv) > 0) bits.push('cv ' + p.cv);
+      el.textContent = bits.join(' · ');
+    }
   }
-  const bits = [];
-  if (p.tick != null && Number(p.tick) > 0) bits.push('tick ' + p.tick);
-  if (p.cv != null && Number(p.cv) > 0) bits.push('cv ' + p.cv);
-  el.textContent = bits.join(' · ');
+  loadOpsSavedKnobs();
 }
 
 function opsIsPair() {
@@ -355,6 +366,35 @@ function onOpsStrategyChange() {
   const inp = document.getElementById('opsContract');
   if (inp && !opsEdit) inp.placeholder = pair ? 'C-BTC-120000-250926 or BTC 250926' : 'EVAAUSD';
   onOpsContractMeta();
+}
+
+function loadOpsSavedKnobs() {
+  if (opsEdit || opsSkipSaved) return;
+  clearTimeout(loadOpsSavedKnobs._t);
+  loadOpsSavedKnobs._t = setTimeout(_loadOpsSavedKnobs, 280);
+}
+
+async function _loadOpsSavedKnobs() {
+  if (opsEdit || opsSkipSaved) return;
+  const venue = opsVenue();
+  const account = (document.getElementById('opsAccount') || {}).value || '';
+  const row = typeof opsAccountRow === 'function' ? opsAccountRow() : null;
+  const accountName = (row && (row.name || '')) || '';
+  const contract = ((document.getElementById('opsContract') || {}).value || '').trim();
+  const strategy = (document.getElementById('opsStrategy') || {}).value || '';
+  if (!strategy || !account || contract.length < 3) return;
+  const seq = ++opsSavedSeq;
+  try {
+    const q = new URLSearchParams({ venue, contract, account, strategy });
+    if (accountName) q.set('account_name', accountName);
+    const r = await fetch('/api/ops/knobs?' + q.toString());
+    const d = r.ok ? await r.json() : {};
+    if (seq !== opsSavedSeq || opsEdit || opsSkipSaved) return;
+    const setup = d && d.setup;
+    if (!setup || !Object.keys(setup).length) return;
+    fillOpsFromSetup(setup);
+    setOpsMsg('opsLaunchMsg', 'Loaded last saved env for this contract', false);
+  } catch (e) {}
 }
 
 function opsStrategySpec() {
@@ -1465,7 +1505,9 @@ async function submitOpsEdit() {
         cmd: 'setup',
         contract: opsEdit.contract,
         account: opsEdit.account,
+        account_name: opsEdit.account_name || '',
         strategy: opsEdit.strategy,
+        venue: opsEdit.venue || '',
         payload,
       }),
     });
@@ -1481,7 +1523,12 @@ async function submitOpsEdit() {
       return;
     }
     opsRememberEdit(payload);
-    toast('updated ' + name, 'ok');
+    if (d.persist_error) {
+      toast('updated ' + name + ' live, env save failed', 'err');
+      setOpsMsg('opsLaunchMsg', d.persist_error, true);
+      return;
+    }
+    toast('updated ' + name + ' · saved to env', 'ok');
     closeRpOps();
     if (typeof loadRpnl === 'function') loadRpnl(true);
   } catch (e) {

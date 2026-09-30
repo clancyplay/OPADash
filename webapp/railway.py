@@ -313,6 +313,17 @@ def _svc_name(strategy: str, contract: str, account: str) -> str:
     return (safe or "dash-bot")[:48].rstrip("-")
 
 
+def update_knobs(service_id: str, knobs: dict[str, str]) -> None:
+    """Patch this bot's Railway env. Next restart uses these values; live Apply already patched the process."""
+    sid = str(service_id or "").strip()
+    if not sid:
+        raise ValueError("service id required")
+    cleaned = {str(k): str(v) for k, v in (knobs or {}).items() if k is not None and v is not None}
+    if not cleaned:
+        return
+    _upsert_vars(sid, cleaned)
+
+
 def _upsert_vars(service_id: str, knobs: dict[str, str]) -> None:
     pid, eid = _project_id(), _env_id()
     try:
@@ -487,6 +498,9 @@ def _bot_env(venue: str, contract: str, strategy: str, account: dict, knobs: dic
             if len(argv_tail) > 1:
                 env["EXPIRY"] = argv_tail[1]
     env.update(_slim_knobs(knobs))
+    acct_id = str(account.get("id") or account.get("name") or "").strip()
+    if acct_id:
+        env["DASH_ACCOUNT"] = acct_id
     return env
 
 
@@ -540,6 +554,11 @@ def launch(
         source = {"repo": repo, "branch": "main"}
 
     overlay = _bot_env(venue, contract, strategy, account, knobs, argv_tail)
+    try:
+        from webapp.launch import _write_overlays
+        _write_overlays(strategy, venue, contract, acct_id, knobs)
+    except Exception:
+        pass
     copied = {}
     if tmpl:
         try:

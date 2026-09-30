@@ -1979,6 +1979,8 @@ class BotCommandRequest(BaseModel):
     contract: str
     account: str = ""
     strategy: str = ""
+    venue: str = ""
+    account_name: str = ""
     note: str = ""
     payload: dict | None = None
 
@@ -2158,8 +2160,38 @@ async def bot_command(
     )
     if cmd_id is None:
         raise HTTPException(status_code=500, detail="failed to queue command")
+    saved: dict = {}
+    if cmd in ("setup", "max") and isinstance(payload, dict):
+        try:
+            saved = await asyncio.to_thread(
+                dash_launch.persist_knobs,
+                venue=str(req.venue or "").strip(),
+                contract=contract,
+                account=str(req.account or "").strip(),
+                account_name=str(req.account_name or "").strip(),
+                strategy=tag,
+                params=payload,
+                merge=True,
+            )
+        except Exception as extra:
+            logger.warning("webapp: persist knobs failed: %s", extra)
+            saved = {"ok": False, "error": str(extra)[:240]}
+        if saved.get("error"):
+            logger.warning("webapp: persist knobs %s %s: %s", tag, contract, saved.get("error"))
+        else:
+            logger.info("webapp: persisted knobs %s %s file=%s railway=%s", tag, contract, saved.get("file") or "-", saved.get("railway"))
     logger.info("webapp: bot command %s %s %s %s id=%s", cmd, tag, contract, req.account or "-", cmd_id)
-    return {"ok": True, "id": cmd_id, "cmd": cmd, "strategy": tag, "contract": contract, "account": req.account or ""}
+    return {
+        "ok": True,
+        "id": cmd_id,
+        "cmd": cmd,
+        "strategy": tag,
+        "contract": contract,
+        "account": req.account or "",
+        "persisted": bool(saved.get("ok")) if saved else None,
+        "persist_error": saved.get("error") or "",
+        "env_file": saved.get("file") or "",
+    }
 
 
 @app.get("/api/bot/command/{cmd_id}")
@@ -2208,6 +2240,22 @@ async def ops_strategies() -> dict:
         "pair_params": dash_ops.PAIR_PARAMS,
         **dash_ops.parent_status(),
     }
+
+
+@app.get("/api/ops/knobs")
+async def ops_knobs(
+    venue: str = Query(""),
+    contract: str = Query(""),
+    account: str = Query(""),
+    account_name: str = Query(""),
+    strategy: str = Query(""),
+) -> dict:
+    """Last saved env for this contract — used to prefill New contract after a restart."""
+    if not str(contract or "").strip() or not str(strategy or "").strip():
+        return {"ok": True, "knobs": {}, "setup": {}, "file": ""}
+    return dash_launch.read_knobs(
+        venue=venue, contract=contract, account=account, account_name=account_name, strategy=strategy,
+    )
 
 
 @app.get("/api/ops/accounts")

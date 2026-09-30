@@ -7,5 +7,6 @@ __pycache__/
 config/accounts.json
 config/launches.json
 config/launches.lock
+config/bots/
 logs/
 fills_export/

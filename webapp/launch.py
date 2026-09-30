@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from config.settings import load_env_file
 _ROOT = Path(__file__).resolve().parent.parent
 _STATE = _ROOT / "config" / "launches.json"
 _LOCK = _ROOT / "config" / "launches.lock"
+_BOT_ENV = _ROOT / "config" / "bots"
 
 BOTS = {
     "belt": "belt.py",
@@ -402,6 +404,390 @@ def _scrub_params(raw: dict | None) -> dict[str, str]:
     return out
 
 
+_DROP_KNOBS = frozenset({"MAX_USD", "MAX_POS", "GEOM"})
+
+_KNOB_SETUP = (
+    ("HEM_PCT", "hem", "float"),
+    ("SPAN_PCT", "span", "float"),
+    ("STEP_PCT", "step", "float"),
+    ("TAIL_PCT", "step", "float"),
+    ("K_PCT", "k", "float"),
+    ("EDGE_PCT", "edge", "float"),
+    ("HEM_TICKS", "hem_ticks", "int"),
+    ("SPAN_TICKS", "span_ticks", "int"),
+    ("STEP_TICKS", "step_ticks", "int"),
+    ("K_TICKS", "k_ticks", "int"),
+    ("HEM_MIN_PCT", "hem_min", "float"),
+    ("HEM_MAX_PCT", "hem_max", "float"),
+    ("SPAN_MIN_PCT", "span_min", "float"),
+    ("SPAN_MAX_PCT", "span_max", "float"),
+    ("STEP_MIN_PCT", "step_min", "float"),
+    ("STEP_MAX_PCT", "step_max", "float"),
+    ("HEM_MIN_TICKS", "hem_min_ticks", "int"),
+    ("HEM_MAX_TICKS", "hem_max_ticks", "int"),
+    ("SPAN_MIN_TICKS", "span_min_ticks", "int"),
+    ("SPAN_MAX_TICKS", "span_max_ticks", "int"),
+    ("STEP_MIN_TICKS", "step_min_ticks", "int"),
+    ("STEP_MAX_TICKS", "step_max_ticks", "int"),
+    ("ORDERS", "orders", "int"),
+    ("TAILS", "tails", "int"),
+    ("TOUCH_TICKS", "touch_ticks", "int"),
+    ("BID_TICKS", "bid_ticks", "int"),
+    ("ASK_TICKS", "ask_ticks", "int"),
+    ("FATE_USD", "fate", "float"),
+    ("GRIND_USD", "grind", "float"),
+    ("QUOTE_MS", "quote_ms", "int"),
+    ("PLACE_SECS", "place_secs", "float"),
+    ("IGNORE_MIN_SIZE", "ignore", "float"),
+    ("PAIR_HEDGE_LOT", "hedge_lot", "int"),
+    ("MOVE_PCT", "move_pct", "float"),
+    ("MOVE_SECS", "move_secs", "float"),
+    ("RISK_REWARD", "risk_reward", "float"),
+    ("MOM_PCT", "mom_pct", "float"),
+    ("MOM_SLOW_PCT", "mom_slow_pct", "float"),
+    ("CLIP_PCT", "clip_pct", "float"),
+    ("TRAIL_PCT", "trail_pct", "float"),
+    ("MOM_STOP_PCT", "mom_stop_pct", "float"),
+    ("HEM_AUTO", "hem_auto", "bool"),
+    ("SPAN_AUTO", "span_auto", "bool"),
+    ("STEP_AUTO", "step_auto", "bool"),
+    ("VOL_GATE", "vol_gate", "bool"),
+    ("DRY_RUN", "dry_run", "bool"),
+    ("PAIR_HEDGE", "pair_hedge", "bool"),
+    ("FLIP", "flip", "bool"),
+    ("HOOK", "hook", "str"),
+    ("STEP_MULT", "step_mult", "str"),
+    ("EDGE_VENUE", "edge_venue", "str"),
+)
+
+
+def _dash_slug(text: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(text or "").strip())
+    return safe.strip("-.")[:48]
+
+
+def _knobs_from_payload(params: dict | None, strategy: str = "") -> dict[str, str]:
+    raw: dict = {}
+    if isinstance(params, dict):
+        raw = dict(params)
+    upper = {str(k).upper(): v for k, v in raw.items()}
+    if upper.get("MAX_POSITION") in (None, "") and upper.get("MAX_USD") not in (None, ""):
+        raw["MAX_POSITION"] = upper["MAX_USD"]
+        raw.setdefault("MAX_IN_USD", True)
+    elif upper.get("MAX_POSITION") in (None, "") and upper.get("MAX_POS") not in (None, ""):
+        raw["MAX_POSITION"] = upper["MAX_POS"]
+        raw.setdefault("MAX_IN_USD", False)
+    knobs = _pin_geom(_scrub_params(raw))
+    for name in _DROP_KNOBS:
+        knobs.pop(name, None)
+    if str(strategy or "").strip().lower() == "pair" and knobs.get("MAX_POSITION"):
+        knobs.setdefault("PAIR_MAX", knobs["MAX_POSITION"])
+    return knobs
+
+
+def knobs_as_setup(knobs: dict[str, str] | None) -> dict:
+    raw = knobs if isinstance(knobs, dict) else {}
+    out: dict = {}
+
+    def _bool(val) -> bool:
+        return str(val or "").strip().lower() in ("1", "true", "yes", "on")
+
+    def _num(val, kind: str):
+        try:
+            n = float(val)
+        except (TypeError, ValueError):
+            return None
+        return int(n) if kind == "int" else n
+
+    for env_name, setup_key, kind in _KNOB_SETUP:
+        if env_name not in raw or setup_key in out:
+            continue
+        val = raw.get(env_name)
+        if kind == "bool":
+            out[setup_key] = _bool(val)
+        elif kind == "str":
+            text = str(val or "").strip()
+            if text:
+                out[setup_key] = text
+        else:
+            n = _num(val, kind)
+            if n is not None:
+                out[setup_key] = n
+    max_v = raw.get("MAX_POSITION")
+    if max_v not in (None, ""):
+        n = _num(max_v, "float")
+        if n is not None:
+            if _bool(raw.get("MAX_IN_USD", "true")):
+                out["max_usd"] = n
+            else:
+                out["max_pos"] = n
+    return out
+
+
+def _overlay_name(strategy: str, venue: str, contract: str, account: str = "") -> str:
+    sy = _dash_slug(str(strategy or "").strip().lower())
+    ve = _dash_slug(str(venue or "").strip().lower())
+    ct = _dash_slug(str(contract or "").strip().upper())
+    ac = _dash_slug(str(account or "").strip())
+    parts = [p for p in (sy, ve, ct, ac) if p]
+    return ".".join(parts) + ".env" if parts else ""
+
+
+def _overlay_names(strategy: str, venue: str, contract: str, accounts: list[str]) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    tags = [a for a in accounts if str(a or "").strip()] or [""]
+    for acct in tags:
+        for cand in (
+            _overlay_name(strategy, venue, contract, acct),
+            _overlay_name(strategy, venue, contract, ""),
+            _overlay_name(strategy, "", contract, ""),
+        ):
+            if cand and cand not in seen:
+                seen.add(cand)
+                names.append(cand)
+    return names
+
+
+def _account_aliases(account: str, account_name: str = "") -> list[str]:
+    tags: list[str] = []
+    for raw in (account, account_name):
+        text = str(raw or "").strip()
+        if text and text not in tags:
+            tags.append(text)
+    try:
+        from webapp.ops import account_names
+        named = account_names()
+    except Exception:
+        named = {}
+    for tag in list(tags):
+        mapped = named.get(tag)
+        if mapped and mapped not in tags:
+            tags.append(mapped)
+    for aid, nm in named.items():
+        if tags and (aid in tags or nm in tags):
+            if aid and aid not in tags:
+                tags.append(aid)
+            if nm and nm not in tags:
+                tags.append(nm)
+    return tags
+
+
+def _format_env(knobs: dict[str, str], header: str) -> str:
+    lines = [f"# {header}", f"# updated {time.strftime('%Y-%m-%d %H:%M:%S')}"]
+    for name in sorted(knobs):
+        val = str(knobs[name])
+        if any(ch in val for ch in ' \t#"\''):
+            val = json.dumps(val, ensure_ascii=False)
+        lines.append(f"{name}={val}")
+    return "\n".join(lines) + "\n"
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return out
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        name = name.strip().upper()
+        value = value.strip()
+        if value[:1] in ('"', "'") and value[-1:] == value[:1] and len(value) >= 2:
+            value = value[1:-1]
+        if name and name not in _DROP_KNOBS:
+            out[name] = value
+    return out
+
+
+def _write_env_file(path: Path, knobs: dict[str, str], header: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(_format_env(knobs, header), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _overlay_dirs() -> list[Path]:
+    dirs = [_BOT_ENV]
+    try:
+        root = opa6_root()
+        if _is_opa6_tree(root):
+            dirs.append(root / "env.d")
+    except Exception:
+        pass
+    return dirs
+
+
+def _write_overlays(
+    strategy: str,
+    venue: str,
+    contract: str,
+    account: str,
+    knobs: dict[str, str],
+) -> list[str]:
+    if not knobs:
+        return []
+    header = f"dash {strategy} {venue}:{contract} account={account}".strip()
+    names = []
+    specific = _overlay_name(strategy, venue, contract, account)
+    loose = _overlay_name(strategy, venue, contract, "")
+    if specific:
+        names.append(specific)
+    if loose and loose != specific:
+        names.append(loose)
+    written: list[str] = []
+    for folder in _overlay_dirs():
+        for name in names:
+            path = folder / name
+            _write_env_file(path, knobs, header)
+            written.append(str(path))
+    return written
+
+
+def _read_overlay(
+    strategy: str,
+    venue: str,
+    contract: str,
+    account: str = "",
+    account_name: str = "",
+) -> tuple[dict[str, str], str]:
+    names = _overlay_names(strategy, venue, contract, _account_aliases(account, account_name))
+    for folder in _overlay_dirs():
+        for name in names:
+            path = folder / name
+            if not path.is_file():
+                continue
+            knobs = _parse_env_file(path)
+            if knobs:
+                return knobs, str(path)
+    sy = _dash_slug(str(strategy or "").strip().lower())
+    ct = _dash_slug(str(contract or "").strip().upper())
+    if sy and ct:
+        rx = re.compile(rf"^{re.escape(sy)}\.[^.]+\.{re.escape(ct)}(?:\.[^.]+)?\.env$", re.I)
+        hits: list[Path] = []
+        for folder in _overlay_dirs():
+            if not folder.is_dir():
+                continue
+            hits.extend(p for p in folder.iterdir() if p.is_file() and rx.match(p.name))
+        hits.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+        for path in hits:
+            knobs = _parse_env_file(path)
+            if knobs:
+                return knobs, str(path)
+    return {}, ""
+
+
+def _guess_venue(strategy: str, contract: str, account: str = "") -> str:
+    knobs, path = _read_overlay(strategy, "", contract, account)
+    if not path:
+        return ""
+    name = Path(path).name
+    if name.endswith(".env"):
+        name = name[:-4]
+    parts = name.split(".")
+    if len(parts) >= 3:
+        return str(parts[1] or "").lower()
+    return ""
+
+
+def _merge_rec_params(bot_id: str, knobs: dict[str, str]) -> None:
+    want = str(bot_id or "").strip()
+    if not want or not knobs:
+        return
+    rows = _load()
+    changed = False
+    for rec in rows:
+        if str(rec.get("id") or "") != want:
+            continue
+        old = rec.get("params") if isinstance(rec.get("params"), dict) else {}
+        rec["params"] = {**{str(k): str(v) for k, v in old.items()}, **knobs}
+        changed = True
+        break
+    if changed:
+        _save(rows)
+
+
+def persist_knobs(
+    *,
+    venue: str = "",
+    contract: str = "",
+    account: str = "",
+    account_name: str = "",
+    strategy: str = "",
+    params: dict | None = None,
+    merge: bool = True,
+    bot_id: str = "",
+) -> dict:
+    """Write Apply/Start knobs to this contract's env so a restart keeps them."""
+    strategy = str(strategy or "").strip().lower()
+    venue = str(venue or "").strip().lower()
+    contract = str(contract or "").strip()
+    account = str(account or "").strip()
+    account_name = str(account_name or "").strip()
+    rec = find_bot(
+        bot_id=bot_id,
+        contract=contract,
+        account=account,
+        strategy=strategy,
+        aliases=_account_aliases(account, account_name),
+    )
+    if rec:
+        strategy = strategy or str(rec.get("strategy") or "").lower()
+        contract = contract or str(rec.get("contract") or "")
+        venue = venue or str(rec.get("venue") or "").lower()
+        account = account or str(rec.get("account") or "")
+        account_name = account_name or str(rec.get("account_name") or "")
+    if not venue:
+        venue = _guess_venue(strategy, contract, account or account_name)
+    incoming = _knobs_from_payload(params, strategy)
+    if not incoming:
+        return {"ok": False, "error": "no knobs to save"}
+    existing, prev = _read_overlay(strategy, venue, contract, account, account_name) if merge else ({}, "")
+    knobs = {**existing, **incoming} if merge else incoming
+    files = _write_overlays(strategy, venue, contract, account or account_name, knobs)
+    if rec and str(rec.get("kind") or "") != "railway":
+        _merge_rec_params(str(rec.get("id") or ""), knobs)
+    rail_err = ""
+    railway = False
+    if rec and (str(rec.get("kind") or "") == "railway" or rec.get("service")):
+        try:
+            from webapp import railway as rw
+            rw.update_knobs(str(rec.get("id") or ""), knobs)
+            railway = True
+        except Exception as extra:
+            rail_err = str(extra)[:240]
+    ok = (bool(files) or railway) and not rail_err
+    return {
+        "ok": ok,
+        "files": files,
+        "file": files[0] if files else prev,
+        "railway": railway,
+        "error": rail_err,
+        "knobs": knobs,
+        "setup": knobs_as_setup(knobs),
+    }
+
+
+def read_knobs(
+    *,
+    venue: str = "",
+    contract: str = "",
+    account: str = "",
+    account_name: str = "",
+    strategy: str = "",
+) -> dict:
+    knobs, path = _read_overlay(strategy, venue, contract, account, account_name)
+    return {
+        "ok": True,
+        "file": path,
+        "knobs": knobs,
+        "setup": knobs_as_setup(knobs) if knobs else {},
+    }
+
+
 def launch(
     *,
     venue: str,
@@ -475,8 +861,14 @@ def launch(
             env[extra_pw] = phrase
     for name, val in knobs.items():
         env[name] = val
+    if acct_id:
+        env["DASH_ACCOUNT"] = acct_id
     if strategy == "pair":
         env["PAIR_SYMBOL"] = ",".join(t for t in argv_tail if t[:2] in ("C-", "P-")) or env.get("PAIR_SYMBOL", "")
+    try:
+        _write_overlays(strategy, venue, contract, acct_id, knobs)
+    except Exception:
+        pass
 
     logs = root / "logs"
     logs.mkdir(exist_ok=True)
