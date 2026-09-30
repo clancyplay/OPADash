@@ -316,20 +316,36 @@ def _same(rec: dict, venue: str, contract: str, account: str, strategy: str) -> 
 
 
 def _pin_geom(knobs: dict[str, str]) -> dict[str, str]:
-    """Ticks win over %. Unused *_TICKS must be 0 so a parent .env cannot leak."""
+    """Ticks win over %. Unused *_TICKS must be 0 so a parent .env cannot leak.
+
+    Dash always sends *_MIN_TICKS / *_MAX_TICKS (0 if blank) so the bot
+    uses the min/max contract: blank = book, same = lock, min only = floor.
+    """
     if not any(k.startswith(("HEM_", "SPAN_", "STEP_", "TAIL_")) for k in knobs):
         return knobs
 
     def _auto_on(name: str) -> bool:
         return str(knobs.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
 
-    if _auto_on("HEM_AUTO"):
-        knobs["HEM_TICKS"] = "0"
-    if _auto_on("SPAN_AUTO"):
-        knobs["SPAN_TICKS"] = "0"
-    if _auto_on("STEP_AUTO"):
-        knobs["STEP_TICKS"] = "0"
-        knobs["TAIL_TICKS"] = "0"
+    def _int0(name: str) -> int:
+        raw = knobs.get(name)
+        try:
+            return int(float(raw)) if raw not in (None, "") else 0
+        except (TypeError, ValueError):
+            return 0
+
+    for prefix in ("HEM", "SPAN", "STEP"):
+        knobs.setdefault(f"{prefix}_MIN_TICKS", "0")
+        knobs.setdefault(f"{prefix}_MAX_TICKS", "0")
+        knobs.setdefault(f"{prefix}_MIN_PCT", "0")
+        knobs.setdefault(f"{prefix}_MAX_PCT", "0")
+        lo_t, hi_t = _int0(f"{prefix}_MIN_TICKS"), _int0(f"{prefix}_MAX_TICKS")
+        if lo_t > 0 and hi_t > 0 and lo_t == hi_t:
+            knobs[f"{prefix}_TICKS"] = str(lo_t)
+            knobs[f"{prefix}_AUTO"] = "false"
+        elif _auto_on(f"{prefix}_AUTO"):
+            knobs[f"{prefix}_TICKS"] = "0"
+    knobs.setdefault("TAIL_TICKS", knobs.get("STEP_TICKS") or "0")
     for ticks, alias in (("HEM_TICKS", None), ("SPAN_TICKS", None), ("STEP_TICKS", "TAIL_TICKS")):
         raw = knobs.get(ticks)
         try:

@@ -761,24 +761,26 @@ function rpnlSetupBits(s) {
   if (s.hedge_pct != null) bits.push('hedge ' + fmtG(s.hedge_pct) + '%');
   if (s.hedge_target != null) bits.push('target ' + fmtG(s.hedge_target));
   if (!hedge) {
-  const hem = rpnlGeomBit('hem', s.hem_ticks, s.hem);
-  const span = rpnlGeomBit('span', s.span_ticks, s.span);
-  let stepExtra = '';
-  if (s.step_mult != null && s.step_mult !== 1 && s.step_mult !== '1' && Number(s.step_mult) !== 1) {
-    const t = String(s.step_mult);
-    stepExtra = '×' + (isFinite(Number(t)) ? fmtG(Number(t)) : t);
+  if (s.geom) {
+    String(s.geom).split(' · ').forEach(function (b) {
+      if (b) bits.push(b);
+    });
+  } else {
+    const hem = rpnlGeomBit('hem', s.hem_ticks, s.hem);
+    const span = rpnlGeomBit('span', s.span_ticks, s.span);
+    let stepExtra = '';
+    if (s.step_mult != null && s.step_mult !== 1 && s.step_mult !== '1' && Number(s.step_mult) !== 1) {
+      const t = String(s.step_mult);
+      stepExtra = '×' + (isFinite(Number(t)) ? fmtG(Number(t)) : t);
+    }
+    const step = rpnlGeomBit('step', s.step_ticks, s.step, stepExtra);
+    if (hem) bits.push(hem);
+    if (span) bits.push(span);
+    if (step) bits.push(step);
   }
-  const step = rpnlGeomBit('step', s.step_ticks, s.step, stepExtra);
-  if (hem) bits.push(hem);
-  if (span) bits.push(span);
-  if (step) bits.push(step);
+  if (s.touch_ticks != null) bits.push('touch ' + fmtG(s.touch_ticks) + 't');
   if (s.min_spread != null && Number(s.min_spread) > 0) bits.push('min spread ' + fmtG(s.min_spread) + '%');
   if (s.spread_pad != null && Number(s.spread_pad) > 0) bits.push('pad ' + fmtG(s.spread_pad) + '%');
-  if (s.hem_auto != null) bits.push('hem ' + (on(s.hem_auto) ? 'auto' : 'manual'));
-  if (s.span_auto != null) bits.push('span ' + (on(s.span_auto) ? 'auto' : 'manual'));
-  if (s.step_auto != null) bits.push('step ' + (on(s.step_auto) ? 'auto' : 'manual'));
-  if (s.fit_auto != null && s.hem_auto == null) bits.push('fit auto ' + (on(s.fit_auto) ? 'on' : 'off'));
-  if (s.span_spread != null && s.span_auto == null) bits.push('span spread ' + (on(s.span_spread) ? 'on' : 'off'));
   if (s.quote_ms != null) bits.push('quote ' + fmtG(s.quote_ms) + 'ms');
   if (s.place_secs != null) bits.push('place ' + fmtG(s.place_secs) + 's');
   if (s.vol_gate != null) bits.push('vol gate ' + (on(s.vol_gate) ? 'on' : 'off'));
@@ -822,7 +824,7 @@ function rpnlSymbolBits(s) {
 
 function rpnlCfgBits(s) {
   if (!s) return [];
-  if (s.kind === 'setup' || s.hem != null || s.hem_auto != null || s.fit_auto != null || s.max_usd != null || s.k != null || s.edge != null || s.mode != null) {
+  if (s.kind === 'setup' || s.hem != null || s.geom != null || s.hem_auto != null || s.fit_auto != null || s.max_usd != null || s.k != null || s.edge != null || s.mode != null) {
     return rpnlSetupBits(s);
   }
   return rpnlSymbolBits(s);
@@ -843,7 +845,10 @@ function rpnlCfgHtml(s) {
   if (!bits.length && !mode) return '<div class="p-cfg none">no bot setup yet</div>';
   const spans = [];
   if (mode) spans.push('<span>' + escHtml(mode) + '</span>');
-  bits.forEach(function (b) { spans.push('<span>' + escHtml(b) + '</span>'); });
+  bits.forEach(function (b) {
+    const geom = /^(hem|span|step|tail|k) /.test(String(b));
+    spans.push('<span' + (geom ? ' class="p-geom"' : '') + '>' + escHtml(b) + '</span>');
+  });
   return '<div class="p-cfg" title="' + escHtml(rpnlCfgTitle(s)).replace(/\n/g, '&#10;') + '">' +
     spans.join('') + '</div>';
 }
@@ -1195,6 +1200,7 @@ function renderRpnlInspect(row) {
   const pairHedge = rpnlIsPairHedge(row);
   const hedgeOf = rpnlHedgeOf(row);
   const via = s && s.hedge_via;
+  const cfgHtml = (!pairHedge && s) ? rpnlCfgHtml(s) : '';
   box.className = 'rpnl-inspect open' + (pairHedge ? ' hedge' : '');
   box.dataset.contract = row.contract || '';
   box.dataset.account = row.account || '';
@@ -1218,6 +1224,7 @@ function renderRpnlInspect(row) {
         '</div>' +
       '</div>' +
       '<div class="ri-row ri-tools">' + rpnlActsHtml(row) + '</div>' +
+      (cfgHtml ? '<div class="ri-setup">' + cfgHtml + '</div>' : '') +
       rpnlOrdersHtml(row) +
     '</div>';
   const page = document.getElementById('rpnl');
@@ -1282,6 +1289,11 @@ function rpnlPillMax(r) {
   return '';
 }
 
+function rpnlPillGeom(r) {
+  const g = r && r.settings && r.settings.geom;
+  return g ? String(g) : '';
+}
+
 function rpnlPillWallet(r) {
   const n = Number(r && r.settings && r.settings.wallet_inr);
   if (!isFinite(n) || n <= 0) return '';
@@ -1309,6 +1321,7 @@ function rpnlPillHtml(r, cur, nameCount) {
   const mainCol = bootOnly ? '#ffb74d' : (main >= 0 ? 'var(--green)' : 'var(--red)');
   const mode = rpnlPillMode(r);
   const maxBit = rpnlIsPairHedge(r) ? '' : rpnlPillMax(r);
+  const geomBit = rpnlIsPairHedge(r) ? '' : rpnlPillGeom(r);
   const walletBit = rpnlPillWallet(r);
   const strat = r.strategy || '';
   const hedgeBit = rpnlIsPairHedge(r);
@@ -1329,6 +1342,7 @@ function rpnlPillHtml(r, cur, nameCount) {
     (hedgeBit && hedgeOf ? '<div class="p-hedge" title="' + escHtml(hedgeOf) + '">of ' + escHtml(hedgeOf) + '</div>' : '') +
     (!hedgeBit && via ? '<div class="p-hedge via" title="' + escHtml(via) + '">hedged by ' + escHtml(via) + '</div>' : '') +
     (maxBit ? '<div class="p-max">' + escHtml(maxBit) + '</div>' : '') +
+    (geomBit ? '<div class="p-geom" title="' + escHtml(geomBit) + '">' + escHtml(geomBit) + '</div>' : '') +
     (walletBit ? '<div class="p-bal">' + escHtml(walletBit) + '</div>' : '') +
     (shownMode ? '<div class="p-mode' + modeCls + '">' + escHtml(shownMode) + '</div>' : '') +
     '</button>';
