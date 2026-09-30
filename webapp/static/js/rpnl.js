@@ -601,14 +601,30 @@ function usdFmtDec(n, d) {
   });
 }
 
-function rpnlPosHtml(s, cls, venue) {
+function rpnlBaseUnit(sym) {
+  let u = String(sym || '').toUpperCase().trim();
+  if (!u) return '';
+  if (u.startsWith('B-') && u.indexOf('_') >= 0) return u.slice(2).split('_')[0];
+  const opt = u.match(/^[CP]-([A-Z0-9]+)/);
+  if (opt) return opt[1];
+  u = u.replace(/[-_]/g, '');
+  const suffixes = ['USDTM', 'PERPINTX', 'PERP', 'USDT', 'USDC', 'USD', 'INR'];
+  for (let i = 0; i < suffixes.length; i++) {
+    const suf = suffixes[i];
+    if (u.endsWith(suf) && u.length > suf.length) return u.slice(0, -suf.length);
+  }
+  return u;
+}
+
+function rpnlPosHtml(s, cls, venue, sym) {
   if (!s || s.pos == null) return '';
   const n = Number(s.pos);
   if (!isFinite(n)) return '';
   cls = cls || 'p-pos';
   if (Math.abs(n) < 1e-12) return '<span class="' + cls + '">flat</span>';
   const side = n > 0 ? 'long' : 'short';
-  let t = side + ' ' + fmtG(Math.abs(n));
+  const unit = rpnlBaseUnit(sym);
+  let t = side + ' ' + fmtG(Math.abs(n)) + (unit ? ' ' + unit : '');
   if (s.entry != null && Number(s.entry) > 0) t += ' @ ' + fmtG(s.entry);
   let extra = '';
   const u = liveUpnlInr(s, venue);
@@ -1309,12 +1325,16 @@ function renderRpnlInspect(row) {
   box.dataset.hedge = pairHedge ? '1' : '';
   if (box.dataset.sig === sig && box.innerHTML) return;
   box.dataset.sig = sig;
+  const infoEl = box.querySelector('.ri-info');
+  const toolsEl = box.querySelector('.ri-tools');
+  const infoLeft = infoEl ? infoEl.scrollLeft : 0;
+  const toolsLeft = toolsEl ? toolsEl.scrollLeft : 0;
   box.innerHTML =
     '<div class="ri-bar">' +
       '<div class="ri-row ri-info">' +
         '<div class="ri-stats">' +
           '<span class="ri-sym">' + escHtml(qsym) + '</span>' +
-          rpnlPosHtml(s, 'ri-pos', row.quote_venue) +
+          rpnlPosHtml(s, 'ri-pos', row.quote_venue, qsym) +
           (pairHedge ? '' : rpnlStatusChip(s)) +
           (pairHedge
             ? '<span class="ri-chip hedge">Hedge' + (hedgeOf ? ' of ' + escHtml(hedgeOf) : '') + '</span>'
@@ -1327,6 +1347,15 @@ function renderRpnlInspect(row) {
       (cfgHtml ? '<div class="ri-setup' + (riSetupOpen ? ' open' : '') + '"' + (riSetupOpen ? '' : ' hidden') + '>' + cfgHtml + '</div>' : '') +
       rpnlOrdersHtml(row) +
     '</div>';
+  const infoNow = box.querySelector('.ri-info');
+  const toolsNow = box.querySelector('.ri-tools');
+  const keepScroll = function (el, left) {
+    if (!el || left <= 0) return;
+    el.scrollLeft = left;
+    requestAnimationFrame(function () { el.scrollLeft = left; });
+  };
+  keepScroll(infoNow, infoLeft);
+  keepScroll(toolsNow, toolsLeft);
   const page = document.getElementById('rpnl');
   if (page) page.classList.toggle('orders-open', riOrdersOpen);
   setRiSetupOpen(riSetupOpen);
@@ -1896,7 +1925,12 @@ function syncRpnlTimeScale(origin, range) {
 function onRpnlLogicalRange(chartId) {
   return function (range) {
     if (!range) return;
-    if (rpnlRangeIsEcho(chartId, range)) return;
+    // Fit wraps itself in a sync echo. That echo is the first time the visible
+    // range actually matches the loaded window, so high/low still has to move.
+    if (rpnlRangeIsEcho(chartId, range)) {
+      if (chartId === 'ohlc') updateOhlcHiLo();
+      return;
+    }
     if (rpnlUserInput) rpnlMarkUserView();
     else rpnlMaybeDetachFromLive();
     syncRpnlTimeScale(chartId, range);
@@ -2001,6 +2035,7 @@ function fitRpnlView() {
     ohlcChart.timeScale().fitContent();
     rpnlChart.timeScale().fitContent();
   } catch (e) {}
+  updateOhlcHiLo();
   syncOhlcGoLive();
 }
 
@@ -2519,26 +2554,34 @@ function clearOhlcHiLo() {
   ohlcHiLoOwner = null;
 }
 
-function ohlcVisibleHiLo() {
-  const bars = ohlcBarsCache;
-  if (!bars.length) return null;
-  let fromT = bars[0].time, toT = bars[bars.length - 1].time;
-  try {
-    const logical = ohlcChart && ohlcChart.timeScale().getVisibleLogicalRange();
-    const info = (logical && ohlcSeries && typeof ohlcSeries.barsInLogicalRange === 'function')
-      ? ohlcSeries.barsInLogicalRange(logical) : null;
-    if (info && info.from != null && info.to != null) {
-      fromT = info.from;
-      toT = info.to;
-    } else {
-      const vr = ohlcChart && ohlcChart.timeScale().getVisibleRange();
-      if (vr && vr.from != null && vr.to != null) {
-        fromT = vr.from;
-        toT = vr.to;
-      }
-    }
-  } catch (e) {}
-  let hi = -Infinity, lo = Infinity;
+function rpnlWindowStartUnix() {
+  const v = rpnlCurrentHours !== null ? String(rpnlCurrentHours) : rpnlHoursSel();
+  if (v === 'today') {
+    const shift = (5 * 60 + 30) * 60 * 1000;
+    const ist = new Date(Date.now() + shift);
+    return Math.floor(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) / 1000) - (5 * 60 + 30) * 60;
+  }
+  const h = parseFloat(v);
+  if (!isFinite(h) || h <= 0) return null;
+  return Math.floor(Date.now() / 1000) - Math.round(h * 3600);
+}
+
+function rpnlClipBarsToWindow(bars) {
+  const start = rpnlWindowStartUnix();
+  if (start == null || !bars || !bars.length) return bars || [];
+  const cut = start - rpnlCandleSecs();
+  if (bars[0].time >= cut) return bars;
+  return bars.filter(b => b && b.time >= cut);
+}
+
+function ohlcRangeTime(t) {
+  if (typeof t === 'number' && isFinite(t)) return t > 1e12 ? Math.floor(t / 1000) : t;
+  if (t && typeof t === 'object' && t.year) return Date.UTC(t.year, (t.month || 1) - 1, t.day || 1) / 1000;
+  return null;
+}
+
+function ohlcHiLoBetween(bars, fromT, toT) {
+  let hi = -Infinity, lo = Infinity, n = 0;
   for (let i = 0; i < bars.length; i++) {
     const b = bars[i];
     if (!b || b.time < fromT || b.time > toT) continue;
@@ -2546,9 +2589,33 @@ function ohlcVisibleHiLo() {
     const low = Math.min(b.open, b.high, b.low, b.close);
     if (high > hi) hi = high;
     if (low < lo) lo = low;
+    n++;
   }
-  if (!isFinite(hi) || !isFinite(lo)) return null;
+  if (!n || !isFinite(hi) || !isFinite(lo)) return null;
   return { hi, lo };
+}
+
+function ohlcVisibleHiLo() {
+  const bars = ohlcBarsCache;
+  if (!bars.length) return null;
+  const winStart = rpnlWindowStartUnix();
+  const dataFrom = bars[0].time;
+  const dataTo = bars[bars.length - 1].time + rpnlCandleSecs();
+  let fromT = winStart != null ? winStart : dataFrom;
+  let toT = dataTo;
+  try {
+    if (ohlcChart && !rpnlLogicalLooksUnfitted()) {
+      const vr = ohlcChart.timeScale().getVisibleRange();
+      const a = vr && ohlcRangeTime(vr.from);
+      const b = vr && ohlcRangeTime(vr.to);
+      if (a != null && b != null && b > a && b >= dataFrom && a <= dataTo) {
+        fromT = a;
+        toT = b;
+      }
+    }
+  } catch (e) {}
+  if (winStart != null && fromT < winStart) fromT = winStart;
+  return ohlcHiLoBetween(bars, fromT, toT) || ohlcHiLoBetween(bars, winStart != null ? winStart : dataFrom, dataTo);
 }
 
 function updateOhlcHiLo() {
@@ -2736,6 +2803,7 @@ function tryRpnlFit() {
   if (!ohlcBarsCache.length && !rpnlPtsCache.length) return false;
   fitRpnlView();
   if (rpnlLogicalLooksUnfitted()) return false;
+  updateOhlcHiLo();
   rpnlNeedsFit = false;
   if (!rpnlRangePinned) rpnlSyncRangeFromView();
   rpnlPaintBrush();
@@ -3610,11 +3678,11 @@ async function loadRpnl(keepRange) {
     if (liveUpdate && !bars.length && prevBars.length) bars = prevBars;
     let savedView = liveUpdate ? captureRpnlView() : null;
     if (liveUpdate) {
-      ohlcBarsCache = rpnlMergeByTime(prevBars, bars);
+      ohlcBarsCache = rpnlClipBarsToWindow(rpnlMergeByTime(prevBars, bars));
       savedView = rpnlShiftLogical(savedView, prevBars, ohlcBarsCache);
       if (savedView) rpnlHoldSnap = savedView;
     } else {
-      ohlcBarsCache = bars;
+      ohlcBarsCache = rpnlClipBarsToWindow(bars);
     }
     setOhlcEmpty(!ohlcBarsCache.length, ohlcBarsCache.length ? '' : ((candleNote || '').replace(/^ · /, '') || 'No price candles for this window'));
     try {

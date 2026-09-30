@@ -252,12 +252,18 @@ body:has(#rpnl.visible) {
   flex-wrap: nowrap;
   padding-bottom: 5px;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
 }
 .rpnl-inspect .ri-info::-webkit-scrollbar { display: none; }
 .rpnl-inspect .ri-stats {
   display: flex; align-items: center; gap: 0;
-  min-width: 0; flex: 1 1 auto;
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 100%;
   font-size: 12px; font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
