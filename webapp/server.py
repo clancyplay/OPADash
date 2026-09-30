@@ -319,24 +319,35 @@ def _venue_symbol(cfg: _SymbolConfig | None, venue: str, contract: str) -> str:
 _HEDGE_VENUES = frozenset({"coindcx"})
 
 
-def venue_meta(contract: str, counts: dict[str, int] | None = None) -> dict:
+def venue_meta(
+    contract: str, counts: dict[str, int] | None = None,
+    strategy: str = "", prefer_quote: str = "",
+) -> dict:
     """Which exchange quotes this contract and which (if any) hedges it.
 
     `counts` is fills-per-exchange from the DB. Driving every caller off the
     same counts keeps the pills, the dropdown and the chart in agreement.
     Hedge is CoinDCX only — a second quote venue is not a hedge.
+    Arb is the exception: the other exchange is the hedge leg of the same pill.
     """
     counts = {v: n for v, n in (counts or {}).items() if n}
     cfg = _cfg_for_contract(contract)
     quote = ""
-    if cfg is not None:
+    prefer = (prefer_quote or "").strip().lower()
+    strat = (strategy or "").strip().lower()
+    if strat == "arb" and prefer:
+        quote = prefer
+    if not quote and cfg is not None:
         cfg_quote = _norm_quote_venue(cfg.quote_venue)
         # Config states the intent; the data wins if that venue never traded.
         if not counts or counts.get(cfg_quote):
             quote = cfg_quote
     if not quote:
         quote = max(counts, key=lambda v: counts[v]) if counts else "delta"
-    hedges = {v: n for v, n in counts.items() if v in _HEDGE_VENUES and v != quote}
+    if strat == "arb":
+        hedges = {v: n for v, n in counts.items() if v != quote}
+    else:
+        hedges = {v: n for v, n in counts.items() if v in _HEDGE_VENUES and v != quote}
     hedge = max(hedges, key=lambda v: hedges[v]) if hedges else ""
     quote_symbol = _venue_symbol(cfg, quote, contract)
     return {
@@ -353,6 +364,44 @@ def venue_meta(contract: str, counts: dict[str, int] | None = None) -> dict:
     }
 
 
+async def _arb_quote_venue(contract: str, strategy: str, account: str | None) -> str:
+    """Quote venue the arb bot last pinged, so the pill's home leg stays put."""
+    if _db is None or not _db.pool:
+        return ""
+    name = canon_contract(contract) or (contract or "")
+    try:
+        async with _db.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT LOWER(venue) AS venue
+                FROM bot_ping
+                WHERE replace(replace(contract, '-', ''), '_', '') = $1
+                  AND strategy::text = $2
+                  AND ($3 = '' OR COALESCE(account, '') = $3)
+                  AND COALESCE(venue, '') <> ''
+                ORDER BY pinged_at DESC
+                LIMIT 1
+                """,
+                name.replace("-", "").replace("_", ""), strategy, account or "",
+            )
+            if row is None and account:
+                row = await conn.fetchrow(
+                    """
+                    SELECT LOWER(venue) AS venue
+                    FROM bot_ping
+                    WHERE replace(replace(contract, '-', ''), '_', '') = $1
+                      AND strategy::text = $2
+                      AND COALESCE(venue, '') <> ''
+                    ORDER BY pinged_at DESC
+                    LIMIT 1
+                    """,
+                    name.replace("-", "").replace("_", ""), strategy,
+                )
+        return str(row["venue"] or "") if row else ""
+    except Exception:
+        return ""
+
+
 async def resolve_venues(
     contract: str, strategy: str = "opa3", account: str | None = None,
 ) -> dict:
@@ -362,7 +411,10 @@ async def resolve_venues(
         counts = await _db.get_contract_venue_stats(
             contract, strategy=strategy, account=account,
         )
-    return venue_meta(contract, counts)
+    prefer = ""
+    if (strategy or "").strip().lower() == "arb":
+        prefer = await _arb_quote_venue(contract, strategy, account)
+    return venue_meta(contract, counts, strategy=strategy, prefer_quote=prefer)
 
 
 def _venue_side(exchange: str | None) -> str:
@@ -517,6 +569,7 @@ _LIVE_SETUP_KEYS = (
     "probe_chop_ok", "probe_need_chop", "probe_trend_ok",
     "probe_win_rpnl", "probe_rpnl", "probe_rpnl_ready",
     "probe_upnl", "probe_upnl_ok",
+    "arb_pos", "arb_entry", "arb_upnl", "arb_upnl_usd", "arb_mark", "arb_side",
     "clock_phase", "clock_why", "clock_left", "clock_next", "clock_window",
     "clock_day_rpnl", "clock_hold_left", "clock_armed", "clock_override", "clock_suggest",
 )
@@ -535,6 +588,61 @@ def _lookup_setup(
     return None
 
 
+def _split_rpnl(strategy: str, quote: str, rpnls: dict, counts: dict) -> tuple[float, float, int, int]:
+    """Quote vs hedge dollars and fill counts. Arb's other exchange is the hedge."""
+    if (strategy or "").strip().lower() == "arb" and quote:
+        q_rpnl = sum(v for k, v in rpnls.items() if k == quote)
+        h_rpnl = sum(v for k, v in rpnls.items() if k != quote)
+        q_n = sum(n for k, n in counts.items() if k == quote)
+        h_n = sum(n for k, n in counts.items() if k != quote)
+        return q_rpnl, h_rpnl, q_n, h_n
+    q_rpnl = sum(v for k, v in rpnls.items() if k not in _HEDGE_VENUES)
+    h_rpnl = sum(v for k, v in rpnls.items() if k in _HEDGE_VENUES)
+    q_n = sum(n for k, n in counts.items() if k not in _HEDGE_VENUES)
+    h_n = sum(n for k, n in counts.items() if k in _HEDGE_VENUES)
+    return q_rpnl, h_rpnl, q_n, h_n
+
+
+def _stamp_arb(row: dict, setup: dict | None, rpnls: dict, counts: dict, counts_all: dict) -> None:
+    """Keep both arb legs on one pill. The quote leg is the bot's home venue."""
+    if (row.get("strategy") or "").strip().lower() != "arb":
+        return
+    qv = ""
+    if isinstance(setup, dict):
+        qv = str(setup.get("quote_venue") or "").strip().lower()
+    qv = qv or str(row.get("quote_venue") or "")
+    if not qv:
+        return
+    row["quote_venue"] = qv
+    row["quote_label"] = _VENUE_LABEL.get(qv, qv.title())
+    if isinstance(setup, dict) and setup.get("quote_sym"):
+        row["quote_symbol"] = str(setup["quote_sym"])
+    q_rpnl, h_rpnl, q_n, h_n = _split_rpnl("arb", qv, rpnls, counts)
+    row["rpnl"] = round(q_rpnl, 2)
+    row["hedge_rpnl"] = round(h_rpnl, 2)
+    row["fills"] = q_n
+    row["hedge_fills"] = h_n
+    others = {k: n for k, n in counts_all.items() if k != qv and n}
+    hedge = max(others, key=lambda k: others[k]) if others else ""
+    if not hedge and isinstance(setup, dict):
+        named = str(setup.get("arb_venue") or "").strip().lower()
+        if named and named != qv:
+            hedge = named
+    row["has_hedge"] = bool(others)
+    row["hedge_venue"] = hedge
+    row["hedge_label"] = _VENUE_LABEL.get(hedge, hedge.title()) if hedge else ""
+    if isinstance(setup, dict) and setup.get("arb_sym"):
+        row["hedge_symbol"] = str(setup["arb_sym"])
+    shown = row.get("account_name") or ""
+    strat = row.get("strategy") or ""
+    sym = row.get("quote_symbol") or row.get("contract") or ""
+    row["label"] = (
+        f"{sym} · {row['quote_label']}"
+        + (f" · {shown}" if shown else "")
+        + (f" · {strat}" if strat else "")
+    )
+
+
 def _annotate_rpnl_row(
     row: dict,
     setups: dict[tuple[str, str], dict] | None = None,
@@ -545,13 +653,16 @@ def _annotate_rpnl_row(
     counts_all = dict(row.get("venue_fills_all") or row.get("venue_fills") or {})
     counts = dict(row.get("venue_fills") or {})
     rpnls = dict(row.get("venue_rpnl") or {})
-    meta = venue_meta(row.get("contract") or "", counts_all)
+    meta = venue_meta(row.get("contract") or "", counts_all, strategy=row.get("strategy") or strategy)
     row = dict(row)
     row.update(meta)
-    row["rpnl"] = round(sum(v for k, v in rpnls.items() if k not in _HEDGE_VENUES), 2)
-    row["fills"] = sum(n for k, n in counts.items() if k not in _HEDGE_VENUES)
-    row["hedge_rpnl"] = round(sum(v for k, v in rpnls.items() if k in _HEDGE_VENUES), 2)
-    row["hedge_fills"] = sum(n for k, n in counts.items() if k in _HEDGE_VENUES)
+    q_rpnl, h_rpnl, q_n, h_n = _split_rpnl(
+        row.get("strategy") or strategy, meta.get("quote_venue") or "", rpnls, counts,
+    )
+    row["rpnl"] = round(q_rpnl, 2)
+    row["fills"] = q_n
+    row["hedge_rpnl"] = round(h_rpnl, 2)
+    row["hedge_fills"] = h_n
     acct = row.get("account") or ""
     shown = (names or {}).get(acct) or (row.get("account_name") or "").strip() or acct
     if shown:
@@ -575,6 +686,7 @@ def _annotate_rpnl_row(
         row["settings"] = _cfg_public(_cfg_for_contract(row.get("contract") or ""))
     else:
         row["settings"] = None
+    _stamp_arb(row, row.get("settings"), rpnls, counts, counts_all)
     return row
 
 # Delta candle resolution -> seconds per candle, used to size the start/end window
@@ -1139,7 +1251,7 @@ async def rpnl_symbols(
             counts = entry["counts"]
             if not entry["account"] and counts.get("delta"):
                 continue
-            meta = venue_meta(entry["contract"], entry.pop("counts"))
+            meta = venue_meta(entry["contract"], entry.pop("counts"), strategy=strat)
             aid = entry["account"]
             name = names.get(aid) or aid
             if name:
@@ -2064,6 +2176,7 @@ _SETUP_PAYLOAD_KEYS = frozenset({
     "HEM_MIN_PCT", "HEM_MAX_PCT", "SPAN_MIN_PCT", "SPAN_MAX_PCT", "STEP_MIN_PCT", "STEP_MAX_PCT",
     "HEM_MIN_TICKS", "HEM_MAX_TICKS", "SPAN_MIN_TICKS", "SPAN_MAX_TICKS", "STEP_MIN_TICKS", "STEP_MAX_TICKS",
     "MOVE_PCT", "MOVE_SECS", "RISK_REWARD",
+    "ARB_MIN_PCT", "ARB_FEE_PCT", "ARB_COOL_SECS",
     "MOM_PCT", "MOM_SLOW_PCT", "CLIP_PCT", "TRAIL_PCT", "MOM_STOP_PCT",
     "PACKET", "SHELF", "AISLE_PCT", "COVER_PCT", "STEP", "REACH", "PACE_MS", "DUST", "LOT", "WINDOW",
     "EXIT_PCT", "OTM_PCT", "MAX_COIN",
@@ -2086,6 +2199,7 @@ _SETUP_NUM = frozenset({
     "FATE_USD", "GRIND_USD", "MAX_POSITION", "max_usd", "max_pos",
     "PLACE_SECS", "IGNORE_MIN_SIZE",
     "MOVE_PCT", "MOVE_SECS", "RISK_REWARD",
+    "ARB_MIN_PCT", "ARB_FEE_PCT", "ARB_COOL_SECS",
     "MOM_PCT", "MOM_SLOW_PCT", "CLIP_PCT", "TRAIL_PCT", "MOM_STOP_PCT",
     "AISLE_PCT", "COVER_PCT", "DUST", "LOT", "EXIT_PCT", "OTM_PCT", "MAX_COIN", "FENCE_PCT", "FIELD_DUST",
 })
@@ -2928,9 +3042,10 @@ def _finish_account(acct: dict) -> dict:
     exchanges.sort(key=lambda e: abs(e["rpnl"]), reverse=True)
     contracts = []
     for con in acct["contracts"].values():
-        meta = venue_meta(con["contract"], con["venue_fills"])
-        quote_rpnl = sum(v for k, v in con["venue_rpnl"].items() if k not in _HEDGE_VENUES)
-        hedge_rpnl = sum(v for k, v in con["venue_rpnl"].items() if k in _HEDGE_VENUES)
+        meta = venue_meta(con["contract"], con["venue_fills"], strategy=con.get("strategy") or "")
+        quote_rpnl, hedge_rpnl, quote_fills, hedge_fills = _split_rpnl(
+            con.get("strategy") or "", meta["quote_venue"], con["venue_rpnl"], con["venue_fills"],
+        )
         venues = []
         for exch, n in con["venue_fills"].items():
             venues.append({
@@ -2951,8 +3066,8 @@ def _finish_account(acct: dict) -> dict:
             "rpnl": round(quote_rpnl, 2),
             "hedge_rpnl": round(hedge_rpnl, 2),
             "net": round(quote_rpnl + hedge_rpnl, 2),
-            "fills": sum(n for k, n in con["venue_fills"].items() if k not in _HEDGE_VENUES),
-            "hedge_fills": sum(n for k, n in con["venue_fills"].items() if k in _HEDGE_VENUES),
+            "fills": quote_fills,
+            "hedge_fills": hedge_fills,
             "fees": round(con["fees"], 2),
             "venues": venues,
         })

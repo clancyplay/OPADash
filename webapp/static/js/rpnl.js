@@ -618,6 +618,22 @@ function rpnlBaseUnit(sym) {
   return u;
 }
 
+function rpnlArbHtml(s) {
+  if (!s || s.arb_pos == null || !s.arb_sym) return '';
+  const leg = {
+    pos: s.arb_pos,
+    entry: s.arb_entry,
+    mark: s.arb_mark,
+    cv: s.arb_cv,
+    usdinr: s.usdinr,
+    upnl: s.arb_upnl,
+    upnl_usd: s.arb_upnl_usd,
+  };
+  const name = s.hedge_via || s.arb_venue || '';
+  return (name ? '<span class="ri-chip">' + escHtml(name) + '</span>' : '') +
+    rpnlPosHtml(leg, 'ri-pos', s.arb_venue || '', s.arb_sym);
+}
+
 function rpnlPosHtml(s, cls, venue, sym) {
   if (!s || s.pos == null) return '';
   const n = Number(s.pos);
@@ -1310,6 +1326,7 @@ function renderRpnlInspect(row) {
     s && s.probe_win_ok, s && s.fate_peak, s && s.grind_rpnl, s && s.pause_clock,
     s && s.probe_rpnl_ready, s && s.probe_chop_ok,
     s && s.max_usd, s && s.max_pos, s && s.live_orders,
+    s && s.arb_pos, s && s.arb_entry, s && s.arb_upnl, s && s.arb_mark, s && s.arb_side, s && s.geom,
     s && s.pair_hedge, s && s.role, s && s.hedge_of, s && s.hedge_via,
     s && s.clock_on, s && s.clock_phase, s && s.clock_windows, s && s.clock_orders, s && s.clock_pos,
     s && s.clock_override, s && s.clock_armed, s && s.clock_suggest, s && s.clock_arm,
@@ -1337,6 +1354,7 @@ function renderRpnlInspect(row) {
         '<div class="ri-stats">' +
           '<span class="ri-sym">' + escHtml(qsym) + '</span>' +
           rpnlPosHtml(s, 'ri-pos', row.quote_venue, qsym) +
+          rpnlArbHtml(s) +
           (pairHedge ? '' : rpnlStatusChip(s)) +
           (pairHedge
             ? '<span class="ri-chip hedge">Hedge' + (hedgeOf ? ' of ' + escHtml(hedgeOf) : '') + '</span>'
