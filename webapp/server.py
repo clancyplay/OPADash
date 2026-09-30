@@ -2376,7 +2376,11 @@ async def ops_bots() -> dict:
 async def _opp_running() -> list[dict]:
     """Live pings plus dash-started processes, for the opportunities page."""
     names = dict(dash_ops.account_names())
+    # Old display name → account id. A rename (MainAccount → MA) leaves the
+    # Railway service and older balance rows on the previous label.
+    stale: dict[str, str] = {}
     rows: list[dict] = []
+    current = {str(nm or "").strip().lower(): str(nm or "").strip() for nm in names.values() if str(nm or "").strip()}
 
     def _tags(account: str, account_name: str) -> set[str]:
         tags = set()
@@ -2385,15 +2389,34 @@ async def _opp_running() -> list[dict]:
         label = (account_name or names.get(account) or "").strip()
         if label:
             tags.add(label.lower())
-        for aid, nm in names.items():
-            aid_l = str(aid or "").strip().lower()
-            nm_l = str(nm or "").strip().lower()
-            if tags.intersection({aid_l, nm_l}):
-                if aid_l:
-                    tags.add(aid_l)
-                if nm_l:
-                    tags.add(nm_l)
+        grown = True
+        while grown:
+            grown = False
+            for aid, nm in names.items():
+                aid_l = str(aid or "").strip().lower()
+                nm_l = str(nm or "").strip().lower()
+                if tags.intersection({aid_l, nm_l}):
+                    for bit in (aid_l, nm_l):
+                        if bit and bit not in tags:
+                            tags.add(bit)
+                            grown = True
+            for old, aid in stale.items():
+                if old not in tags and str(aid or "").strip().lower() not in tags:
+                    continue
+                aid_l = str(aid or "").strip().lower()
+                nm_l = str(names.get(aid) or "").strip().lower()
+                for bit in (old, aid_l, nm_l):
+                    if bit and bit not in tags:
+                        tags.add(bit)
+                        grown = True
         return tags
+
+    def _best_label(existing: str, incoming: str) -> str:
+        for cand in (incoming, existing):
+            key = str(cand or "").strip().lower()
+            if key in current:
+                return current[key]
+        return existing or incoming
 
     def add(contract, account, strategy, venue, account_name: str = "") -> None:
         contract = str(contract or "").strip()
@@ -2413,13 +2436,12 @@ async def _opp_running() -> list[dict]:
             row["_tags"] |= tags
             if venue and not row["venue"]:
                 row["venue"] = venue
-            if label and not row["account_name"]:
-                row["account_name"] = label
+            row["account_name"] = _best_label(row.get("account_name") or "", label)
             return
         rows.append({
             "contract": contract,
             "account": account,
-            "account_name": label,
+            "account_name": _best_label("", label),
             "strategy": strategy,
             "venue": venue,
             "_ck": ckey,
@@ -2448,11 +2470,39 @@ async def _opp_running() -> list[dict]:
                     ORDER BY account, created_at DESC
                     """
                 )
+                history = await conn.fetch(
+                    """
+                    SELECT DISTINCT account, account_name
+                    FROM account_balances
+                    WHERE COALESCE(account, '') <> ''
+                      AND COALESCE(account_name, '') <> ''
+                      AND created_at >= NOW() - INTERVAL '180 days'
+                    """
+                )
             for rec in named:
                 aid = str(rec["account"] or "").strip()
                 label = str(rec["account_name"] or "").strip()
                 if aid and label and not names.get(aid):
                     names[aid] = label
+            current.clear()
+            current.update({
+                str(nm or "").strip().lower(): str(nm or "").strip()
+                for nm in names.values() if str(nm or "").strip()
+            })
+            live_owner = {
+                str(nm or "").strip().lower(): str(aid or "").strip()
+                for aid, nm in names.items() if str(nm or "").strip()
+            }
+            for rec in history:
+                aid = str(rec["account"] or "").strip()
+                label = str(rec["account_name"] or "").strip()
+                now_name = str(names.get(aid) or "").strip()
+                if not aid or not label or not now_name or label.lower() == now_name.lower():
+                    continue
+                owner = live_owner.get(label.lower())
+                if owner and owner != aid:
+                    continue
+                stale[label.lower()] = aid
             for rec in got:
                 add(rec["contract"], rec["account"], rec["strategy"], rec["venue"])
         except Exception as extra:

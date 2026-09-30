@@ -135,6 +135,7 @@ let ohlcMaOn = { 7: true, 25: true, 99: false };
 let ohlcShowVol = true;
 let ohlcShowFills = true;
 let ohlcLogScale = false;
+let ohlcShowHiLo = false;
 let rpnlAutoY = true;
 const OHLC_MA = [
   { p: 7, color: '#f5d76e' },
@@ -146,6 +147,7 @@ const LS_OHLC_MA = 'opadash.ohlcMa';
 const LS_OHLC_VOL = 'opadash.ohlcVol';
 const LS_OHLC_FILLS = 'opadash.ohlcFills';
 const LS_OHLC_LOG = 'opadash.ohlcLog';
+const LS_OHLC_HILO = 'opadash.ohlcHiLo';
 let rpnlSummaryCache = [];
 let rpnlLoadSeq = 0;
 let rpnlQuoteTimer = null;
@@ -2374,6 +2376,7 @@ function restoreOhlcPrefs() {
   ohlcShowVol = lsGet(LS_OHLC_VOL, '1') !== '0';
   ohlcShowFills = lsGet(LS_OHLC_FILLS, '1') !== '0';
   ohlcLogScale = lsGet(LS_OHLC_LOG, '0') === '1';
+  ohlcShowHiLo = lsGet(LS_OHLC_HILO, '0') === '1';
 }
 
 function saveOhlcPrefs() {
@@ -2382,6 +2385,7 @@ function saveOhlcPrefs() {
   lsSet(LS_OHLC_VOL, ohlcShowVol ? '1' : '0');
   lsSet(LS_OHLC_FILLS, ohlcShowFills ? '1' : '0');
   lsSet(LS_OHLC_LOG, ohlcLogScale ? '1' : '0');
+  lsSet(LS_OHLC_HILO, ohlcShowHiLo ? '1' : '0');
 }
 
 function syncOhlcToolButtons() {
@@ -2397,9 +2401,11 @@ function syncOhlcToolButtons() {
   const vol = box.querySelector('[data-ohlc-tog="vol"]');
   const fills = box.querySelector('[data-ohlc-tog="fills"]');
   const log = box.querySelector('[data-ohlc-tog="log"]');
+  const hilo = box.querySelector('[data-ohlc-tog="hilo"]');
   if (vol) vol.classList.toggle('on', ohlcShowVol);
   if (fills) fills.classList.toggle('on', ohlcShowFills);
   if (log) log.classList.toggle('on', ohlcLogScale);
+  if (hilo) hilo.classList.toggle('on', ohlcShowHiLo);
 }
 
 function bindOhlcTools() {
@@ -2435,6 +2441,9 @@ function bindOhlcTools() {
     } else if (tog === 'log') {
       ohlcLogScale = !ohlcLogScale;
       applyOhlcLogScale();
+    } else if (tog === 'hilo') {
+      ohlcShowHiLo = !ohlcShowHiLo;
+      updateOhlcHiLo();
     } else return;
     saveOhlcPrefs();
     syncOhlcToolButtons();
@@ -2619,6 +2628,10 @@ function ohlcVisibleHiLo() {
 }
 
 function updateOhlcHiLo() {
+  if (!ohlcShowHiLo) {
+    clearOhlcHiLo();
+    return;
+  }
   const series = ohlcActiveSeries();
   if (!series || !ohlcChart || !ohlcBarsCache.length) return;
   const range = ohlcVisibleHiLo();
