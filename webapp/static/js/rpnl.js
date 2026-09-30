@@ -42,7 +42,8 @@ function rpnlIsBooting(r) {
 function rpnlRowRank(r) {
   if (rpnlIsBooting(r)) return 0;
   if (r && r.live) return 1;
-  return 2;
+  if (r && r.removed) return 2;
+  return 3;
 }
 function rpnlSelMark(c) {
   if (c && c.live) return '● ';
@@ -980,7 +981,7 @@ function rpnlWindowFillCount(r) {
 }
 
 function filterRpnlWindowRows(rows) {
-  return (Array.isArray(rows) ? rows : []).filter(r => r.live || rpnlIsBooting(r) || rpnlWindowFillCount(r) > 0);
+  return (Array.isArray(rows) ? rows : []).filter(r => r.live || r.removed || rpnlIsBooting(r) || rpnlWindowFillCount(r) > 0);
 }
 
 function syncRpnlSymbolSelect(rows) {
@@ -1439,6 +1440,7 @@ function rpnlStatusChip(s) {
 
 function rpnlPillMode(r) {
   if (rpnlIsBooting(r)) return '';
+  if (r && r.removed) return 'Removed · restart ready';
   return rpnlModeText(r && r.settings, true) || '';
 }
 
@@ -1489,13 +1491,13 @@ function rpnlPillHtml(r, cur, nameCount) {
   const key = rpnlOptionValue(r);
   const active = key === cur ? ' active' : '';
   const bootOnly = rpnlIsBooting(r) && !rpnlWindowFillCount(r);
-  const liveCls = r.live ? ' live' : (rpnlIsBooting(r) ? ' booting' : '');
+  const liveCls = r.live ? ' live' : (rpnlIsBooting(r) ? ' booting' : (r.removed ? ' removed' : ''));
   const acct = rpnlPillAcctText(r, nameCount);
   const qv = r.quote_venue || 'delta';
   const qlab = r.quote_label || 'Delta';
   const qsym = r.quote_symbol || r.contract;
   const main = rpnlPillMain(r);
-  const mainCol = bootOnly ? '#ffb74d' : (main >= 0 ? 'var(--green)' : 'var(--red)');
+  const mainCol = (bootOnly || r.removed) ? '#ffb74d' : (main >= 0 ? 'var(--green)' : 'var(--red)');
   const mode = rpnlPillMode(r);
   const maxBit = rpnlIsPairHedge(r) ? '' : rpnlPillMax(r);
   const geomBit = rpnlIsPairHedge(r) ? '' : rpnlPillGeom(r);
@@ -1541,6 +1543,7 @@ function rpnlPillUsdText(r, inr) {
 }
 
 function rpnlPillValInner(r) {
+  if (r && r.removed) return '<span class="p-boot">Removed</span>';
   if (rpnlIsBooting(r) && !rpnlWindowFillCount(r)) {
     return '<span class="p-boot">' + escHtml(rpnlBootLabel(r)) + '</span>';
   }

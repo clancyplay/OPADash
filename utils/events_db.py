@@ -311,11 +311,15 @@ class EventsDB:
                     venue        VARCHAR(20) NOT NULL DEFAULT '',
                     service      VARCHAR(80) NOT NULL DEFAULT '',
                     kind         VARCHAR(20) NOT NULL DEFAULT '',
+                    setup        JSONB NOT NULL DEFAULT '{}',
                     removed_by   VARCHAR(40) NOT NULL DEFAULT ''
                 );
                 CREATE INDEX IF NOT EXISTS idx_bot_removal_at
                     ON bot_removal (removed_at DESC);
             """)
+            await conn.execute(
+                "ALTER TABLE bot_removal ADD COLUMN IF NOT EXISTS setup JSONB NOT NULL DEFAULT '{}'"
+            )
 
     async def update_live_state(self, symbol: str, data: dict) -> None:
         """Upsert per-symbol live state (positions, orders, book). Called by quoter every sync."""
@@ -480,6 +484,7 @@ class EventsDB:
         venue: str = "",
         service: str = "",
         kind: str = "",
+        setup: dict | None = None,
         removed_by: str = "dashboard",
     ) -> None:
         """Remember a removed bot so the dashboard can show recent removals."""
@@ -493,12 +498,13 @@ class EventsDB:
                 await conn.execute(
                     """
                     INSERT INTO bot_removal
-                        (contract, strategy, account, account_name, venue, service, kind, removed_by)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        (contract, strategy, account, account_name, venue, service, kind, setup, removed_by)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
                     """,
                     name[:80], str(strategy or "")[:40], str(account or "")[:40],
                     str(account_name or "")[:80], str(venue or "")[:20],
-                    str(service or "")[:80], str(kind or "")[:20], str(removed_by or "")[:40],
+                    str(service or "")[:80], str(kind or "")[:20], json.dumps(setup or {}),
+                    str(removed_by or "")[:40],
                 )
         except Exception as extra:
             self.logger.warning("events_db: log_bot_removal failed — %s", extra)
@@ -520,7 +526,7 @@ class EventsDB:
                 rows = await conn.fetch(
                     f"""
                     SELECT removed_at, strategy, account, account_name,
-                           contract, venue, service, kind, removed_by
+                              contract, venue, service, kind, setup, removed_by
                     FROM bot_removal
                     WHERE {where}
                     ORDER BY removed_at DESC
@@ -538,6 +544,7 @@ class EventsDB:
                     "venue": r["venue"] or "",
                     "service": r["service"] or "",
                     "kind": r["kind"] or "",
+                    "setup": dict(r["setup"] or {}),
                     "removed_by": r["removed_by"] or "",
                 }
                 for r in rows

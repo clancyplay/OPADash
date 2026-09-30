@@ -1392,6 +1392,67 @@ async def rpnl_summary(
             settings = {"kind": "setup"}
             row["settings"] = settings
         settings["wallet_inr"] = bal
+    existing = {
+        (canon_contract(row.get("contract") or ""), str(row.get("account") or ""),
+         str(row.get("strategy") or "").strip().lower())
+        for row in out
+    }
+    for item in await _db.get_bot_removals(limit=200, days=90, strategy=strategy):
+        try:
+            removed_at = datetime.fromisoformat(str(item.get("removed_at") or ""))
+        except ValueError:
+            continue
+        if since is not None and removed_at < since:
+            continue
+        contract = canon_contract(item.get("contract") or "")
+        account = str(item.get("account") or "")
+        strat = str(item.get("strategy") or "").strip().lower()
+        key = (contract, account, strat)
+        if not contract or not strat:
+            continue
+        venue = str(item.get("venue") or "").strip().lower()
+        meta = venue_meta(contract, {venue: 1} if venue else {}, strategy=strat)
+        setup = _setup_public(item.get("setup") if isinstance(item.get("setup"), dict) else None)
+        hit = next((row for row in out if (
+            canon_contract(row.get("contract") or ""), str(row.get("account") or ""),
+            str(row.get("strategy") or "").strip().lower(),
+        ) == key), None)
+        if hit is not None:
+            if not hit.get("live"):
+                hit["removed"] = True
+                hit["removed_at"] = item["removed_at"]
+                if setup:
+                    hit["settings"] = setup
+            continue
+        row = {
+            "contract": contract,
+            "account": account,
+            "account_name": str(item.get("account_name") or names.get(account) or account),
+            "strategy": strat,
+            "live": False,
+            "removed": True,
+            "removed_at": item["removed_at"],
+            "rpnl": 0.0,
+            "fills": 0,
+            "hedge_rpnl": 0.0,
+            "hedge_fills": 0,
+            "settings": setup,
+            **{key: meta[key] for key in (
+                "quote_venue", "quote_label", "quote_symbol",
+                "hedge_venue", "hedge_label", "hedge_symbol", "has_hedge",
+            )},
+        }
+        if venue:
+            row["quote_venue"] = venue
+            row["quote_label"] = _VENUE_LABEL.get(venue, venue.title())
+        _stamp_arb(row, setup, {}, {}, {})
+        shown = row["account_name"]
+        row["label"] = (row.get("quote_symbol") or contract) + " · " + row["quote_label"]
+        if shown:
+            row["label"] += f" · {shown}"
+        row["label"] += f" · {strat} · Removed"
+        out.append(row)
+        existing.add(key)
     await _stamp_deploys(out, strategy)
     return out
 
@@ -2824,6 +2885,14 @@ async def ops_bot_stop(req: LaunchStopRequest) -> dict:
                 "below and use its Delete button, or retry after Refresh."
             ),
         )
+    removed_setup = None
+    if _db is not None and _db.pool and contract and strategy:
+        try:
+            removed_setup = _lookup_setup(
+                await _db.get_bot_setups(strategy), contract, account, strategy,
+            )
+        except Exception as extra:
+            logger.debug("webapp: removal setup lookup failed — %s", extra)
     cmd_id = None
     if rec is not None and _db is not None and _db.pool and contract and strategy:
         try:
@@ -2881,6 +2950,7 @@ async def ops_bot_stop(req: LaunchStopRequest) -> dict:
                 venue=venue,
                 service=str((rec or {}).get("service") or out.get("service") or ""),
                 kind=str((rec or {}).get("kind") or out.get("kind") or ""),
+                setup=removed_setup,
             )
         except Exception as extra:
             logger.debug("webapp: removal log failed — %s", extra)
