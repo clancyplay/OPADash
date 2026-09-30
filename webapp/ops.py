@@ -306,7 +306,7 @@ STRATEGIES = [
     },
     {
         "id": "arb", "label": "Arb",
-        "blurb": "Buy the cheap ask and sell the rich bid on two venues. One pill, both legs. The other venue uses its own API key from the template, not this subaccount.",
+        "blurb": "Buy the cheap ask and sell the rich bid on two venues. One pill, both legs. The other venue uses COINBASE_API_KEY (or that venue's key) from this OPADash service or Balances, not the selected subaccount.",
         "params": [
             {"key": "MAX_POSITION", "label": "Shot $", "type": "number", "default": "200", "min": 1, "group": "size",
              "hint": "USD notional on each leg. The pill max edits this live."},
@@ -314,7 +314,7 @@ STRATEGIES = [
                 "key": "ARB_VENUE", "label": "Other venue", "type": "select", "default": "coinbase", "group": "quote",
                 "launch_only": True,
                 "options": ["delta", "binance", "bybit", "kucoin", "coinbase", "aster"],
-                "hint": "Second book. Restart to change it. Needs that venue's key on the OPA6 template.",
+                "hint": "Second book. Restart to change it. Needs that venue's key on this OPADash service or a Balances wallet.",
             },
             {"key": "ARB_SYMBOL", "label": "Other symbol", "type": "text", "default": "", "group": "quote",
              "launch_only": True, "hint": "Blank maps the coin, e.g. FARTCOIN-PERP. Restart to change it."},

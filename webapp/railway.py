@@ -33,6 +33,8 @@ _VENUE_INFRA = {
     "coinbase": ("COINBASE_REST_URL", "COINBASE_INTX_URL"),
     "aster": ("ASTER_REST_URL",),
 }
+_INFRA_VAR_NAMES = frozenset(k for keys in _VENUE_INFRA.values() for k in keys)
+_arb_ok: set[str] = set()
 
 
 def _token() -> str:
@@ -193,6 +195,36 @@ def _infra_env(venue: str, template: dict[str, str]) -> dict[str, str]:
         if val:
             out[name] = val
     return out
+
+
+def _fill_arb_other_leg(env: dict[str, str], copied: dict[str, str] | None = None) -> dict[str, str]:
+    """Template keys first, then OPADash / Balances keys (those win)."""
+    from webapp.launch import VENUE_ENV, apply_arb_other_keys
+
+    copied = copied or {}
+    other = str(env.get("ARB_VENUE") or "").strip().lower()
+    quote = str(env.get("QUOTE_VENUE") or "").strip().lower()
+    spec = VENUE_ENV.get(other) if other and other != quote else None
+    if spec:
+        for key in spec:
+            if key and copied.get(key) and not str(env.get(key) or "").strip():
+                env[key] = str(copied[key])
+        env.update(_infra_env(other, copied))
+    apply_arb_other_keys(env, quote)
+    return env
+
+
+def _symbol_from_env(env: dict[str, str]) -> str:
+    from webapp.launch import VENUE_ENV
+
+    quote = str(env.get("QUOTE_VENUE") or "").strip().lower()
+    spec = VENUE_ENV.get(quote)
+    if spec and env.get(spec[2]):
+        return str(env[spec[2]]).strip()
+    for row in VENUE_ENV.values():
+        if env.get(row[2]):
+            return str(env[row[2]]).strip()
+    return ""
 
 
 def _slim_knobs(knobs: dict[str, str]) -> dict[str, str]:
@@ -446,6 +478,17 @@ def _delete(service_id: str) -> None:
         )
 
 
+def _rename(service_id: str, name: str) -> None:
+    _gql(
+        """
+        mutation ($id: String!, $input: ServiceUpdateInput!) {
+          serviceUpdate(id: $id, input: $input) { id name }
+        }
+        """,
+        {"id": service_id, "input": {"name": name}},
+    )
+
+
 def _create_empty(name: str) -> dict:
     pid, eid = _project_id(), _env_id()
     try:
@@ -585,21 +628,7 @@ def launch(
     env = _infra_env(venue, copied)
     env.update(overlay)
     if strategy == "arb":
-        other = str(knobs.get("ARB_VENUE") or "").strip().lower()
-        if other and other != venue:
-            from webapp.launch import VENUE_ENV
-            spec = VENUE_ENV.get(other)
-            if spec:
-                for name in (spec[0], spec[1], spec[3]):
-                    if name and copied.get(name) and name not in env:
-                        env[name] = copied[name]
-                for name in _VENUE_INFRA.get(other, ()):
-                    if copied.get(name):
-                        env[name] = copied[name]
-                sym = str(knobs.get("ARB_SYMBOL") or "").strip()
-                if sym:
-                    env["ARB_SYMBOL"] = sym
-                    env[spec[2]] = sym
+        _fill_arb_other_leg(env, copied)
 
     created = None
     static_ip = ""
@@ -644,6 +673,61 @@ def launch(
 
 
 _stale_acct_cache: dict[str, tuple[float, tuple[str, str, str]]] = {}
+
+
+def _ensure_arb_other_keys(service_id: str, svc_name: str) -> tuple[dict[str, str], str]:
+    """Patch a running arb bot that launched without the other-leg key, and fix leaked names."""
+    from webapp.launch import VENUE_ENV
+
+    sid = str(service_id or "").strip()
+    name = str(svc_name or "")
+    if not sid:
+        return {}, name
+    skip_patch = sid in _arb_ok
+    if skip_patch and name not in _INFRA_VAR_NAMES:
+        return {}, name
+    try:
+        env = _variables(sid)
+    except Exception:
+        return {}, name
+    if str(env.get("STRATEGY") or "").strip().lower() != "arb":
+        _arb_ok.add(sid)
+        return env, name
+    if not skip_patch:
+        before = dict(env)
+        try:
+            _fill_arb_other_leg(env, env)
+        except ValueError:
+            return env, name
+        patch = {k: v for k, v in env.items() if v and before.get(k) != v}
+        if patch:
+            try:
+                _upsert_vars(sid, patch)
+            except Exception:
+                return env, name
+            try:
+                _deploy(sid)
+            except RuntimeError:
+                pass
+            _drop_bots_cache()
+        other = str(env.get("ARB_VENUE") or "").strip().lower()
+        spec = VENUE_ENV.get(other)
+        if spec and str(env.get(spec[0]) or "").strip() and str(env.get(spec[1]) or "").strip():
+            _arb_ok.add(sid)
+    if name in _INFRA_VAR_NAMES:
+        wanted = _svc_name(
+            "arb",
+            _symbol_from_env(env),
+            str(env.get("DASH_ACCOUNT") or "").strip(),
+        )
+        if wanted and wanted != name:
+            try:
+                _rename(sid, wanted)
+                name = wanted
+                _drop_bots_cache()
+            except RuntimeError:
+                pass
+    return env, name
 
 
 def _wallet_by_tag() -> dict[str, dict]:
@@ -733,8 +817,16 @@ def _list_bots() -> list[dict]:
     out = []
     for svc in _svc_edges(proj):
         name = str(svc.get("name") or "")
-        if not name.lower().startswith("dash-"):
+        botched = name in _INFRA_VAR_NAMES
+        if not name.lower().startswith("dash-") and not botched:
             continue
+        sid = str(svc.get("id") or "")
+        env_hint: dict[str, str] = {}
+        if botched or name.lower().startswith("dash-arb-"):
+            try:
+                env_hint, name = _ensure_arb_other_keys(sid, name)
+            except Exception:
+                env_hint = {}
         inst = _instance_for_env(svc, eid)
         status = ""
         dep = inst.get("latestDeployment")
@@ -742,7 +834,13 @@ def _list_bots() -> list[dict]:
             status = str(dep.get("status") or "")
         alive = status.upper() not in ("CRASHED", "FAILED", "REMOVED", "SKIPPED")
         strategy, contract, account = _split_svc(name)
-        sid = str(svc.get("id") or "")
+        if env_hint.get("STRATEGY"):
+            strategy = str(env_hint.get("STRATEGY") or "").strip().lower()
+        hint_sym = _symbol_from_env(env_hint) if env_hint else ""
+        if hint_sym:
+            contract = hint_sym
+        if env_hint.get("DASH_ACCOUNT"):
+            account = str(env_hint.get("DASH_ACCOUNT") or "").strip()
         account, account_name, venue = _resolve_listed_account(sid, account)
         out.append({
             "id": sid,

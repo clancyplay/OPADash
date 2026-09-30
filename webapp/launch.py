@@ -48,6 +48,82 @@ VENUE_ENV = {
     "aster": ("ASTER_API_KEY", "ASTER_API_SECRET", "ASTER_SYMBOL", ""),
 }
 
+
+def _clean_env(val: object) -> str:
+    s = str(val or "").strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
+        s = s[1:-1].strip()
+    return s
+
+
+def venue_key_env(venue: str) -> dict[str, str]:
+    """API keys for a venue from this process, then Balances wallets.
+
+    Arb's other leg does not use the selected quote subaccount.
+    """
+    load_env_file()
+    v = str(venue or "").strip().lower()
+    spec = VENUE_ENV.get(v)
+    if not spec:
+        return {}
+    out: dict[str, str] = {}
+    for key in spec:
+        if not key:
+            continue
+        got = _clean_env(os.getenv(key) or "")
+        if got:
+            out[key] = got
+    need = [spec[0], spec[1]] + ([spec[3]] if spec[3] else [])
+    if all(out.get(k) for k in need if k):
+        return out
+    try:
+        from webapp.wallets import load_wallet_accounts
+        for acct in load_wallet_accounts():
+            if str(acct.get("exchange") or "").strip().lower() != v:
+                continue
+            key = _clean_env(acct.get("api_key") or "")
+            secret = _clean_env(acct.get("api_secret") or "")
+            phrase = _clean_env(acct.get("passphrase") or "")
+            if key and spec[0] not in out:
+                out[spec[0]] = key
+            if secret and spec[1] not in out:
+                out[spec[1]] = secret
+            if spec[3] and phrase and spec[3] not in out:
+                out[spec[3]] = phrase
+            if all(out.get(k) for k in need if k):
+                break
+    except Exception:
+        pass
+    return {k: val for k, val in out.items() if val}
+
+
+def apply_arb_other_keys(env: dict[str, str], quote_venue: str = "") -> dict[str, str]:
+    """Put ARB_VENUE keys onto a bot env. Dash / wallet keys win over a template copy."""
+    if str(env.get("STRATEGY") or "").strip().lower() != "arb":
+        return env
+    other = str(env.get("ARB_VENUE") or "").strip().lower()
+    quote = str(env.get("QUOTE_VENUE") or quote_venue or "").strip().lower()
+    if not other or other == quote:
+        return env
+    spec = VENUE_ENV.get(other)
+    if not spec:
+        raise ValueError(f"unknown ARB_VENUE '{other}'")
+    extra = venue_key_env(other)
+    for key, val in extra.items():
+        if val:
+            env[key] = val
+    sym = str(env.get("ARB_SYMBOL") or "").strip()
+    if sym and spec[2]:
+        env[spec[2]] = sym
+    need = [spec[0], spec[1]] + ([spec[3]] if spec[3] else [])
+    missing = [k for k in need if k and not str(env.get(k) or "").strip()]
+    if missing:
+        raise ValueError(
+            f"{other} key missing ({missing[0]}). Set {spec[0]} / {spec[1]} on this OPADash "
+            f"service (or a {other} wallet on Balances). The other leg does not use the selected subaccount."
+        )
+    return env
+
 _DENY = (
     "DATABASE_URL", "DASHBOARD_PASSWORD", "DASHBOARD_USERNAME", "DASHBOARD_SECRET",
     "PATH", "PYTHONPATH", "PYTHONHOME", "HOME", "USER",
@@ -1024,6 +1100,8 @@ def launch(
             env[extra_pw] = phrase
     for name, val in knobs.items():
         env[name] = val
+    if strategy == "arb":
+        apply_arb_other_keys(env, venue)
     if acct_id:
         env["DASH_ACCOUNT"] = acct_id
     if strategy == "pair":
