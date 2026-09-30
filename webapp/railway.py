@@ -624,6 +624,7 @@ def launch(
                 pass
         raise
 
+    _drop_bots_cache()
     return {
         "id": str(created["id"]),
         "pid": 0,
@@ -702,7 +703,26 @@ def _resolve_listed_account(service_id: str, slug: str) -> tuple[str, str, str]:
     return resolved
 
 
+_bots_cache: tuple[float, list[dict]] | None = None
+_BOTS_TTL = 12.0
+
+
+def _drop_bots_cache() -> None:
+    global _bots_cache
+    _bots_cache = None
+
+
 def list_bots() -> list[dict]:
+    global _bots_cache
+    now = time.time()
+    if _bots_cache is not None and now - _bots_cache[0] < _BOTS_TTL:
+        return list(_bots_cache[1])
+    rows = _list_bots()
+    _bots_cache = (now, rows)
+    return list(rows)
+
+
+def _list_bots() -> list[dict]:
     if not ready():
         return []
     try:
@@ -753,6 +773,7 @@ def stop(bot_id: str) -> dict:
             name = rec.get("service") or ""
             break
     _delete(sid)
+    _drop_bots_cache()
     return {
         "id": sid,
         "pid": 0,

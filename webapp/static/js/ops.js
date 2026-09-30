@@ -1005,52 +1005,106 @@ function refreshOpsLiveGeom() {
   paintOpsGeomLive();
 }
 
+const OPS_GLOSS = {
+  ORDERS: 'How many quotes hang on each side.',
+  HOOK: 'What the ladder hangs off — position, liquidity, bid, or ask.',
+  STEP_MULT: 'How the step grows down the ladder. Lives on the Step row.',
+  TOUCH_TICKS: 'How far inside the BBO when span follows the book. 0 joins the touch.',
+  FATE_USD: 'Pause if rPnL drops this far from the peak.',
+  GRIND_USD: 'Pause if window rPnL is this negative.',
+  VOL_GATE: 'Only quote while the tape is busy.',
+  DRY_RUN: 'Log quotes. Do not send orders.',
+  QUOTE_MS: 'Minimum milliseconds between edits of the same order.',
+  PLACE_SECS: 'After a full fill, wait this long before quoting that rung again.',
+  IGNORE_MIN_SIZE: 'Skip book levels smaller than this USD notional.',
+  PAIR_HEDGE: 'Hedge option delta with the perpetual.',
+  PAIR_HEDGE_LOT: 'Minimum contracts off-target before a hedge order.',
+  PACKET: 'Contracts in each bid and ask.',
+  SHELF: 'Largest long or short the counter may hold.',
+  COVER_PCT: 'CoinDCX hedge as a percent of the counter. 0 turns it off.',
+  STOCKROOM: 'CoinDCX symbol for that hedge. Applied when the bot starts.',
+  WINDOW: 'Price off the stockroom, but do not send hedge orders.',
+  EXIT_PCT: 'Buy the wing back at least this far under the entry.',
+  OTM_PCT: 'Minimum distance from spot when picking the call and put.',
+  MAX_COIN: 'Underlying coin shared by the wings. 1 is 1 BTC, ETH, or XAUT.',
+  MAX_POSITION: 'Position cap. USD is notional; a plain number on Arb is the shot size.',
+  FIELDS: 'How many of the busiest options to bid.',
+  BASKET: 'Contracts in each field bid.',
+  SILO: 'Most contracts one field may hold. 0 means no cap.',
+  FENCE: 'Hedge the option delta with the crop perpetual.',
+  FENCE_PCT: 'Share of option delta the perpetual takes.',
+  FENCE_LOT: 'Smallest hedge order, in perpetual contracts.',
+  BID_TICKS: 'How many ticks above the bid you buy. 0 joins the bid.',
+  ASK_TICKS: 'How many ticks under the ask you sell. 0 joins the ask.',
+  CHUNKS: 'How many pieces to peel on a green close. 0 uses Orders.',
+  EQUAL: 'On makes every rung the same size. Off restores the doubling ladder.',
+  COVER_QUOTES: 'Keep maker cover quotes while inventoried. Off means the clip is the exit.',
+  CLIP_MIN_PCT: 'Do not clip until the move is at least this percent. 0 is off.',
+  CLIP_MIN_USD: 'Do not clip until the gain is at least this many dollars. 0 is off.',
+  CLIP_COOL_SECS: 'Wait this long after a clip before the next one.',
+  FLOW_SKEW: 'Buy-heavy tape grows buys. Negative fades the crowd.',
+  FLOW_MIN: 'Floor on the quiet side, as a fraction of the base size.',
+  FLOW_WINDOW_SECS: 'How far back the tape is read for the flow skew.',
+  FLOW_MIN_TRADES: 'Prints required in that window before the skew counts.',
+  TAKE: 'Market-flatten a green position. Off leaves the exit to the ladder.',
+  TAKE_PCT: 'Flatten when profit vs entry is at least this percent. 0 can mean one tick.',
+  TAKE_USD: 'Flatten when profit is at least this many dollars. 0 is off.',
+  TAKE_COOL_SECS: 'Wait this long after a take before the next one.',
+  FLIP: 'Reverse when the position is too red, or take the other side of a burst.',
+  FLIP_LOSS_INR: 'Reverse once unrealized loss is at least this many rupees.',
+  FLIP_HOLD_SECS: 'Stay in the flipped position at least this long.',
+  FLIP_COOL_SECS: 'Wait this long after a flip before another one.',
+  MOM_PCT: 'Fast burst, in percent, that starts the ride.',
+  MOM_SLOW_PCT: 'Slower move, in percent, that confirms the burst.',
+  CLIP_PCT: 'Share of the max size taken on the burst.',
+  TRAIL_PCT: 'Give back this percent from the high before exiting.',
+  MOM_STOP_PCT: 'Hard stop, in percent, against the entry.',
+  MOVE_PCT: 'Price move, in percent, that arms the surge.',
+  MOVE_SECS: 'The move must happen inside this many seconds.',
+  RISK_REWARD: 'Take-profit distance as a multiple of the stop. 2 is 1:2.',
+  EDGE_VENUE: 'Book the quotes are priced against. Orders stay on the selected exchange.',
+  EDGE_PCT: 'How far inside the reference book the first quote sits.',
+  STEP_AUTO: 'Fit the step from the live spread. Off uses Step % as typed.',
+  STEP_PCT: 'Gap between rungs when Fit step is off.',
+  ARB_VENUE: 'Second venue. Restart to change it. Uses that venue’s key from the template, not this subaccount.',
+  ARB_SYMBOL: 'Symbol on the other venue. Blank maps the coin. Restart to change it.',
+  ARB_MIN_PCT: 'Fire when the gap, after the fee haircut, is at least this percent.',
+  ARB_FEE_PCT: 'Taker haircut taken off the gross gap. 0.10 is both legs.',
+  ARB_COOL_SECS: 'Wait after a shot before the next one.',
+  LOT: 'CoinDCX units per counter contract.',
+  AISLE_PCT: 'Minimum bid–ask gap before a quote.',
+  STEP: 'Extra ticks off the counter book.',
+  REACH: 'How many ticks a quote may walk to keep its edge.',
+  PACE_MS: 'Minimum milliseconds between edits of the same order.',
+  DUST: 'Ignore book size below this.',
+  FIELD_DUST: 'Ignore option book size below this.',
+  K_PCT: 'Percent offset from the touch. 0 joins the book.',
+  K_TICKS: 'Tick offset from the touch. Ticks win over percent when both are set.',
+};
+
 function renderOpsGlossary() {
   const params = opsStrategySpec().params || [];
   const items = [];
   const seen = new Set();
-  const add = (k, t, d) => { if (!seen.has(k)) { seen.add(k); items.push([t, d]); } };
+  const add = (k, t, d) => { if (d && !seen.has(k)) { seen.add(k); items.push([t, d]); } };
   params.forEach(p => {
+    if (p.embed) return;
     if (p.type === 'max') {
-      add('max', p.label || 'Max', p.label === 'Max coin'
+      add('max', p.label || 'Max', p.hint || (p.label === 'Max coin'
         ? 'Underlying coin cap (2 = 2 of the coin), not USD.'
-        : 'Inventory cap. USD is notional; lots are venue contracts.');
-    } else if (p.type === 'geom') {
+        : 'Inventory cap. USD is notional; lots are venue contracts.'));
+      return;
+    }
+    if (p.type === 'geom') {
       const lenses = p.lenses || [];
       if (lenses.indexOf('hem') >= 0) add('hem', 'Hem', 'Cover-side edge off the hook. Min/max, or blank to follow the book.');
       if (lenses.indexOf('span') >= 0) add('span', 'Span', 'Far edge, measured from the hem. Min/max, or blank to follow the book.');
       if (lenses.indexOf('step') >= 0 || lenses.indexOf('tail') >= 0) add('step', 'Step', 'First same-side gap behind an edge. Min/max, or blank to follow the book.');
       if (lenses.indexOf('k') >= 0) add('k', 'K', 'Offset from the touch. 0 joins the bid–ask.');
       add('bounds', 'Min / max', 'Blank both follows the live book. Same number locks that edge. Min only is a floor; max can be anything.');
-    } else if (p.key === 'ORDERS') add('orders', 'Orders / side', 'How many quotes hang on each side.');
-    else if (p.key === 'HOOK') add('hook', 'Hook', 'What the ladder hangs off — mid, inventory, or last.');
-    else if (p.key === 'STEP_MULT') add('sm', 'Step ×', 'How the step grows down the ladder. Lives on the Step row.');
-    else if (p.key === 'TOUCH_TICKS') add('touch', 'Touch ticks', 'How far inside the BBO when span follows the book. 0 joins the touch.');
-    else if (p.key === 'FATE_USD') add('fate', 'Fate $', 'Pause if rPnL drops this far from the peak.');
-    else if (p.key === 'GRIND_USD') add('grind', 'Grind $', 'Pause if window rPnL is this negative.');
-    else if (p.key === 'VOL_GATE') add('vol', 'Vol gate', 'Only quote while the tape is busy.');
-    else if (p.key === 'DRY_RUN') add('dry', 'Dry run', 'Log quotes. Do not send orders.');
-    else if (p.key === 'QUOTE_MS') add('qms', 'Quote ms', 'Min milliseconds between edits of the same order.');
-    else if (p.key === 'PLACE_SECS') add('place', 'Place secs', 'After a full fill, wait this long before quoting that rung again.');
-    else if (p.key === 'IGNORE_MIN_SIZE') add('ign', 'Ignore $', 'Skip book levels smaller than this USD notional.');
-    else if (p.key === 'PAIR_HEDGE') add('ph', 'Hedge', 'Hedge option delta with the perpetual.');
-    else if (p.key === 'PAIR_HEDGE_LOT') add('hl', 'Hedge lot', 'Min contracts off-target before a hedge order.');
-    else if (p.key === 'PACKET') add('packet', 'Packet', 'Contracts in each bid and ask.');
-    else if (p.key === 'SHELF') add('shelf', 'Shelf', 'Largest long or short the counter may hold.');
-    else if (p.key === 'COVER_PCT') add('cover', 'Cover %', 'CoinDCX hedge as a percent of the counter. 0 turns it off.');
-    else if (p.key === 'STOCKROOM') add('stock', 'Stockroom', 'CoinDCX symbol for that hedge. Applied when the bot starts.');
-    else if (p.key === 'WINDOW') add('window', 'Window', 'Price off the stockroom, but do not send hedge orders.');
-    else if (p.key === 'EXIT_PCT') add('exit', 'Exit %', 'Buy the wing back at least this far under the entry.');
-    else if (p.key === 'OTM_PCT') add('otm', 'OTM %', 'Minimum distance from spot when picking the call and put.');
-    else if (p.key === 'MAX_COIN') add('coin', 'Max coin', 'Underlying coin shared by the wings.');
-    else if (p.key === 'FIELDS') add('fields', 'Fields', 'How many of the busiest options to bid.');
-    else if (p.key === 'BASKET') add('basket', 'Basket', 'Contracts in each field bid.');
-    else if (p.key === 'SILO') add('silo', 'Silo', 'Most contracts one field may hold. 0 means no cap.');
-    else if (p.key === 'FENCE') add('fence', 'Fence', 'Hedge the option delta with the crop perpetual.');
-    else if (p.key === 'FENCE_PCT') add('fpct', 'Fence %', 'Share of option delta the perpetual takes.');
-    else if (p.key === 'FENCE_LOT') add('flot', 'Fence lot', 'Smallest hedge order, in perpetual contracts.');
-    else if (p.key === 'BID_TICKS') add('bt', 'Bid +ticks', 'How many ticks above the bid you buy.');
-    else if (p.key === 'ASK_TICKS') add('at', 'Ask −ticks', 'How many ticks under the ask you sell.');
+      return;
+    }
+    add(p.key, p.label || p.key, p.hint || OPS_GLOSS[p.key] || '');
   });
   if (!items.length) return '';
   return '<div class="rp-ops-glossary"><div class="rp-ops-sub">What these mean</div><dl>' +
@@ -1097,7 +1151,9 @@ function renderOpsParams() {
     const h = titles[g.id] ? '<div class="rp-ops-sub">' + titles[g.id] + '</div>' : '';
     return '<div class="rp-ops-group" data-ops-group="' + escHtml(g.id || '') + '">' + h +
       '<div class="rp-ops-params">' + renderOpsGroupItems(g.items) + '</div></div>';
-  }).join('') + renderOpsGlossary();
+  }).join('');
+  const gloss = document.getElementById('opsGlossary');
+  if (gloss) gloss.innerHTML = renderOpsGlossary();
   applyOpsMaxUnitDefault();
   updateOpsGeomSum();
   syncOpsDependentFields();
