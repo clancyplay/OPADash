@@ -1293,13 +1293,14 @@ function rpnlRoundGeomText(text) {
   return String(text || '').replace(/\d+\.\d+/g, function (m) {
     const n = Number(m);
     if (!isFinite(n)) return m;
-    return n.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+    return n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
   });
 }
 
 function rpnlPillGeom(r) {
   const g = r && r.settings && r.settings.geom;
-  return g ? rpnlRoundGeomText(g) : '';
+  if (!g) return '';
+  return rpnlRoundGeomText(g).replace(/\(book\)/gi, '(b)');
 }
 
 function rpnlPillWallet(r) {
