@@ -510,6 +510,21 @@ function rpnlGatesHtml(s) {
   return '<div class="ri-gates">' + rows.join('') + '</div>';
 }
 
+function sanitizeOhlcBar(b) {
+  if (!b) return null;
+  const o = Number(b.open), h = Number(b.high), l = Number(b.low), c = Number(b.close);
+  if (![o, h, l, c].every(isFinite)) return null;
+  const open = o > 0 ? o : c;
+  const close = c > 0 ? c : o;
+  if (!(open > 0) || !(close > 0)) return null;
+  const high = Math.max(open, h, l, close);
+  const low = Math.min(open, h, l, close);
+  if (!(high > 0) || !(low > 0) || high < low) return null;
+  const t = unixBarTime(b.time);
+  if (t == null) return null;
+  return { time: t, open, high, low, close, volume: Number(b.volume) || 0 };
+}
+
 function ohlcLastPx() {
   if (!ohlcBarsCache.length) return 0;
   const b = ohlcBarsCache[ohlcBarsCache.length - 1];
@@ -2440,6 +2455,9 @@ function applyOhlcMovingAverages(bars, live) {
 }
 
 function applyOhlcAllSeries(bars, prevBars, live) {
+  const clean = (bars || []).map(sanitizeOhlcBar).filter(Boolean);
+  if (bars === ohlcBarsCache) ohlcBarsCache = clean;
+  bars = clean;
   const prevLine = ohlcLineData(prevBars);
   const line = ohlcLineData(bars);
   rpnlSetSeriesData(ohlcSeries, bars, prevBars, live);
@@ -2475,25 +2493,44 @@ function clearOhlcHiLo() {
   ohlcHiLoOwner = null;
 }
 
-function updateOhlcHiLo() {
-  const series = ohlcActiveSeries();
-  if (!series || !ohlcChart || !ohlcBarsCache.length) return;
-  let from = 0, to = ohlcBarsCache.length - 1;
+function ohlcVisibleHiLo() {
+  const bars = ohlcBarsCache;
+  if (!bars.length) return null;
+  let fromT = bars[0].time, toT = bars[bars.length - 1].time;
   try {
-    const vr = ohlcChart.timeScale().getVisibleLogicalRange();
-    if (vr) {
-      from = Math.max(0, Math.floor(vr.from));
-      to = Math.min(ohlcBarsCache.length - 1, Math.ceil(vr.to));
+    const logical = ohlcChart && ohlcChart.timeScale().getVisibleLogicalRange();
+    const info = (logical && ohlcSeries && typeof ohlcSeries.barsInLogicalRange === 'function')
+      ? ohlcSeries.barsInLogicalRange(logical) : null;
+    if (info && info.from != null && info.to != null) {
+      fromT = info.from;
+      toT = info.to;
+    } else {
+      const vr = ohlcChart && ohlcChart.timeScale().getVisibleRange();
+      if (vr && vr.from != null && vr.to != null) {
+        fromT = vr.from;
+        toT = vr.to;
+      }
     }
   } catch (e) {}
   let hi = -Infinity, lo = Infinity;
-  for (let i = from; i <= to; i++) {
-    const b = ohlcBarsCache[i];
-    if (!b) continue;
-    if (b.high > hi) hi = b.high;
-    if (b.low < lo) lo = b.low;
+  for (let i = 0; i < bars.length; i++) {
+    const b = bars[i];
+    if (!b || b.time < fromT || b.time > toT) continue;
+    const high = Math.max(b.open, b.high, b.low, b.close);
+    const low = Math.min(b.open, b.high, b.low, b.close);
+    if (high > hi) hi = high;
+    if (low < lo) lo = low;
   }
-  if (!isFinite(hi) || !isFinite(lo)) return;
+  if (!isFinite(hi) || !isFinite(lo)) return null;
+  return { hi, lo };
+}
+
+function updateOhlcHiLo() {
+  const series = ohlcActiveSeries();
+  if (!series || !ohlcChart || !ohlcBarsCache.length) return;
+  const range = ohlcVisibleHiLo();
+  if (!range) return;
+  const hi = range.hi, lo = range.lo;
   if (ohlcHiLoOwner && ohlcHiLoOwner !== series) clearOhlcHiLo();
   const dash = (window.LightweightCharts && LightweightCharts.LineStyle)
     ? LightweightCharts.LineStyle.Dotted : 3;
@@ -2596,8 +2633,8 @@ function paintOhlcHud(time) {
   const fill = fillAtTime(d.time);
   let html =
     '<span>O <b>' + fmtPxFull(d.open) + '</b></span>' +
-    '<span>H <b>' + fmtPxFull(d.high) + '</b></span>' +
-    '<span>L <b>' + fmtPxFull(d.low) + '</b></span>' +
+    '<span>H <b>' + fmtPxFull(Math.max(d.open, d.high, d.low, d.close)) + '</b></span>' +
+    '<span>L <b>' + fmtPxFull(Math.min(d.open, d.high, d.low, d.close)) + '</b></span>' +
     '<span>C <b class="' + cls + '">' + fmtPxFull(d.close) + '</b></span>' +
     '<span>Vol <b>' + fmtVol(d.volume) + '</b></span>';
   if (fill && ohlcShowFills) {
@@ -2625,14 +2662,15 @@ function tickOhlcLiveMark() {
   const now = Math.floor(Date.now() / 1000);
   if (now >= last.time + rpnlCandleSecs() + 2) return;
   if (mark === close) { updateOhlcCountdown(); return; }
-  const next = {
+  const next = sanitizeOhlcBar({
     time: last.time,
     open: last.open,
     high: Math.max(last.high, mark),
     low: Math.min(last.low, mark),
     close: mark,
     volume: last.volume,
-  };
+  });
+  if (!next) return;
   ohlcBarsCache[ohlcBarsCache.length - 1] = next;
   const pt = { time: next.time, value: next.close };
   try {
@@ -2645,6 +2683,7 @@ function tickOhlcLiveMark() {
   } catch (e) {}
   tickOhlcMasLast(next);
   if (!ohlcHoverTime) paintOhlcHud(null);
+  updateOhlcHiLo();
 }
 
 function tickOhlcMasLast(bar) {
@@ -3531,11 +3570,7 @@ async function loadRpnl(keepRange) {
       try {
         const cd = await cR.json();
         if (seq !== rpnlLoadSeq) return;
-        bars = dedupeTimes((cd.candles || []).map(b => ({
-          time: b.time,
-          open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close),
-          volume: Number(b.volume) || 0,
-        })).filter(b => [b.open, b.high, b.low, b.close].every(isFinite)));
+        bars = dedupeTimes((cd.candles || []).map(sanitizeOhlcBar).filter(Boolean));
         if (!bars.length) candleNote = ' · no OHLC from ' + (cd.quote_label || cd.venue || 'venue');
       } catch (e) {
         candleNote = ' · candles parse failed';

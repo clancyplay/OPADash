@@ -1370,6 +1370,41 @@ def _candle_volume(c: dict) -> float:
     return 0.0
 
 
+def _ohlc_bar(ts: int, open_: float, high: float, low: float, close: float, volume: float) -> dict | None:
+    """One candle. High/low always enclose the body so wicks render on the true range."""
+    if ts <= 0:
+        return None
+    o, h, l, c = _num(open_), _num(high), _num(low), _num(close)
+    if c <= 0 and o <= 0:
+        return None
+    if o <= 0:
+        o = c
+    if c <= 0:
+        c = o
+    hi = max(o, h, l, c)
+    lo = min(o, h, l, c)
+    if hi <= 0 or lo <= 0 or hi < lo:
+        return None
+    return {"time": int(ts), "open": o, "high": hi, "low": lo, "close": c, "volume": _num(volume)}
+
+
+def _array_kline_bar(row) -> dict | None:
+    """Venue kline arrays. OHLCV is default; KuCoin classic is [t, o, c, h, l, v]."""
+    if not isinstance(row, (list, tuple)) or len(row) < 5:
+        return None
+    ts = int(row[0])
+    if ts > 10_000_000_000:
+        ts //= 1000
+    o, a, b, c = _num(row[1]), _num(row[2]), _num(row[3]), _num(row[4])
+    vol = _num(row[5] if len(row) > 5 else 0)
+    high, low, close = a, b, c
+    ohlc_ok = a >= max(o, c) and b <= min(o, c)
+    ochl_ok = b >= max(o, a) and c <= min(o, a)
+    if not ohlc_ok and ochl_ok:
+        high, low, close = b, c, a
+    return _ohlc_bar(ts, o, high, low, close, vol)
+
+
 async def _fetch_delta_ohlc(symbol: str, resolution: str, lookback_secs: int) -> list[dict]:
     """Trade OHLC candles (not MARK:). Chunked so long windows still fill."""
     end = int(time.time())
@@ -1386,17 +1421,17 @@ async def _fetch_delta_ohlc(symbol: str, resolution: str, lookback_secs: int) ->
             )
             resp.raise_for_status()
             for c in resp.json().get("result", []) or []:
-                ts = _unix_from_any(c.get("time"))
-                if ts <= 0:
-                    continue
-                by_t[ts] = {
-                    "time": ts,
-                    "open": _num(c["open"]),
-                    "high": _num(c["high"]),
-                    "low": _num(c["low"]),
-                    "close": _num(c["close"]),
-                    "volume": _candle_volume(c),
-                }
+                if isinstance(c, dict):
+                    bar = _ohlc_bar(
+                        _unix_from_any(c.get("time") or c.get("timestamp")),
+                        _num(c.get("open")), _num(c.get("high")),
+                        _num(c.get("low")), _num(c.get("close")),
+                        _candle_volume(c),
+                    )
+                else:
+                    bar = _array_kline_bar(c)
+                if bar:
+                    by_t[bar["time"]] = bar
             if t1 >= end:
                 break
             t0 = t1
@@ -1435,15 +1470,9 @@ async def _fetch_binance_ohlc(
             if not rows:
                 break
             for row in rows:
-                ts = int(row[0] // 1000)
-                by_t[ts] = {
-                    "time": ts,
-                    "open": _num(row[1]),
-                    "high": _num(row[2]),
-                    "low": _num(row[3]),
-                    "close": _num(row[4]),
-                    "volume": _num(row[5] if len(row) > 5 else 0),
-                }
+                bar = _array_kline_bar(row)
+                if bar:
+                    by_t[bar["time"]] = bar
             last_open = int(rows[-1][0])
             nxt = last_open + 1
             if nxt <= t0:
@@ -1503,15 +1532,9 @@ async def _fetch_kucoin_ohlc(symbol: str, interval: str, lookback_secs: int) -> 
             )
             resp.raise_for_status()
             for row in resp.json().get("data") or []:
-                ts = int(row[0]) // 1000
-                by_t[ts] = {
-                    "time": ts,
-                    "open": _num(row[1]),
-                    "high": _num(row[2]),
-                    "low": _num(row[3]),
-                    "close": _num(row[4]),
-                    "volume": _num(row[5] if len(row) > 5 else 0),
-                }
+                bar = _array_kline_bar(row)
+                if bar:
+                    by_t[bar["time"]] = bar
             if t1 >= end_ms:
                 break
             t0 = t1
@@ -1572,15 +1595,9 @@ async def _bybit_kline_range(
         if not rows:
             break
         for row in rows:
-            ts = int(row[0]) // 1000
-            by_t[ts] = {
-                "time": ts,
-                "open": _num(row[1]),
-                "high": _num(row[2]),
-                "low": _num(row[3]),
-                "close": _num(row[4]),
-                "volume": _num(row[5] if len(row) > 5 else 0),
-            }
+            bar = _array_kline_bar(row)
+            if bar:
+                by_t[bar["time"]] = bar
         oldest = min(int(r[0]) for r in rows)
         if oldest <= start_ms or len(rows) < 1000:
             break
@@ -1665,12 +1682,6 @@ def _iso_utc(ts: int) -> str:
     return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _ohlc_bar(ts: int, open_: float, high: float, low: float, close: float, volume: float) -> dict | None:
-    if ts <= 0 or close <= 0:
-        return None
-    return {"time": ts, "open": open_, "high": high, "low": low, "close": close, "volume": volume}
-
-
 def _resample_ohlc(bars: list[dict], bucket_secs: int) -> list[dict]:
     if bucket_secs <= 0:
         return bars
@@ -1684,11 +1695,16 @@ def _resample_ohlc(bars: list[dict], bucket_secs: int) -> list[dict]:
                 "close": b["close"], "volume": _num(b.get("volume")),
             }
         else:
-            slot["high"] = max(slot["high"], b["high"])
-            slot["low"] = min(slot["low"], b["low"])
+            slot["high"] = max(slot["high"], b["high"], b["open"], b["close"])
+            slot["low"] = min(slot["low"], b["low"], b["open"], b["close"])
             slot["close"] = b["close"]
             slot["volume"] = _num(slot.get("volume")) + _num(b.get("volume"))
-    return sorted(buckets.values(), key=lambda x: x["time"])
+    out = []
+    for slot in buckets.values():
+        bar = _ohlc_bar(slot["time"], slot["open"], slot["high"], slot["low"], slot["close"], slot["volume"])
+        if bar:
+            out.append(bar)
+    return sorted(out, key=lambda x: x["time"])
 
 
 def _parse_coinbase_rows(rows: list) -> dict[int, dict]:
@@ -1702,8 +1718,13 @@ def _parse_coinbase_rows(rows: list) -> dict[int, dict]:
             )
         elif isinstance(row, (list, tuple)) and len(row) >= 5:
             ts = _unix_from_any(row[0])
-            bar = _ohlc_bar(ts, _num(row[1]), _num(row[2]), _num(row[3]), _num(row[4]),
-                            _num(row[5] if len(row) > 5 else 0))
+            a, b, c, d = _num(row[1]), _num(row[2]), _num(row[3]), _num(row[4])
+            vol = _num(row[5] if len(row) > 5 else 0)
+            # Coinbase Exchange: [time, low, high, open, close, volume]
+            if b >= max(c, d) and a <= min(c, d):
+                bar = _ohlc_bar(ts, c, b, a, d, vol)
+            else:
+                bar = _ohlc_bar(ts, a, b, c, d, vol)
         else:
             bar = None
         if bar:
