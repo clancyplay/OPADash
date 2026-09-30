@@ -139,7 +139,7 @@ def _ladder(*, auto=True, auto_defaults=None, touch=False, vol=False, fate=True,
     rows.append(_IGNORE)
     rows.append(_geom(
         ["hem", "span", "step"],
-        "Each edge is % of price, or whole ticks. Ticks win. Auto fits that one edge from the live book — you cannot type it while Auto is on. Step × sits on the Step row.",
+        "Each edge is % of price, or whole ticks. Ticks win. Auto fits that edge from the live book; typing a number switches it to manual. Step × sits on the Step row.",
         auto=["hem", "span", "step"] if auto else None,
         auto_defaults=auto_defaults,
     ))

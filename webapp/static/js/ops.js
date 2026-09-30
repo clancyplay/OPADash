@@ -515,6 +515,7 @@ function setOpsGeomAuto(id, on) {
     setOpsGeomUnit(id, 'pct');
   }
   row.dataset.auto = want ? '1' : '0';
+  if (want) row.dataset.dirty = '0';
   row.classList.toggle('is-auto', want);
   row.querySelectorAll('.rp-ops-len-mode button').forEach(b => {
     b.classList.toggle('on', (b.getAttribute('data-auto') === '1') === want);
@@ -524,6 +525,12 @@ function setOpsGeomAuto(id, on) {
 }
 
 function onOpsGeomInput(id) {
+  const row = document.querySelector('#opsGeom [data-geom="' + id + '"]');
+  if (row) row.dataset.dirty = '1';
+  if (opsGeomAutoOn(id)) {
+    setOpsGeomAuto(id, false);
+    return;
+  }
   persistOpsGeom();
   updateOpsGeomSum();
 }
@@ -739,7 +746,7 @@ function syncOpsFitLock() {
     const on = opsGeomAutoOn(g.id);
     row.classList.toggle('is-auto', on);
     const inp = document.getElementById('opsG_' + g.id);
-    if (inp) inp.disabled = on;
+    if (inp) inp.disabled = false;
     row.querySelectorAll('.rp-ops-unit:not(.rp-ops-len-mode) button').forEach(el => { el.disabled = on; });
   });
   const geom = document.getElementById('opsGeom');
@@ -797,6 +804,7 @@ function applyLiveToGeomInputs(s) {
     if (!row || !inp) return;
     if (pct != null && pct !== '') row.dataset.pct = String(pct);
     if (ticks != null && ticks !== '') row.dataset.ticks = String(ticks);
+    if (document.activeElement === inp || row.dataset.dirty === '1') return;
     const useTicks = !opsGeomAutoOn(g.id) && ticks != null && Number(ticks) > 0;
     row.querySelectorAll('.rp-ops-unit:not(.rp-ops-len-mode) button').forEach(b => {
       b.classList.toggle('on', b.getAttribute('data-unit') === (useTicks ? 'ticks' : 'pct'));
@@ -807,7 +815,11 @@ function applyLiveToGeomInputs(s) {
     else if (pct != null && pct !== '') inp.value = String(pct);
   });
   const stepPct = document.getElementById('opsP_STEP_PCT');
-  if (stepPct && s.step != null && opsGeomAutoOn('step')) stepPct.value = String(s.step);
+  const stepRow = document.querySelector('#opsGeom [data-geom="step"]');
+  if (stepPct && s.step != null && opsGeomAutoOn('step') &&
+      document.activeElement !== stepPct && !(stepRow && stepRow.dataset.dirty === '1')) {
+    stepPct.value = String(s.step);
+  }
   updateOpsGeomSum();
 }
 
@@ -850,7 +862,7 @@ function renderOpsGlossary() {
       if (lenses.indexOf('span') >= 0) add('span', 'Span', 'Far edge, measured from the hem. Auto fits it from the live book.');
       if (lenses.indexOf('step') >= 0 || lenses.indexOf('tail') >= 0) add('step', 'Step', 'First same-side gap behind an edge. Auto fits it from the live book.');
       if (lenses.indexOf('k') >= 0) add('k', 'K', 'Offset from the touch. 0 joins the bid–ask.');
-      if (Array.isArray(p.auto) && p.auto.length) add('auto', 'Auto / manual', 'Auto fits that edge from the live book. Manual uses the number you type.');
+      if (Array.isArray(p.auto) && p.auto.length) add('auto', 'Auto / manual', 'Auto fits that edge from the live book. Typing a number switches it to manual and keeps the value you type.');
     } else if (p.key === 'ORDERS') add('orders', 'Orders / side', 'How many quotes hang on each side.');
     else if (p.key === 'HOOK') add('hook', 'Hook', 'What the ladder hangs off — mid, inventory, or last.');
     else if (p.key === 'STEP_MULT') add('sm', 'Step ×', 'How the step grows down the ladder. Lives on the Step row.');
