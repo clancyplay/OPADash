@@ -1067,7 +1067,7 @@ const OPS_GLOSS = {
   STEP_AUTO: 'Fit the step from the live spread. Off uses Step % as typed.',
   STEP_PCT: 'Gap between rungs when Fit step is off.',
   ARB_VENUE: 'Second venue. Restart to change it. Uses that venue’s key from this OPADash service or Balances, not this subaccount.',
-  ARB_SYMBOL: 'Symbol on the other venue. Blank maps the coin (Coinbase → ROOT-PERP). Restart to change it.',
+  ARB_SYMBOL: 'Symbol on the other venue. Blank maps the coin (Coinbase → ROOT-PERP-INTX). Restart to change it.',
   ARB_MIN_PCT: 'Fire when the gap, after the fee haircut, is at least this percent.',
   ARB_FEE_PCT: 'Taker haircut taken off the gross gap. 0.10 is both legs.',
   ARB_COOL_SECS: 'Wait after a shot before the next one.',

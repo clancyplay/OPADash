@@ -121,7 +121,7 @@ def arb_other_symbol(quote_sym: str, other_venue: str, explicit: str = "") -> st
     if v == "delta":
         return root + "USD"
     if v == "coinbase":
-        return f"{root}-PERP"
+        return f"{root}-PERP-INTX"
     return ""
 
 
