@@ -1,6 +1,6 @@
 """Start OPA6 bots from OPADash.
 
-Local: `python3 stack.py SYMBOL` in the sibling OPA6 tree (or OPA6_ROOT).
+Local: `python3 strategies/stack.py SYMBOL` in the sibling OPA6 tree (or OPA6_ROOT).
 Railway: create a new service in this project from the OPA6 GitHub repo.
 """
 from __future__ import annotations
@@ -23,22 +23,19 @@ _LOCK = _ROOT / "config" / "launches.lock"
 _BOT_ENV = _ROOT / "config" / "bots"
 
 BOTS = {
-    "belt": "belt.py",
-    "chop": "chop.py",
-    "clip": "clip.py",
-    "edge": "edge.py",
-    "fade": "fade.py",
-    "flip": "flip.py",
-    "harvest": "harvest.py",
-    "lean": "lean.py",
-    "momentum": "momentum.py",
-    "pair": "pair.py",
-    "plain": "plain.py",
-    "shop": "shop.py",
-    "stack": "stack.py",
-    "surge": "surge.py",
-    "touch": "touch.py",
-    "wing": "wing.py",
+    "clip": "strategies/clip.py",
+    "edge": "strategies/edge.py",
+    "fade": "strategies/fade.py",
+    "flip": "strategies/flip.py",
+    "harvest": "strategies/harvest.py",
+    "lean": "strategies/lean.py",
+    "momentum": "strategies/momentum.py",
+    "pair": "strategies/pair.py",
+    "shop": "strategies/shop.py",
+    "stack": "strategies/stack.py",
+    "surge": "strategies/surge.py",
+    "touch": "strategies/touch.py",
+    "wing": "strategies/wing.py",
 }
 
 VENUE_ENV = {
@@ -87,13 +84,13 @@ def _railway_missing_msg() -> str:
 
 def _is_opa6_tree(path: Path) -> bool:
     try:
-        return path.is_dir() and (path / "stack.py").is_file()
+        return path.is_dir() and (path / "strategies" / "stack.py").is_file()
     except OSError:
         return False
 
 
 def opa6_root() -> Path:
-    """Folder that contains stack.py. OPA6_ROOT wins if it exists; else sibling OPA6."""
+    """OPA6 root (the folder that contains strategies/stack.py). OPA6_ROOT wins."""
     load_env_file()
     tried: list[Path] = []
 
@@ -506,7 +503,9 @@ def _scrub_params(raw: dict | None) -> dict[str, str]:
             text = "true" if val else "false"
         else:
             text = str(val).strip()
-        if not text or len(text) > 200:
+        if len(text) > 200:
+            continue
+        if not text and not name.startswith("CLOCK"):
             continue
         out[name] = text
     return out
@@ -589,6 +588,18 @@ _KNOB_SETUP = (
     ("FENCE_PCT", "fence_pct", "float"),
     ("FENCE_LOT", "fence_lot", "int"),
     ("FIELD_DUST", "dust", "float"),
+    ("CLOCK", "clock_on", "bool"),
+    ("CLOCK_WINDOWS", "clock_windows", "str"),
+    ("CLOCK_TZ", "clock_tz", "str"),
+    ("CLOCK_WINDDOWN_MINS", "clock_wind", "float"),
+    ("CLOCK_OPEN_DELAY_MINS", "clock_delay", "float"),
+    ("CLOCK_ORDERS", "clock_orders", "str"),
+    ("CLOCK_POS", "clock_pos", "str"),
+    ("CLOCK_DAY_LOSS_USD", "clock_day_loss", "float"),
+    ("CLOCK_DAY_WIN_USD", "clock_day_win", "float"),
+    ("CLOCK_DAY_RESET", "clock_day_reset", "str"),
+    ("CLOCK_HOLD_SECS", "clock_hold", "float"),
+    ("CLOCK_ARM", "clock_arm", "bool"),
 )
 
 
@@ -638,7 +649,7 @@ def knobs_as_setup(knobs: dict[str, str] | None) -> dict:
             out[setup_key] = _bool(val)
         elif kind == "str":
             text = str(val or "").strip()
-            if text:
+            if text or setup_key == "clock_windows":
                 out[setup_key] = text
         else:
             n = _num(val, kind)
@@ -965,7 +976,7 @@ def launch(
     if mode == "missing":
         root = opa6_root()
         raise FileNotFoundError(
-            f"OPA6 folder missing: {root} (set OPA6_ROOT to the folder that contains stack.py)"
+            f"OPA6 folder missing: {root} (set OPA6_ROOT to the folder that contains strategies/stack.py)"
         )
 
     root = opa6_root()

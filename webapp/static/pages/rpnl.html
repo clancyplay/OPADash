@@ -175,6 +175,61 @@
           </label>
         </div>
         <div id="opsParams"></div>
+        <div class="rp-ops-group" id="opsClock">
+          <div class="rp-ops-sub">Clock</div>
+          <p class="rp-ops-hint" id="opsClockStatus">Off until you turn it on. With the clock off, the bot quotes the whole day.</p>
+          <div class="rp-ops-params">
+            <label class="rp-ops-check"><input id="ckOn" type="checkbox"> On</label>
+            <label class="rp-ops-check"><input id="ckArm" type="checkbox"> Arm required</label>
+            <label class="rp-ops-wide">Windows
+              <input id="ckWindows" type="text" placeholder="1-5 05:00-21:00" spellcheck="false" autocomplete="off">
+            </label>
+            <label>Zone
+              <input id="ckTz" type="text" value="Asia/Kolkata" spellcheck="false" autocomplete="off">
+            </label>
+            <label>Wind-down min
+              <input id="ckWind" type="number" min="0" step="1" value="15">
+            </label>
+            <label>Open delay min
+              <input id="ckDelay" type="number" min="0" step="1" value="0">
+            </label>
+            <label>Orders at close
+              <select id="ckOrders">
+                <option value="cancel" selected>Cancel</option>
+                <option value="keep">Keep</option>
+              </select>
+            </label>
+            <label>Position at close
+              <select id="ckPos">
+                <option value="hold" selected>Hold</option>
+                <option value="flatten">Flatten</option>
+                <option value="cover">Cover</option>
+              </select>
+            </label>
+            <label>Day loss $
+              <input id="ckLoss" type="number" min="0" step="1" value="0">
+            </label>
+            <label>Day win $
+              <input id="ckWin" type="number" min="0" step="1" value="0">
+            </label>
+            <label>Day reset
+              <input id="ckReset" type="text" value="00:00" placeholder="00:00" spellcheck="false" autocomplete="off">
+            </label>
+            <label>Max hold sec
+              <input id="ckHold" type="number" min="0" step="1" value="0">
+            </label>
+          </div>
+          <p class="rp-ops-hint">Days 1–7 are Monday–Sunday. Leave the days off for every day. 22:00-02:00 crosses midnight. Separate windows with a semicolon.</p>
+          <div id="opsClockSuggest" class="rp-ops-clock-suggest ops-edit-only" hidden></div>
+          <div class="rp-ops-clock-acts ops-edit-only">
+            <button type="button" class="btn" onclick="opsClockCmd('arm')">Arm</button>
+            <button type="button" class="btn" onclick="opsClockCmd('disarm')">Disarm</button>
+            <button type="button" class="btn" onclick="opsClockCmd('open')">Force open</button>
+            <button type="button" class="btn" onclick="opsClockCmd('closed')">Force closed</button>
+            <button type="button" class="btn" onclick="opsClockCmd('auto')">Auto</button>
+            <button type="button" class="btn" onclick="opsClockCmd('skip')">Skip next close</button>
+          </div>
+        </div>
         <details class="rp-ops-extra ops-launch-only" id="opsExtraWrap">
           <summary>More env</summary>
           <textarea id="opsExtra" rows="2" placeholder="TOUCH_TICKS=1"></textarea>

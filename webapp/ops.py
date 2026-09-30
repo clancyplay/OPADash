@@ -134,7 +134,7 @@ def _fate():
 
 
 def _ladder(*, auto=True, auto_defaults=None, touch=False, vol=False, fate=True, hook=True, quote_ms="150", place_secs="20"):
-    """Hem/span/step makers: stack, clip, chop, fade, flip."""
+    """Hem/span/step makers: stack, clip, fade, flip."""
     rows = _max() + [_ORDERS]
     if hook:
         rows.append(_HOOK)
@@ -200,56 +200,55 @@ STRATEGIES = [
     },
     {
         "id": "clip", "label": "Clip",
-        "blurb": "Hem/span ladder with clip-sized rungs.",
-        "params": _ladder(vol=True),
-    },
-    {
-        "id": "chop", "label": "Chop",
-        "blurb": "Hem/span ladder; span stays at env width.",
-        "params": _ladder(vol=True, place_secs="60"),
+        "blurb": "Hem/span ladder; market-close each chunk as soon as it is green.",
+        "params": _ladder(vol=True) + [
+            {"key": "CHUNKS", "label": "Chunks", "type": "int", "default": "3", "min": 0, "group": "size",
+             "hint": "How many pieces to peel on a green close. 0 uses Orders."},
+            {"key": "EQUAL", "label": "Equal rungs", "type": "bool", "default": True, "group": "size",
+             "hint": "Off restores stack's doubling sizes."},
+            {"key": "COVER_QUOTES", "label": "Cover quotes", "type": "bool", "default": False, "group": "quote",
+             "hint": "Keep maker cover quotes while inventoried. Off means the clip is the exit."},
+            {"key": "CLIP_MIN_PCT", "label": "Clip min %", "type": "number", "default": "0", "min": 0, "group": "risk"},
+            {"key": "CLIP_MIN_USD", "label": "Clip min $", "type": "number", "default": "0", "min": 0, "group": "risk"},
+            {"key": "CLIP_COOL_SECS", "label": "Clip cool", "type": "number", "default": "0", "min": 0, "group": "pace"},
+        ],
     },
     {
         "id": "fade", "label": "Fade",
-        "blurb": "Hem/span ladder that fades tape bursts.",
-        "params": _ladder(vol=True),
+        "blurb": "Hem/span ladder; size rides the tape, then TAKE peels green.",
+        "params": _ladder(vol=True) + [
+            {"key": "FLOW_SKEW", "label": "Flow skew", "type": "number", "default": "0.6", "group": "quote",
+             "hint": "Buy-heavy tape grows buys. Negative fades the crowd."},
+            {"key": "FLOW_MIN", "label": "Flow min", "type": "number", "default": "0.25", "min": 0, "group": "quote",
+             "hint": "Floor on the quiet side, as a fraction of a."},
+            {"key": "FLOW_WINDOW_SECS", "label": "Flow secs", "type": "number", "default": "15", "min": 1, "group": "quote"},
+            {"key": "FLOW_MIN_TRADES", "label": "Flow prints", "type": "int", "default": "4", "min": 1, "group": "quote"},
+            {"key": "TAKE_PCT", "label": "Take %", "type": "number", "default": "0.1", "min": 0, "group": "risk",
+             "hint": "Market-flatten when uPnL vs VWAP is at least this percent. 0 is off."},
+            {"key": "TAKE_USD", "label": "Take $", "type": "number", "default": "0", "min": 0, "group": "risk"},
+            {"key": "TAKE_COOL_SECS", "label": "Take cool", "type": "number", "default": "2", "min": 0, "group": "pace"},
+        ],
     },
     {
         "id": "flip", "label": "Flip",
-        "blurb": "Hem/span ladder; blank min/max follows the live book.",
-        "params": _ladder(touch=True, vol=True),
-    },
-    {
-        "id": "plain", "label": "Plain",
-        "blurb": "Hem/span/step only — no vol or fate.",
-        "params": _max() + [
-            {**_ORDERS, "default": "4"},
-            _HOOK,
-            _IGNORE,
-            _geom(["hem", "span", "step"], _GEOM_HINT),
-            {**_MULT, "embed": True},
-            *_pace(quote_ms="500", place_secs="60"),
-            _DRY,
+        "blurb": "Hem/span ladder; reverse when uPnL is too red, TAKE when green.",
+        "params": _ladder(touch=True, vol=True) + [
+            {"key": "FLIP", "label": "Flip", "type": "bool", "default": True, "group": "risk"},
+            {"key": "FLIP_LOSS_INR", "label": "Flip loss ₹", "type": "number", "default": "100", "min": 0, "group": "risk",
+             "hint": "Reverse the position once uPnL is at least this far red, in rupees."},
+            {"key": "FLIP_HOLD_SECS", "label": "Flip hold", "type": "number", "default": "20", "min": 0, "group": "pace"},
+            {"key": "FLIP_COOL_SECS", "label": "Flip cool", "type": "number", "default": "60", "min": 0, "group": "pace"},
+            {"key": "TAKE", "label": "Take", "type": "bool", "default": True, "group": "risk"},
+            {"key": "TAKE_PCT", "label": "Take %", "type": "number", "default": "0", "min": 0, "group": "risk",
+             "hint": "Extra percent floor on a green close. 0 means one tick of profit is enough."},
+            {"key": "TAKE_USD", "label": "Take $", "type": "number", "default": "0", "min": 0, "group": "risk"},
+            {"key": "TAKE_COOL_SECS", "label": "Take cool", "type": "number", "default": "2", "min": 0, "group": "pace"},
         ],
     },
     {
         "id": "lean", "label": "Lean",
         "blurb": "Join the touch when flat; cover-only with inventory. No hem/span.",
         "params": _touch_like(k_default="0.05"),
-    },
-    {
-        "id": "belt", "label": "Belt",
-        "blurb": "Two edges off the hook, tails behind both. No step ladder.",
-        "params": _max() + [
-            {"key": "TAILS", "label": "Tails / side", "type": "int", "default": "2", "group": "size"},
-            _HOOK,
-            _IGNORE,
-            _geom(["hem", "span", "tail"], "Hem, span, and tail each have min and max. Blank follows the book."),
-            {**_MULT, "embed": True},
-            *_pace(place_secs="60"),
-            *_fate(),
-            {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
-            _DRY,
-        ],
     },
     {
         "id": "touch", "label": "Touch",

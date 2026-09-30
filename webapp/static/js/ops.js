@@ -1301,10 +1301,24 @@ function fillOpsFromSetup(s) {
   setNum('opsP_TRAIL_PCT', s.trail_pct);
   setNum('opsP_MOM_STOP_PCT', s.mom_stop_pct);
   if (s.flip != null) setChk('opsP_FLIP', s.flip, true);
+  setNum('opsP_CHUNKS', s.chunks);
+  if (s.equal != null) setChk('opsP_EQUAL', s.equal, true);
+  if (s.cover_quotes != null) setChk('opsP_COVER_QUOTES', s.cover_quotes, true);
+  setNum('opsP_CLIP_MIN_PCT', s.clip_min_pct);
+  setNum('opsP_CLIP_MIN_USD', s.clip_min_usd);
+  setNum('opsP_CLIP_COOL_SECS', s.clip_cool);
+  setNum('opsP_FLOW_SKEW', s.flow_skew);
+  setNum('opsP_FLOW_MIN', s.flow_min);
+  setNum('opsP_FLOW_WINDOW_SECS', s.flow_window);
+  setNum('opsP_FLOW_MIN_TRADES', s.flow_prints);
+  setNum('opsP_TAKE_PCT', s.take_pct);
+  setNum('opsP_TAKE_USD', s.take_usd);
+  setNum('opsP_TAKE_COOL_SECS', s.take_cool);
+  if (s.take != null) setChk('opsP_TAKE', s.take, true);
+  setNum('opsP_FLIP_LOSS_INR', s.flip_loss_inr);
+  setNum('opsP_FLIP_HOLD_SECS', s.flip_hold_secs);
+  setNum('opsP_FLIP_COOL_SECS', s.flip_cool_secs);
   if (s.tails != null) setNum('opsP_TAILS', s.tails);
-  else if (opsEdit && opsEdit.strategy === 'belt' && s.orders != null) {
-    setNum('opsP_TAILS', Math.max(0, Number(s.orders) - 1));
-  }
   if (s.pair_hedge != null) setChk('opsP_PAIR_HEDGE', s.pair_hedge, true);
   else if (s.hedge_via) setChk('opsP_PAIR_HEDGE', true, true);
   else if (opsEdit && opsEdit.strategy === 'pair') setChk('opsP_PAIR_HEDGE', false, true);
@@ -1337,6 +1351,7 @@ function fillOpsFromSetup(s) {
   setText('opsP_STOCKROOM', s.stockroom);
   setText('opsP_CROP', s.crop);
   setText('opsP_EXPIRY', s.expiry);
+  fillOpsClock(s);
   opsGeomLens().forEach(g => {
     const ticksKey = g.id === 'k' ? 'k_ticks' : (g.id === 'tail' ? 'step_ticks' : g.id + '_ticks');
     const pctKey = g.id === 'k' ? 'k' : (g.id === 'tail' ? 'step' : g.id);
@@ -1470,6 +1485,145 @@ async function waitForRpnlPill(contract, account, strategy, rail) {
   setOpsMsg('opsLaunchMsg', 'Service created. Open rPnL after the Railway deploy goes live if the pill is not here yet.', false);
 }
 
+function collectOpsClock() {
+  const on = id => !!((document.getElementById(id) || {}).checked);
+  const text = id => String((document.getElementById(id) || {}).value || '').trim();
+  const num = id => {
+    const v = text(id);
+    return v === '' ? '0' : v;
+  };
+  return {
+    CLOCK: on('ckOn') ? 'true' : 'false',
+    CLOCK_WINDOWS: text('ckWindows'),
+    CLOCK_TZ: text('ckTz') || 'Asia/Kolkata',
+    CLOCK_WINDDOWN_MINS: num('ckWind'),
+    CLOCK_OPEN_DELAY_MINS: num('ckDelay'),
+    CLOCK_ORDERS: text('ckOrders') || 'cancel',
+    CLOCK_POS: text('ckPos') || 'hold',
+    CLOCK_DAY_LOSS_USD: num('ckLoss'),
+    CLOCK_DAY_WIN_USD: num('ckWin'),
+    CLOCK_DAY_RESET: text('ckReset') || '00:00',
+    CLOCK_HOLD_SECS: num('ckHold'),
+    CLOCK_ARM: on('ckArm') ? 'true' : 'false',
+  };
+}
+
+function opsClockError() {
+  const raw = String((document.getElementById('ckWindows') || {}).value || '').trim();
+  if (!raw) return '';
+  const re = /^(?:([0-9][0-9,\-\s]*)\s+)?(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/;
+  const timeOk = (h, mi) => (h === 24 && mi === 0) || (h >= 0 && h <= 23 && mi >= 0 && mi <= 59);
+  for (const part of raw.split(';')) {
+    const bit = part.trim().replace(/\s+/g, ' ');
+    if (!bit) continue;
+    const m = re.exec(bit);
+    if (!m) return 'Window should look like 1-5 05:00-21:00';
+    if (!timeOk(+m[2], +m[3]) || !timeOk(+m[4], +m[5])) return 'Clock time is out of range';
+    const days = (m[1] || '').trim();
+    if (!days) continue;
+    for (const piece of days.split(',')) {
+      const tok = piece.trim();
+      if (!tok) continue;
+      const ends = tok.split('-');
+      if (ends.length > 2) return 'Clock days are 1-7, Monday is 1';
+      for (const n of ends) {
+        const d = Number(n);
+        if (!Number.isInteger(d) || d < 1 || d > 7) return 'Clock days are 1-7, Monday is 1';
+      }
+    }
+  }
+  const reset = String((document.getElementById('ckReset') || {}).value || '').trim();
+  if (reset && !/^\d{1,2}:\d{2}$/.test(reset)) return 'Day reset should look like 00:00';
+  return '';
+}
+
+function fillOpsClock(s) {
+  s = s || {};
+  const setVal = (id, key, fallback) => {
+    const el = document.getElementById(id);
+    if (!el || !(key in s) || s[key] == null) return;
+    el.value = s[key] === '' && fallback != null ? fallback : String(s[key]);
+  };
+  const setChk = (id, key) => {
+    const el = document.getElementById(id);
+    if (!el || !(key in s)) return;
+    el.checked = s[key] === true || s[key] === 'true' || s[key] === 'on' || s[key] === 1 || s[key] === '1';
+  };
+  setChk('ckOn', 'clock_on');
+  setChk('ckArm', 'clock_arm');
+  setVal('ckWindows', 'clock_windows', '');
+  setVal('ckTz', 'clock_tz', 'Asia/Kolkata');
+  setVal('ckWind', 'clock_wind', '15');
+  setVal('ckDelay', 'clock_delay', '0');
+  setVal('ckOrders', 'clock_orders', 'cancel');
+  setVal('ckPos', 'clock_pos', 'hold');
+  setVal('ckLoss', 'clock_day_loss', '0');
+  setVal('ckWin', 'clock_day_win', '0');
+  setVal('ckReset', 'clock_day_reset', '00:00');
+  setVal('ckHold', 'clock_hold', '0');
+  const st = document.getElementById('opsClockStatus');
+  if (st) {
+    if (opsEdit && typeof rpnlClockStatus === 'function') st.textContent = rpnlClockStatus(s);
+    else st.textContent = 'Off until you turn it on. With the clock off, the bot quotes the whole day.';
+  }
+  const sug = document.getElementById('opsClockSuggest');
+  if (!sug) return;
+  if (opsEdit && s.clock_suggest) {
+    sug.hidden = false;
+    sug.innerHTML = '<span>' + escHtml(s.clock_suggest_why || s.clock_suggest) +
+      (s.clock_suggest_n ? ' · ' + s.clock_suggest_n + ' days' : '') +
+      '</span><button type="button" class="btn" onclick="opsClockCmd(\'accept\')">Accept</button>';
+  } else {
+    sug.hidden = true;
+    sug.innerHTML = '';
+  }
+}
+
+async function opsPostClock(cmd, payload) {
+  if (!opsEdit) return 'open a live contract to change the clock';
+  const r = await fetch('/api/bot/command', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      cmd: cmd,
+      contract: opsEdit.contract,
+      account: opsEdit.account,
+      account_name: opsEdit.account_name || '',
+      strategy: opsEdit.strategy,
+      venue: opsEdit.venue || '',
+      payload: payload || {},
+    }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) return opsErr(d, r.status);
+  return waitOpsCommand(d.id);
+}
+
+async function opsClockCmd(kind) {
+  if (!opsEdit) return;
+  const cmds = {
+    arm: ['clock_arm', { CLOCK_ARMED: 'true', armed: true }],
+    disarm: ['clock_arm', { CLOCK_ARMED: 'false', armed: false }],
+    open: ['clock_force', { CLOCK_OVERRIDE: 'open', override: 'open' }],
+    closed: ['clock_force', { CLOCK_OVERRIDE: 'closed', override: 'closed' }],
+    auto: ['clock_force', { CLOCK_OVERRIDE: 'auto', override: 'auto' }],
+    skip: ['clock_skip', {}],
+    accept: ['clock_accept', {}],
+  };
+  const hit = cmds[kind];
+  if (!hit) return;
+  setOpsMsg('opsLaunchMsg', 'Sending clock…', false);
+  try {
+    const err = await opsPostClock(hit[0], hit[1]);
+    if (err) return setOpsMsg('opsLaunchMsg', err, true);
+    toast('clock ' + kind + ' · ' + (opsEdit.qsym || opsEdit.contract || ''), 'ok');
+    setOpsMsg('opsLaunchMsg', 'Clock updated', false);
+    if (typeof loadRpnl === 'function') loadRpnl(true);
+  } catch (e) {
+    setOpsMsg('opsLaunchMsg', String(e), true);
+  }
+}
+
 async function submitOpsLaunch() {
   if (opsEdit) return submitOpsEdit();
   const venue = opsVenue();
@@ -1478,7 +1632,7 @@ async function submitOpsLaunch() {
   const strategy = (document.getElementById('opsStrategy') || {}).value || '';
   if (!account) return setOpsMsg('opsLaunchMsg', 'Pick a subaccount with API keys', true);
   if (!contract) return setOpsMsg('opsLaunchMsg', 'Contract required', true);
-  const geomErr = validateOpsGeom() || validateOpsParams();
+  const geomErr = validateOpsGeom() || validateOpsParams() || opsClockError();
   if (geomErr) return setOpsMsg('opsLaunchMsg', geomErr, true);
   if ((strategy === 'pair' || strategy === 'wing' || strategy === 'harvest') && venue !== 'delta') {
     return setOpsMsg('opsLaunchMsg', strategy + ' runs on Delta', true);
@@ -1500,7 +1654,7 @@ async function submitOpsLaunch() {
     const r = await fetch('/api/ops/launch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ venue, account, contract, strategy, params: collectOpsParams() }),
+      body: JSON.stringify({ venue, account, contract, strategy, params: Object.assign(collectOpsParams(), collectOpsClock()) }),
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
@@ -1632,9 +1786,10 @@ async function waitOpsCommand(id) {
 
 async function submitOpsEdit() {
   if (!opsEdit) return;
-  const geomErr = validateOpsGeom() || validateOpsParams();
+  const geomErr = validateOpsGeom() || validateOpsParams() || opsClockError();
   if (geomErr) return setOpsMsg('opsLaunchMsg', geomErr, true);
   const payload = collectOpsParams();
+  const clock = collectOpsClock();
   const btn = document.getElementById('opsLaunchBtn');
   if (btn) btn.disabled = true;
   setOpsMsg('opsLaunchMsg', 'Applying…', false);
@@ -1665,6 +1820,12 @@ async function submitOpsEdit() {
       return;
     }
     opsRememberEdit(payload);
+    setOpsMsg('opsLaunchMsg', 'Applying clock…', false);
+    const clockErr = await opsPostClock('clock', clock);
+    if (clockErr) {
+      setOpsMsg('opsLaunchMsg', clockErr, true);
+      return;
+    }
     if (d.persist_error) {
       toast('updated ' + name + ' live, env save failed', 'err');
       setOpsMsg('opsLaunchMsg', d.persist_error, true);

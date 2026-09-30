@@ -1225,6 +1225,15 @@ body.ops-open { overflow: hidden; }
   display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; align-items: start;
 }
 #opsParams { margin-bottom: 12px; }
+.rp-ops-clock-acts {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
+}
+.rp-ops-clock-acts .btn { min-height: 32px; padding: 4px 10px; font-size: 12px; }
+.rp-ops-clock-suggest {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 8px; font-size: 12px; color: var(--text);
+}
+.rp-ops-clock-suggest .btn { min-height: 32px; padding: 4px 10px; font-size: 12px; }
 .rp-ops-blurb { margin: 0 0 12px; }
 .rp-ops-group {
   background: #1a1f2c;
