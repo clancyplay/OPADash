@@ -1581,6 +1581,7 @@ async function submitOpsRemove() {
         account: opsEdit.account,
         account_name: opsEdit.account_name || '',
         strategy: opsEdit.strategy,
+        venue: opsEdit.venue || '',
       }),
     });
     const d = await r.json().catch(() => ({}));

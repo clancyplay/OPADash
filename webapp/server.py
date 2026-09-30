@@ -2220,6 +2220,7 @@ class LaunchStopRequest(BaseModel):
     account: str = ""
     account_name: str = ""
     strategy: str = ""
+    venue: str = ""
 
 
 class TransferRequest(BaseModel):
@@ -2533,6 +2534,32 @@ async def _wait_bot_command(cmd_id: int | None, timeout: float = 28.0) -> dict:
     return last
 
 
+def _venue_symbol(quote: str, contract: str) -> str:
+    raw = str(quote or contract or "").strip()
+    return raw.upper().replace("-", "").replace("_", "")
+
+
+async def _sweep_venue(account: str, account_name: str, symbol: str, venue: str, tries: int = 6) -> dict:
+    """Cancel and flatten after the quoter is dead so it cannot replace the book."""
+    last: dict = {"ok": False, "skipped": True, "size": 0.0, "orders": -1, "error": ""}
+    tries = max(1, int(tries or 1))
+    for attempt in range(tries):
+        try:
+            last = await dash_ops.vacate_account(account, account_name, symbol, venue)
+        except Exception as extra:
+            logger.warning("webapp: venue vacate failed — %s", extra)
+            last = {"ok": False, "error": str(extra)[:160], "size": 0.0, "orders": -1}
+        if last.get("skipped") or last.get("ok"):
+            return last
+        logger.info(
+            "webapp: vacate %s %s try=%s orders=%s pos=%s err=%s",
+            venue, symbol, attempt + 1, last.get("orders"), last.get("size"), last.get("error") or "",
+        )
+        if attempt + 1 < tries:
+            await asyncio.sleep(1.2)
+    return last
+
+
 @app.post("/api/ops/bots/stop")
 async def ops_bot_stop(req: LaunchStopRequest) -> dict:
     aliases = await _stop_aliases(req.account, req.account_name)
@@ -2545,77 +2572,82 @@ async def ops_bot_stop(req: LaunchStopRequest) -> dict:
         aliases=aliases,
         contracts=contracts,
     )
-    if rec is None:
+    contract = canon_contract(req.contract or (rec or {}).get("contract") or "") or str(req.contract or (rec or {}).get("contract") or "")
+    symbol = _venue_symbol(req.quote, contract or str((rec or {}).get("contract") or ""))
+    account = str(req.account or (rec or {}).get("account") or "").strip()
+    account_name = str(req.account_name or (rec or {}).get("account_name") or "").strip()
+    strategy = str(req.strategy or (rec or {}).get("strategy") or "").strip()
+    venue = str(req.venue or (rec or {}).get("venue") or "delta").strip().lower() or "delta"
+    if rec is None and not symbol:
         raise HTTPException(
             status_code=404,
             detail="No dash-started service for this contract. Only bots launched from OPADash can be removed here.",
         )
-    contract = canon_contract(req.contract or rec.get("contract") or "") or str(req.contract or rec.get("contract") or "")
-    account = str(req.account or rec.get("account") or "").strip()
-    account_name = str(req.account_name or rec.get("account_name") or "").strip()
-    strategy = str(req.strategy or rec.get("strategy") or "").strip()
-    venue = str(rec.get("venue") or "delta").strip().lower() or "delta"
     cmd_id = None
-    if _db is not None and _db.pool and contract and strategy:
+    if rec is not None and _db is not None and _db.pool and contract and strategy:
         try:
             cmd_id = await _db.insert_bot_command(
                 strategy, account, contract, "flatten", created_by="dashboard",
             )
         except Exception as extra:
             logger.debug("webapp: flatten command queue failed — %s", extra)
+    flat_status = ""
     if cmd_id:
-        waited = await _wait_bot_command(cmd_id, 28.0)
+        waited = await _wait_bot_command(cmd_id, 12.0)
+        flat_status = str(waited.get("status") or "")
         logger.info(
             "webapp: flatten before stop %s %s %s status=%s err=%s",
             strategy, contract, account or "-",
-            waited.get("status"), waited.get("error") or "",
+            flat_status, waited.get("error") or "",
         )
-    sweep: dict = {"ok": True, "skipped": True}
-    try:
-        sweep = await dash_ops.vacate_account(account, account_name, contract, venue)
-        if not sweep.get("skipped") and not sweep.get("ok"):
-            await asyncio.sleep(0.8)
-            sweep = await dash_ops.vacate_account(account, account_name, contract, venue)
-    except Exception as extra:
-        logger.warning("webapp: venue vacate failed — %s", extra)
-        sweep = {"ok": False, "error": str(extra)[:160], "size": 0.0, "orders": -1}
-    try:
-        out = dash_launch.stop(str(rec.get("id") or ""))
-    except KeyError:
-        raise HTTPException(status_code=404, detail="bot not found")
-    except (ValueError, RuntimeError) as extra:
-        raise HTTPException(status_code=400, detail=str(extra))
-    try:
-        again = await dash_ops.vacate_account(account, account_name, contract, venue)
-        if not again.get("skipped"):
-            sweep = again
-    except Exception as extra:
-        logger.warning("webapp: venue vacate after stop failed — %s", extra)
+    out: dict = {"id": "", "pid": 0, "alive": False}
+    if rec is not None:
+        try:
+            out = dash_launch.stop(str(rec.get("id") or ""))
+        except KeyError:
+            out = {"id": str(rec.get("id") or ""), "pid": 0, "alive": False, "kind": rec.get("kind") or ""}
+        except (ValueError, RuntimeError) as extra:
+            raise HTTPException(status_code=400, detail=str(extra))
+        # Railway delete returns before the container exits. A timeout means the
+        # bot never went on hold, so wait for it to stop quoting before cancelling.
+        await asyncio.sleep(0.4 if flat_status == "done" else 2.0)
+    # The service may already be gone from an earlier Remove. Still clear the book.
+    sweep = await _sweep_venue(
+        account, account_name, symbol or contract, venue,
+        tries=2 if flat_status == "done" else 8,
+    )
+    if rec is None and sweep.get("skipped"):
+        raise HTTPException(
+            status_code=404,
+            detail="No dash-started service for this contract. Only bots launched from OPADash can be removed here.",
+        )
     if _db is not None and _db.pool and contract and strategy:
         try:
             await _db.drop_live_bot(contract, account, strategy)
         except Exception as extra:
             logger.debug("webapp: drop live pill failed — %s", extra)
-    leftover = 0.0
-    try:
-        leftover = float(sweep.get("size") or 0)
-    except (TypeError, ValueError):
+    if not sweep.get("skipped") and not sweep.get("ok"):
         leftover = 0.0
-    try:
-        live_orders = int(sweep.get("orders") or 0)
-    except (TypeError, ValueError):
-        live_orders = 0
-    if not sweep.get("skipped") and (abs(leftover) > 1e-9 or live_orders > 0):
+        try:
+            leftover = float(sweep.get("size") or 0)
+        except (TypeError, ValueError):
+            leftover = 0.0
+        try:
+            live_orders = int(sweep.get("orders"))
+        except (TypeError, ValueError):
+            live_orders = -1
+        orders_bit = f"{live_orders} open order(s)" if live_orders >= 0 else "open orders could not be confirmed"
         logger.error(
             "webapp: stopped %s but venue leftover pos=%s orders=%s err=%s",
-            contract, leftover, live_orders, sweep.get("error") or "",
+            symbol or contract, leftover, live_orders, sweep.get("error") or "",
         )
         raise HTTPException(
             status_code=502,
             detail=(
-                f"Process stopped, but {contract} still has "
-                f"position {leftover:g} and {live_orders} open order(s). "
-                f"Retry Remove. {(sweep.get('error') or '')}".strip()
+                f"Process stopped, but {symbol or contract} still has "
+                f"position {leftover:g} and {orders_bit}. "
+                f"Retry Remove — it cancels the leftover book without the service. "
+                f"{(sweep.get('error') or '')}".strip()
             ),
         )
     logger.info("webapp: stopped dash bot %s pid=%s", out.get("id"), out.get("pid"))

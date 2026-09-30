@@ -935,16 +935,110 @@ def _delta_size(rows: Any, symbol: str) -> float:
     return 0.0
 
 
+def _delta_rows(data: Any) -> list | None:
+    rows = data.get("result") if isinstance(data, dict) else None
+    if isinstance(rows, dict):
+        rows = rows.get("orders") or rows.get("data") or []
+    return rows if isinstance(rows, list) else None
+
+
+def _cancel_all_body(symbol: str, product_id: int | None) -> dict:
+    """Delta ignores product_symbol on cancel-all and skips limits unless asked.
+
+    Scope with product_id. Explicit flags include resting quotes, stops, and
+    reduce-only orders. Omitting the flags leaves those orders working.
+    """
+    body = {
+        "cancel_limit_orders": True,
+        "cancel_stop_orders": True,
+        "cancel_reduce_only_orders": True,
+    }
+    if product_id:
+        body["product_id"] = int(product_id)
+    else:
+        body["product_symbol"] = symbol
+    return body
+
+
+async def _delta_product_id(client: httpx.AsyncClient, symbol: str) -> int | None:
+    base = os.getenv("DELTA_REST_URL", "https://api.india.delta.exchange").rstrip("/")
+    try:
+        r = await client.get(base + f"/v2/products/{symbol}")
+    except Exception:
+        return None
+    data: Any = r.json() if r.content else {}
+    rec = data.get("result", data) if isinstance(data, dict) else {}
+    try:
+        pid = int((rec or {}).get("id") or 0)
+    except (TypeError, ValueError):
+        return None
+    return pid or None
+
+
+def _open_ids(rows: list | None, symbol: str, scoped: bool) -> list[int] | None:
+    if rows is None:
+        return None
+    want = _norm_sym(symbol)
+    ids: list[int] = []
+    for rec in rows:
+        if not isinstance(rec, dict):
+            continue
+        ps = _norm_sym(rec.get("product_symbol") or rec.get("symbol"))
+        if ps and want and ps != want:
+            continue
+        if not scoped and ps != want:
+            continue
+        oid = rec.get("id") or rec.get("order_id")
+        if oid in (None, ""):
+            continue
+        try:
+            ids.append(int(oid))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
+async def _list_delta_open(client: httpx.AsyncClient, acct: dict, symbol: str, product_id: int | None):
+    path = "/v2/orders?states=open,pending"
+    if product_id:
+        path = f"/v2/orders?product_ids={int(product_id)}&states=open,pending"
+    st, data = await _delta_call(client, acct, "GET", path)
+    if st >= 400:
+        return -1, [], False, _delta_err(data, st) or f"list HTTP {st}"
+    ids = _open_ids(_delta_rows(data), symbol, bool(product_id))
+    if ids is None:
+        return -1, [], False, "open orders list was empty of rows"
+    return len(ids), ids, True, ""
+
+
+async def _cancel_delta_ids(client: httpx.AsyncClient, acct: dict, symbol: str, product_id: int | None, ids: list[int]) -> str:
+    err = ""
+    for i in range(0, len(ids), 20):
+        chunk = ids[i:i + 20]
+        body: dict[str, Any] = {"orders": [{"id": oid} for oid in chunk]}
+        if product_id:
+            body["product_id"] = int(product_id)
+        else:
+            body["product_symbol"] = symbol
+        st, data = await _delta_call(client, acct, "DELETE", "/v2/orders/batch", body)
+        if st >= 400 or (isinstance(data, dict) and data.get("success") is False):
+            bit = _delta_err(data, st) or f"batch cancel HTTP {st}"
+            err = (err + " · " if err else "") + bit
+    return err
+
+
 async def vacate_delta(acct: dict, symbol: str) -> dict:
     """Cancel all Delta orders for this product and market-close leftover size."""
-    symbol = str(symbol or "").strip()
+    symbol = str(symbol or "").strip().upper().replace("-", "").replace("_", "")
     out = {"ok": False, "size": 0.0, "orders": -1, "error": ""}
     if not acct or not symbol:
         out["error"] = "missing account or symbol"
         return out
     timeout = httpx.Timeout(18.0, connect=6.0)
     async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
-        st, data = await _delta_call(client, acct, "DELETE", "/v2/orders/all", {"product_symbol": symbol})
+        product_id = await _delta_product_id(client, symbol)
+        body = _cancel_all_body(symbol, product_id)
+        st, data = await _delta_call(client, acct, "DELETE", "/v2/orders/all", body)
         if st >= 400 or (isinstance(data, dict) and data.get("success") is False):
             out["error"] = _delta_err(data, st) or f"cancel HTTP {st}"
         await asyncio.sleep(0.35)
@@ -953,7 +1047,7 @@ async def vacate_delta(acct: dict, symbol: str) -> dict:
         out["size"] = size
         if abs(size) > 1e-9:
             side = "sell" if size > 0 else "buy"
-            body = {
+            close_body = {
                 "product_symbol": symbol,
                 "side": side,
                 "size": max(1, int(round(abs(size)))),
@@ -961,35 +1055,34 @@ async def vacate_delta(acct: dict, symbol: str) -> dict:
                 "time_in_force": "ioc",
                 "reduce_only": True,
             }
-            st, data = await _delta_call(client, acct, "POST", "/v2/orders", body)
+            st, data = await _delta_call(client, acct, "POST", "/v2/orders", close_body)
             if st >= 400 or (isinstance(data, dict) and data.get("success") is False):
                 bit = _delta_err(data, st) or f"close HTTP {st}"
                 out["error"] = (out["error"] + " · " if out["error"] else "") + bit
             await asyncio.sleep(0.45)
-        await _delta_call(client, acct, "DELETE", "/v2/orders/all", {"product_symbol": symbol})
+        st, data = await _delta_call(client, acct, "DELETE", "/v2/orders/all", body)
+        if st >= 400 or (isinstance(data, dict) and data.get("success") is False):
+            bit = _delta_err(data, st) or f"cancel HTTP {st}"
+            out["error"] = (out["error"] + " · " if out["error"] else "") + bit
         await asyncio.sleep(0.3)
+        live, ids, listed, list_err = await _list_delta_open(client, acct, symbol, product_id)
+        if listed and ids:
+            bit = await _cancel_delta_ids(client, acct, symbol, product_id, ids)
+            if bit:
+                out["error"] = (out["error"] + " · " if out["error"] else "") + bit
+            await asyncio.sleep(0.35)
+            live, ids, listed, list_err = await _list_delta_open(client, acct, symbol, product_id)
         st, data = await _delta_call(client, acct, "GET", "/v2/positions/margined")
         leftover = _delta_size(data.get("result") if isinstance(data, dict) else None, symbol)
         out["size"] = leftover
-        st, data = await _delta_call(client, acct, "GET", "/v2/orders?states=open,pending")
-        live = 0
-        listed = False
-        rows = data.get("result") if isinstance(data, dict) else None
-        if isinstance(rows, dict):
-            rows = rows.get("orders") or rows.get("data") or []
-        want = _norm_sym(symbol)
-        if isinstance(rows, list):
-            listed = True
-            for rec in rows:
-                if not isinstance(rec, dict):
-                    continue
-                ps = _norm_sym(rec.get("product_symbol") or rec.get("symbol"))
-                if ps == want:
-                    live += 1
+        if listed:
             out["orders"] = live
-        out["ok"] = abs(leftover) <= 1e-9 and (not listed or live == 0)
+        elif list_err:
+            out["error"] = (out["error"] + " · " if out["error"] else "") + list_err
+        out["ok"] = abs(leftover) <= 1e-9 and listed and live == 0
         if not out["ok"] and not out["error"]:
-            out["error"] = f"leftover pos={leftover:g} orders={live}"
+            shown = live if listed else -1
+            out["error"] = f"leftover pos={leftover:g} orders={shown}"
     return out
 
 
