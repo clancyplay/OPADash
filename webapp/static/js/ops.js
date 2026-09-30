@@ -405,7 +405,10 @@ function opsGeomAutoKey(g) {
 
 function opsGeomAutoOn(id) {
   const row = document.querySelector('#opsGeom [data-geom="' + id + '"]');
-  return !!(row && row.dataset.auto === '1');
+  if (!row) return false;
+  const btn = row.querySelector('.rp-ops-len-mode button.on');
+  if (btn) return btn.getAttribute('data-auto') === '1';
+  return row.dataset.auto === '1';
 }
 
 function opsGeomMultLens() {
@@ -458,7 +461,7 @@ function saveOpsGeomState(state) {
 }
 
 function opsGeomRowUnit(id) {
-  const btn = document.querySelector('#opsGeom [data-geom="' + id + '"] .rp-ops-unit button.on');
+  const btn = document.querySelector('#opsGeom [data-geom="' + id + '"] .rp-ops-unit:not(.rp-ops-len-mode) button.on');
   return (btn && btn.getAttribute('data-unit')) || 'pct';
 }
 
@@ -482,11 +485,18 @@ function persistOpsGeom() {
   saveOpsGeomState(state);
 }
 
-function setOpsGeomUnit(id, unit) {
-  if (opsGeomAutoOn(id)) return;
+function setOpsGeomUnit(id, unit, keepAuto) {
   const row = document.querySelector('#opsGeom [data-geom="' + id + '"]');
   const inp = document.getElementById('opsG_' + id);
   if (!row || !inp) return;
+  if (!keepAuto && opsGeomAutoOn(id)) {
+    row.dataset.auto = '0';
+    row.dataset.dirty = '1';
+    row.classList.remove('is-auto');
+    row.querySelectorAll('.rp-ops-len-mode button').forEach(b => {
+      b.classList.toggle('on', b.getAttribute('data-auto') !== '1');
+    });
+  }
   const prev = opsGeomRowUnit(id);
   if (prev === 'ticks') row.dataset.ticks = inp.value;
   else row.dataset.pct = inp.value;
@@ -498,11 +508,11 @@ function setOpsGeomUnit(id, unit) {
   const tickMin = g.allow_zero ? '0' : '1';
   inp.min = unit === 'ticks' ? tickMin : '0';
   const next = unit === 'ticks'
-    ? (row.dataset.ticks || g.ticks_default || '4')
+    ? (Number(row.dataset.ticks) > 0 ? row.dataset.ticks : (g.ticks_default || '4'))
     : (row.dataset.pct || g.pct_default || '0.1');
   inp.value = next;
   persistOpsGeom();
-  updateOpsGeomSum();
+  syncOpsDependentFields();
 }
 
 function setOpsGeomAuto(id, on) {
@@ -512,7 +522,7 @@ function setOpsGeomAuto(id, on) {
   const want = !!on;
   if (want && opsGeomRowUnit(id) === 'ticks') {
     row.dataset.auto = '0';
-    setOpsGeomUnit(id, 'pct');
+    setOpsGeomUnit(id, 'pct', true);
   }
   row.dataset.auto = want ? '1' : '0';
   if (want) row.dataset.dirty = '0';
@@ -569,7 +579,7 @@ function renderOpsGeom() {
   const rows = lens.map(g => {
     const st = saved[g.id] || {};
     const canAuto = opsGeomCanAuto(g.id);
-    const autoOn = canAuto && (st.auto != null ? !!st.auto : !!autoDefs[g.id]);
+    const autoOn = !opsEdit && canAuto && (st.auto != null ? !!st.auto : !!autoDefs[g.id]);
     const unit = autoOn ? 'pct' : (st.unit === 'ticks' ? 'ticks' : 'pct');
     const pct = st.pct != null && st.pct !== '' ? st.pct : g.pct_default;
     const ticks = st.ticks != null && st.ticks !== '' ? st.ticks : g.ticks_default;
@@ -747,7 +757,7 @@ function syncOpsFitLock() {
     row.classList.toggle('is-auto', on);
     const inp = document.getElementById('opsG_' + g.id);
     if (inp) inp.disabled = false;
-    row.querySelectorAll('.rp-ops-unit:not(.rp-ops-len-mode) button').forEach(el => { el.disabled = on; });
+    row.querySelectorAll('.rp-ops-unit:not(.rp-ops-len-mode) button').forEach(el => { el.disabled = false; });
   });
   const geom = document.getElementById('opsGeom');
   if (geom) geom.classList.toggle('is-fit-lock', false);
@@ -940,7 +950,6 @@ function collectOpsGeom(out) {
     const autoKey = opsGeomCanAuto(g.id) ? opsGeomAutoKey(g) : '';
     const autoOn = opsGeomAutoOn(g.id);
     if (autoKey) out[autoKey] = autoOn;
-    if (opsEdit && autoOn) return;
     if (autoOn) {
       out[g.pct_key] = row.dataset.pct || g.pct_default || '0.1';
       out[g.ticks_key] = '0';
@@ -1122,6 +1131,7 @@ function fillOpsFromSetup(s) {
       if (auto == null && g.id === 'step') auto = s.step_auto != null ? s.step_auto : s.fit_auto;
       if (auto == null && g.id === 'hem') auto = s.hem_auto != null ? s.hem_auto : s.fit_auto;
       if (auto == null && g.id === 'span') auto = s.span_auto != null ? s.span_auto : (s.span_spread != null ? s.span_spread : s.fit_auto);
+      if (useTicks) auto = false;
       if (auto != null) {
         const on = opsBool(auto);
         row.dataset.auto = on ? '1' : '0';
@@ -1241,6 +1251,79 @@ async function submitOpsLaunch() {
   }
 }
 
+function opsRememberEdit(payload) {
+  if (!opsEdit || !payload) return;
+  const s = Object.assign({}, opsEdit.settings || {});
+  const num = (key, dst) => {
+    if (payload[key] == null || payload[key] === '') return;
+    const n = Number(payload[key]);
+    if (isFinite(n)) s[dst] = n;
+  };
+  const bit = (key, dst) => { if (key in payload) s[dst] = !!payload[key]; };
+  bit('HEM_AUTO', 'hem_auto');
+  bit('SPAN_AUTO', 'span_auto');
+  bit('STEP_AUTO', 'step_auto');
+  bit('VOL_GATE', 'vol_gate');
+  bit('DRY_RUN', 'dry_run');
+  bit('PAIR_HEDGE', 'pair_hedge');
+  bit('FLIP', 'flip');
+  num('HEM_TICKS', 'hem_ticks');
+  num('SPAN_TICKS', 'span_ticks');
+  num('STEP_TICKS', 'step_ticks');
+  num('K_TICKS', 'k_ticks');
+  num('HEM_PCT', 'hem');
+  num('SPAN_PCT', 'span');
+  num('STEP_PCT', 'step');
+  num('K_PCT', 'k');
+  num('EDGE_PCT', 'edge');
+  num('ORDERS', 'orders');
+  num('TAILS', 'tails');
+  num('TOUCH_TICKS', 'touch_ticks');
+  num('BID_TICKS', 'bid_ticks');
+  num('ASK_TICKS', 'ask_ticks');
+  num('FATE_USD', 'fate');
+  num('GRIND_USD', 'grind');
+  num('QUOTE_MS', 'quote_ms');
+  num('PLACE_SECS', 'place_secs');
+  num('IGNORE_MIN_SIZE', 'ignore');
+  num('PAIR_HEDGE_LOT', 'hedge_lot');
+  if (payload.HOOK) s.hook = String(payload.HOOK);
+  if (payload.STEP_MULT != null && payload.STEP_MULT !== '') s.step_mult = payload.STEP_MULT;
+  if (payload.EDGE_VENUE) s.edge_venue = String(payload.EDGE_VENUE);
+  if (payload.max_usd != null) {
+    s.max_usd = Number(payload.max_usd);
+    delete s.max_pos;
+  } else if (payload.max_pos != null) {
+    s.max_pos = Number(payload.max_pos);
+    delete s.max_usd;
+  }
+  if (Number(s.hem_ticks) > 0) s.hem_auto = false;
+  if (Number(s.span_ticks) > 0) s.span_auto = false;
+  if (Number(s.step_ticks) > 0) s.step_auto = false;
+  opsEdit.settings = s;
+  if (typeof currentRpnlRow === 'function') {
+    const row = currentRpnlRow();
+    if (row) row.settings = Object.assign({}, row.settings || {}, s);
+  }
+}
+
+async function waitOpsCommand(id) {
+  if (!id) return '';
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 300));
+    try {
+      const r = await fetch('/api/bot/command/' + encodeURIComponent(id));
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return '';
+      if (d.status === 'done') return '';
+      if (d.status === 'error') return d.error || 'bot rejected the change';
+    } catch (e) {
+      return '';
+    }
+  }
+  return 'bot has not confirmed yet — reopen edit in a few seconds';
+}
+
 async function submitOpsEdit() {
   if (!opsEdit) return;
   const geomErr = validateOpsGeom() || validateOpsParams();
@@ -1267,9 +1350,16 @@ async function submitOpsEdit() {
       setOpsMsg('opsLaunchMsg', opsErr(d, r.status), true);
       return;
     }
+    setOpsMsg('opsLaunchMsg', 'Waiting for the bot…', false);
+    const err = await waitOpsCommand(d.id);
+    if (err) {
+      setOpsMsg('opsLaunchMsg', err, true);
+      return;
+    }
+    opsRememberEdit(payload);
     toast('updated ' + name, 'ok');
     closeRpOps();
-    setTimeout(() => { if (typeof loadRpnl === 'function') loadRpnl(true); }, 1200);
+    if (typeof loadRpnl === 'function') loadRpnl(true);
   } catch (e) {
     setOpsMsg('opsLaunchMsg', String(e), true);
   } finally {

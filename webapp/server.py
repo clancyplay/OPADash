@@ -2153,6 +2153,17 @@ async def bot_command(
     return {"ok": True, "id": cmd_id, "cmd": cmd, "strategy": tag, "contract": contract, "account": req.account or ""}
 
 
+@app.get("/api/bot/command/{cmd_id}")
+async def bot_command_status(cmd_id: int) -> dict:
+    """Whether the live bot has applied a queued command."""
+    if _db is None or not _db.pool:
+        raise HTTPException(status_code=503, detail=f"Database not connected: {_db_error or 'no pool'}")
+    row = await _db.get_bot_command(cmd_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="command not found")
+    return row
+
+
 class LaunchRequest(BaseModel):
     venue: str
     account: str

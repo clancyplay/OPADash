@@ -1748,6 +1748,28 @@ class EventsDB:
             self.logger.warning("events_db: insert_bot_command failed — %s", e)
             return None
 
+    async def get_bot_command(self, cmd_id: int) -> dict | None:
+        """Status of one queued dash command. Call: edit Apply."""
+        if not self.pool:
+            return None
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT id, status, COALESCE(error, '') AS error, cmd FROM bot_command WHERE id = $1",
+                    int(cmd_id),
+                )
+            if not row:
+                return None
+            return {
+                "id": int(row["id"]),
+                "status": row["status"] or "",
+                "error": row["error"] or "",
+                "cmd": row["cmd"] or "",
+            }
+        except Exception as e:
+            self.logger.warning("events_db: get_bot_command failed — %s", e)
+            return None
+
     # ── Reports history ───────────────────────────────────────────────────────
 
     async def save_report(self, message: str, summary: Optional[dict] = None, kind: str = "periodic") -> None:

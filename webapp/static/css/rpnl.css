@@ -1299,7 +1299,7 @@ body.ops-open { overflow: hidden; }
   line-height: 1.45;
 }
 .rp-ops-geom-live b { color: #fff; font-weight: 650; }
-.rp-ops-len.is-auto > .rp-ops-unit:not(.rp-ops-len-mode) button { opacity: .55; cursor: not-allowed; }
+.rp-ops-len.is-auto > .rp-ops-unit:not(.rp-ops-len-mode) button { opacity: .85; }
 .rp-ops-glossary {
   margin-top: 2px;
   padding: 10px 12px 12px;
