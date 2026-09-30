@@ -1528,3 +1528,90 @@ body.ops-open { overflow: hidden; }
     grid-template-areas: "lab min max unit" "mult mult mult mult" ". hint hint hint";
   }
 }
+
+.rpnl-inspect .ri-clock {
+  display: block;
+  margin: 6px 0 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+}
+.rpnl-inspect .ri-clock summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  color: #c5cdd8;
+  list-style: none;
+}
+.rpnl-inspect .ri-clock summary::-webkit-details-marker { display: none; }
+.rpnl-inspect .ri-clock summary [data-clock-status] {
+  font-weight: 500;
+  color: var(--muted);
+  margin-left: 6px;
+}
+.rpnl-inspect .ri-clock-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+.rpnl-inspect .ri-clock-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.rpnl-inspect .ri-clock-grid input,
+.rpnl-inspect .ri-clock-grid select {
+  font: inherit;
+  font-size: 14px;
+  color: #e8edf5;
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 8px 10px;
+  min-height: 40px;
+  width: 100%;
+}
+.rpnl-inspect .ri-clock-grid .ck-on {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #e8edf5;
+  min-height: 40px;
+}
+.rpnl-inspect .ri-clock-suggest {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #c5d4f5;
+}
+.rpnl-inspect .ri-clock-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.rpnl-inspect .ri-clock-acts button,
+.rpnl-inspect .ri-clock-suggest button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: rgba(255, 255, 255, .06);
+  color: #c5cdd8;
+  cursor: pointer;
+}
+.rpnl-inspect .ri-clock-acts button.go { color: #8bd98b; }
+@media (min-width: 720px) {
+  .rpnl-inspect .ri-clock-grid { grid-template-columns: 1fr 1fr; }
+  .rpnl-inspect .ri-clock-grid label:nth-child(2) { grid-column: 1 / -1; }
+}

@@ -29,13 +29,16 @@ BOTS = {
     "edge": "edge.py",
     "fade": "fade.py",
     "flip": "flip.py",
+    "harvest": "harvest.py",
     "lean": "lean.py",
     "momentum": "momentum.py",
     "pair": "pair.py",
     "plain": "plain.py",
+    "shop": "shop.py",
     "stack": "stack.py",
     "surge": "surge.py",
     "touch": "touch.py",
+    "wing": "wing.py",
 }
 
 VENUE_ENV = {
@@ -365,6 +368,111 @@ def _pin_geom(knobs: dict[str, str]) -> dict[str, str]:
     return knobs
 
 
+def _alias_knobs(strategy: str, knobs: dict[str, str]) -> dict[str, str]:
+    """Card max is MAX_POSITION. Shop stores that cap as SHELF, harvest as SILO."""
+    strategy = str(strategy or "").strip().lower()
+    if strategy == "shop":
+        if knobs.get("MAX_POSITION") and "SHELF" not in knobs:
+            knobs["SHELF"] = knobs.pop("MAX_POSITION")
+        else:
+            knobs.pop("MAX_POSITION", None)
+        knobs.pop("MAX_IN_USD", None)
+    elif strategy == "harvest":
+        if knobs.get("MAX_POSITION") and "SILO" not in knobs:
+            knobs["SILO"] = knobs.pop("MAX_POSITION")
+        else:
+            knobs.pop("MAX_POSITION", None)
+        knobs.pop("MAX_IN_USD", None)
+    return knobs
+
+
+def _option_crop_expiry(text: str) -> tuple[str, str]:
+    """`C-BTC-120000-250926` → BTC, 250926. XAUT maps to the XAU crop."""
+    parts = str(text or "").strip().upper().split("-")
+    if len(parts) < 4 or parts[0] not in ("C", "P"):
+        return "", ""
+    under = parts[1]
+    if under == "XAUT":
+        under = "XAU"
+    if under not in ("BTC", "ETH", "XAU"):
+        return "", ""
+    expiry = parts[-1]
+    if not expiry:
+        return "", ""
+    return under, expiry
+
+
+def _bot_argv(strategy: str, contract: str, knobs: dict | None = None) -> list[str]:
+    """Process args. Wing is one token `BTC-250926` so the restart overlay matches the form."""
+    knobs = knobs or {}
+    strategy = str(strategy or "").strip().lower()
+    if strategy == "pair":
+        return _pair_argv(contract)
+    text = str(contract or "").strip()
+    if strategy == "shop":
+        counter = text.split()[0].upper() if text else ""
+        if not counter or len(counter) > 40:
+            raise ValueError("shop needs a counter symbol, e.g. LABUSD")
+        stock = str(knobs.get("STOCKROOM") or "").strip().upper()
+        if stock:
+            if len(stock) > 48:
+                raise ValueError("stockroom symbol is too long")
+            return [counter, stock]
+        return [counter]
+    if strategy == "wing":
+        toks = [t for t in text.replace(",", " ").split() if t]
+        crop = ""
+        expiry = ""
+        if len(toks) == 1:
+            crop, expiry = _option_crop_expiry(toks[0])
+            if crop:
+                toks = []
+        if toks and toks[0].upper() in ("BTC", "ETH", "XAU"):
+            crop = toks.pop(0).upper()
+        if not crop:
+            crop = str(knobs.get("CROP") or "BTC").strip().upper()
+        if toks:
+            expiry = toks[0].strip()
+        if not expiry:
+            expiry = str(knobs.get("EXPIRY") or "").strip()
+        if not expiry and toks:
+            parsed_crop, parsed_expiry = _option_crop_expiry(toks[0])
+            if parsed_expiry:
+                expiry = parsed_expiry
+                if not crop:
+                    crop = parsed_crop
+        if crop not in ("BTC", "ETH", "XAU"):
+            raise ValueError("wing crop must be BTC, ETH, or XAU")
+        if not expiry:
+            raise ValueError("wing needs an expiry, e.g. BTC 250926")
+        if len(expiry) > 32:
+            raise ValueError("expiry is too long")
+        return [f"{crop}-{expiry}"]
+    if strategy == "harvest":
+        toks = [t for t in text.replace(",", " ").split() if t]
+        crop = toks[0].upper() if toks and toks[0].upper() in ("BTC", "ETH", "XAU") else ""
+        if not crop and toks:
+            crop, _expiry = _option_crop_expiry(toks[0])
+        if not crop:
+            crop = str(knobs.get("CROP") or "").strip().upper()
+        if crop not in ("BTC", "ETH", "XAU"):
+            raise ValueError("harvest crop is BTC, ETH, or XAU")
+        return [crop]
+    if not text or len(text) > 40 or any(ch.isspace() for ch in text):
+        raise ValueError("contract required")
+    return [text]
+
+
+def _launch_contract(strategy: str, contract: str, argv: list[str]) -> str:
+    """Name stored on the launch. Wing shows `BTC 250926`; the process arg stays `BTC-250926`."""
+    if strategy == "wing" and argv and "-" in argv[0]:
+        crop, expiry = argv[0].split("-", 1)
+        return f"{crop} {expiry}"
+    if strategy in ("harvest", "shop") and argv:
+        return argv[0]
+    return contract
+
+
 def _pair_argv(contract: str) -> list[str]:
     """`C-BTC-…`, `C-…,P-…`, or `BTC 250926` → pair.py argv."""
     out = []
@@ -458,6 +566,29 @@ _KNOB_SETUP = (
     ("HOOK", "hook", "str"),
     ("STEP_MULT", "step_mult", "str"),
     ("EDGE_VENUE", "edge_venue", "str"),
+    ("PACKET", "packet", "int"),
+    ("SHELF", "shelf", "int"),
+    ("AISLE_PCT", "aisle", "float"),
+    ("COVER_PCT", "cover", "float"),
+    ("STEP", "shop_step", "int"),
+    ("REACH", "reach", "int"),
+    ("PACE_MS", "pace_ms", "int"),
+    ("DUST", "dust", "float"),
+    ("LOT", "lot", "float"),
+    ("WINDOW", "window", "bool"),
+    ("STOCKROOM", "stockroom", "str"),
+    ("EXIT_PCT", "exit", "float"),
+    ("OTM_PCT", "otm", "float"),
+    ("MAX_COIN", "max_coin", "float"),
+    ("CROP", "crop", "str"),
+    ("EXPIRY", "expiry", "str"),
+    ("FIELDS", "fields", "int"),
+    ("BASKET", "basket", "int"),
+    ("SILO", "silo", "int"),
+    ("FENCE", "fence", "bool"),
+    ("FENCE_PCT", "fence_pct", "float"),
+    ("FENCE_LOT", "fence_lot", "int"),
+    ("FIELD_DUST", "dust", "float"),
 )
 
 
@@ -477,7 +608,7 @@ def _knobs_from_payload(params: dict | None, strategy: str = "") -> dict[str, st
     elif upper.get("MAX_POSITION") in (None, "") and upper.get("MAX_POS") not in (None, ""):
         raw["MAX_POSITION"] = upper["MAX_POS"]
         raw.setdefault("MAX_IN_USD", False)
-    knobs = _pin_geom(_scrub_params(raw))
+    knobs = _alias_knobs(strategy, _pin_geom(_scrub_params(raw)))
     for name in _DROP_KNOBS:
         knobs.pop(name, None)
     if str(strategy or "").strip().lower() == "pair" and knobs.get("MAX_POSITION"):
@@ -804,11 +935,17 @@ def launch(
         raise ValueError(f"unknown strategy '{strategy}'")
     if venue not in VENUE_ENV:
         raise ValueError(f"unsupported venue '{venue}'")
-    if strategy == "pair" and venue != "delta":
-        raise ValueError("pair quotes Delta options")
-    argv_tail = _pair_argv(contract) if strategy == "pair" else [contract]
-    if strategy != "pair" and (not contract or len(contract) > 40):
-        raise ValueError("contract required")
+    if strategy in ("pair", "wing", "harvest") and venue != "delta":
+        raise ValueError(f"{strategy} quotes Delta")
+    if strategy == "shop" and venue not in ("delta", "aster"):
+        raise ValueError("shop quotes Delta or Aster")
+    knobs = _alias_knobs(strategy, _pin_geom(_scrub_params(params)))
+    if strategy == "pair":
+        if knobs.get("MAX_POSITION"):
+            knobs.setdefault("PAIR_MAX", knobs["MAX_POSITION"])
+        knobs.setdefault("PAIR_HEDGE", "true")
+    argv_tail = _bot_argv(strategy, contract, knobs)
+    contract = _launch_contract(strategy, contract, argv_tail)
     if not argv_tail:
         raise ValueError("contract required")
     keys = VENUE_ENV[venue]
@@ -842,18 +979,27 @@ def launch(
         if _same(rec, venue, contract, acct_id, strategy):
             raise ValueError(f"{strategy} {venue}:{contract} already running (pid {rec.get('pid')})")
 
-    knobs = _pin_geom(_scrub_params(params))
-    if strategy == "pair":
-        if knobs.get("MAX_POSITION"):
-            knobs.setdefault("PAIR_MAX", knobs["MAX_POSITION"])
-        knobs.setdefault("PAIR_HEDGE", "true")
     env = os.environ.copy()
     env["QUOTE_VENUE"] = venue
     env["STRATEGY"] = strategy
     env["PYTHONUNBUFFERED"] = "1"
     env[keys[0]] = account["api_key"]
     env[keys[1]] = account["api_secret"]
-    env[keys[2]] = argv_tail[0] if strategy == "pair" else contract
+    if strategy == "pair":
+        env[keys[2]] = argv_tail[0]
+    elif strategy == "wing":
+        env[keys[2]] = argv_tail[0]
+        env["CROP"] = argv_tail[0].split("-", 1)[0]
+        env["EXPIRY"] = argv_tail[0].split("-", 1)[1]
+    else:
+        env[keys[2]] = argv_tail[0]
+    if strategy == "shop":
+        env["COUNTER_VENUE"] = venue
+        env["COUNTER"] = argv_tail[0]
+        if len(argv_tail) > 1:
+            env["STOCKROOM"] = argv_tail[1]
+    elif strategy == "harvest":
+        env["CROP"] = argv_tail[0]
     extra_pw = keys[3]
     if extra_pw:
         phrase = account.get("passphrase") or env.get(extra_pw) or ""

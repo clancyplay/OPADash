@@ -381,12 +381,16 @@ async function loadOpsProducts(venue) {
 
 function onOpsContractMeta() {
   const el = document.getElementById('opsContractMeta');
-  const pair = opsIsPair();
+  const id = opsStrategyId();
   const sy = ((document.getElementById('opsContract') || {}).value || '').trim().toUpperCase();
   const p = (opsProducts || []).find(x => String(x.symbol || '').toUpperCase() === sy);
   if (el) {
     if (!p) {
-      el.textContent = pair ? 'Option C-/P- symbol, call+put, or crop + expiry (BTC 250926)' : '';
+      el.textContent = id === 'pair' ? 'Option C-/P- symbol, call+put, or crop + expiry (BTC 250926)'
+        : id === 'wing' ? 'Crop and expiry. BTC, ETH, or XAU, then the date (250926).'
+        : id === 'harvest' ? 'Crop only: BTC, ETH, or XAU. How many fields is set below.'
+        : id === 'shop' ? 'Counter symbol. Stockroom below is the CoinDCX cover.'
+        : '';
     } else {
       const bits = [];
       if (p.tick != null && Number(p.tick) > 0) bits.push('tick ' + p.tick);
@@ -397,24 +401,35 @@ function onOpsContractMeta() {
   loadOpsSavedKnobs();
 }
 
+function opsStrategyId() {
+  return (opsEdit && opsEdit.strategy) || (document.getElementById('opsStrategy') || {}).value || '';
+}
+
 function opsIsPair() {
-  const id = (opsEdit && opsEdit.strategy) || (document.getElementById('opsStrategy') || {}).value || '';
-  return id === 'pair';
+  return opsStrategyId() === 'pair';
 }
 
 function onOpsStrategyChange() {
   renderOpsParams();
-  const pair = opsIsPair();
+  const id = opsStrategyId();
+  const lock = (id === 'pair' || id === 'wing' || id === 'harvest') ? 'delta' : '';
   const venue = document.getElementById('opsVenue');
   if (venue && !opsEdit) {
-    venue.disabled = pair;
-    if (pair && venue.value !== 'delta') {
-      venue.value = 'delta';
+    venue.disabled = !!lock;
+    const shopBad = id === 'shop' && venue.value !== 'delta' && venue.value !== 'aster';
+    if ((lock && venue.value !== lock) || shopBad) {
+      venue.value = lock || 'delta';
       onOpsVenueChange();
     }
   }
   const inp = document.getElementById('opsContract');
-  if (inp && !opsEdit) inp.placeholder = pair ? 'C-BTC-120000-250926 or BTC 250926' : 'EVAAUSD';
+  if (inp && !opsEdit) {
+    inp.placeholder = id === 'pair' ? 'C-BTC-120000-250926 or BTC 250926'
+      : id === 'wing' ? 'BTC 250926'
+      : id === 'harvest' ? 'BTC'
+      : id === 'shop' ? 'LABUSD'
+      : 'EVAAUSD';
+  }
   onOpsContractMeta();
 }
 
@@ -848,6 +863,7 @@ function collectOpsMax(out) {
 
 function renderOpsParam(p) {
   if (p.embed) return '';
+  if (p.launch_only && opsEdit) return '';
   if (p.key === 'STEP_MULT' && opsGeomMultLens()) return '';
   if (p.type === 'geom') return renderOpsGeom();
   if (p.type === 'max') return renderOpsMax(p);
@@ -873,6 +889,11 @@ function renderOpsParam(p) {
     return '<label' + cls + showIf + title + '>' + escHtml(p.label) +
       '<select id="' + id + '" onchange="updateOpsGeomSum();syncOpsDependentFields()">' +
       opsSelectOptions(p) + '</select></label>';
+  }
+  if (p.type === 'text') {
+    return '<label' + cls + showIf + title + '>' + escHtml(p.label) +
+      '<input id="' + id + '" type="text" autocomplete="off" value="' +
+      escHtml(p.default == null ? '' : p.default) + '"' + title + ' /></label>';
   }
   const step = p.type === 'int' ? '1' : 'any';
   const min = p.min != null ? ' min="' + escHtml(String(p.min)) + '"' : '';
@@ -1010,6 +1031,20 @@ function renderOpsGlossary() {
     else if (p.key === 'IGNORE_MIN_SIZE') add('ign', 'Ignore $', 'Skip book levels smaller than this USD notional.');
     else if (p.key === 'PAIR_HEDGE') add('ph', 'Hedge', 'Hedge option delta with the perpetual.');
     else if (p.key === 'PAIR_HEDGE_LOT') add('hl', 'Hedge lot', 'Min contracts off-target before a hedge order.');
+    else if (p.key === 'PACKET') add('packet', 'Packet', 'Contracts in each bid and ask.');
+    else if (p.key === 'SHELF') add('shelf', 'Shelf', 'Largest long or short the counter may hold.');
+    else if (p.key === 'COVER_PCT') add('cover', 'Cover %', 'CoinDCX hedge as a percent of the counter. 0 turns it off.');
+    else if (p.key === 'STOCKROOM') add('stock', 'Stockroom', 'CoinDCX symbol for that hedge. Applied when the bot starts.');
+    else if (p.key === 'WINDOW') add('window', 'Window', 'Price off the stockroom, but do not send hedge orders.');
+    else if (p.key === 'EXIT_PCT') add('exit', 'Exit %', 'Buy the wing back at least this far under the entry.');
+    else if (p.key === 'OTM_PCT') add('otm', 'OTM %', 'Minimum distance from spot when picking the call and put.');
+    else if (p.key === 'MAX_COIN') add('coin', 'Max coin', 'Underlying coin shared by the wings.');
+    else if (p.key === 'FIELDS') add('fields', 'Fields', 'How many of the busiest options to bid.');
+    else if (p.key === 'BASKET') add('basket', 'Basket', 'Contracts in each field bid.');
+    else if (p.key === 'SILO') add('silo', 'Silo', 'Most contracts one field may hold. 0 means no cap.');
+    else if (p.key === 'FENCE') add('fence', 'Fence', 'Hedge the option delta with the crop perpetual.');
+    else if (p.key === 'FENCE_PCT') add('fpct', 'Fence %', 'Share of option delta the perpetual takes.');
+    else if (p.key === 'FENCE_LOT') add('flot', 'Fence lot', 'Smallest hedge order, in perpetual contracts.');
     else if (p.key === 'BID_TICKS') add('bt', 'Bid +ticks', 'How many ticks above the bid you buy.');
     else if (p.key === 'ASK_TICKS') add('at', 'Ask −ticks', 'How many ticks under the ask you sell.');
   });
@@ -1045,7 +1080,7 @@ function renderOpsParams() {
   if (!box) return;
   const spec = opsStrategySpec();
   const params = spec.params || [];
-    const titles = { size: 'Size', book: 'Book', geometry: 'Geometry', quote: 'Quote', pace: 'Pace', risk: 'Risk', hedge: 'Hedge' };
+    const titles = { size: 'Size', book: 'Book', geometry: 'Geometry', quote: 'Quote', pace: 'Pace', risk: 'Risk', hedge: 'Hedge', cover: 'Cover' };
   const groups = [];
   params.forEach(p => {
     const id = p.group || '';
@@ -1274,6 +1309,34 @@ function fillOpsFromSetup(s) {
   else if (s.hedge_via) setChk('opsP_PAIR_HEDGE', true, true);
   else if (opsEdit && opsEdit.strategy === 'pair') setChk('opsP_PAIR_HEDGE', false, true);
   if (s.hedge_lot != null) setNum('opsP_PAIR_HEDGE_LOT', s.hedge_lot);
+  setNum('opsP_PACKET', s.packet);
+  setNum('opsP_SHELF', s.shelf);
+  setNum('opsP_AISLE_PCT', s.aisle);
+  setNum('opsP_COVER_PCT', s.cover);
+  setNum('opsP_STEP', s.shop_step);
+  setNum('opsP_REACH', s.reach);
+  setNum('opsP_PACE_MS', s.pace_ms);
+  setNum('opsP_DUST', s.dust);
+  setNum('opsP_LOT', s.lot);
+  setNum('opsP_EXIT_PCT', s.exit);
+  setNum('opsP_OTM_PCT', s.otm);
+  setNum('opsP_MAX_COIN', s.max_coin);
+  setNum('opsP_FIELDS', s.fields);
+  setNum('opsP_BASKET', s.basket);
+  setNum('opsP_SILO', s.silo);
+  setNum('opsP_FENCE_PCT', s.fence_pct);
+  setNum('opsP_FENCE_LOT', s.fence_lot);
+  setNum('opsP_FIELD_DUST', s.dust);
+  if (s.window != null) setChk('opsP_WINDOW', s.window, true);
+  if (s.fence != null) setChk('opsP_FENCE', s.fence, true);
+  const setText = (id, v) => {
+    const el = document.getElementById(id);
+    if (!el || v == null || v === '') return;
+    el.value = String(v);
+  };
+  setText('opsP_STOCKROOM', s.stockroom);
+  setText('opsP_CROP', s.crop);
+  setText('opsP_EXPIRY', s.expiry);
   opsGeomLens().forEach(g => {
     const ticksKey = g.id === 'k' ? 'k_ticks' : (g.id === 'tail' ? 'step_ticks' : g.id + '_ticks');
     const pctKey = g.id === 'k' ? 'k' : (g.id === 'tail' ? 'step' : g.id);
@@ -1417,6 +1480,12 @@ async function submitOpsLaunch() {
   if (!contract) return setOpsMsg('opsLaunchMsg', 'Contract required', true);
   const geomErr = validateOpsGeom() || validateOpsParams();
   if (geomErr) return setOpsMsg('opsLaunchMsg', geomErr, true);
+  if ((strategy === 'pair' || strategy === 'wing' || strategy === 'harvest') && venue !== 'delta') {
+    return setOpsMsg('opsLaunchMsg', strategy + ' runs on Delta', true);
+  }
+  if (strategy === 'shop' && venue !== 'delta' && venue !== 'aster') {
+    return setOpsMsg('opsLaunchMsg', 'shop runs on Delta or Aster', true);
+  }
   if (strategy === 'edge') {
     const ref = ((document.getElementById('opsP_EDGE_VENUE') || {}).value || '').toLowerCase();
     if (ref && ref === venue) return setOpsMsg('opsLaunchMsg', 'Ref venue must differ from the quoting exchange', true);
@@ -1469,6 +1538,8 @@ function opsRememberEdit(payload) {
   bit('DRY_RUN', 'dry_run');
   bit('PAIR_HEDGE', 'pair_hedge');
   bit('FLIP', 'flip');
+  bit('WINDOW', 'window');
+  bit('FENCE', 'fence');
   num('HEM_TICKS', 'hem_ticks');
   num('SPAN_TICKS', 'span_ticks');
   num('STEP_TICKS', 'step_ticks');
@@ -1501,6 +1572,27 @@ function opsRememberEdit(payload) {
   num('PLACE_SECS', 'place_secs');
   num('IGNORE_MIN_SIZE', 'ignore');
   num('PAIR_HEDGE_LOT', 'hedge_lot');
+  num('PACKET', 'packet');
+  num('SHELF', 'shelf');
+  num('AISLE_PCT', 'aisle');
+  num('COVER_PCT', 'cover');
+  num('STEP', 'shop_step');
+  num('REACH', 'reach');
+  num('PACE_MS', 'pace_ms');
+  num('DUST', 'dust');
+  num('LOT', 'lot');
+  num('EXIT_PCT', 'exit');
+  num('OTM_PCT', 'otm');
+  num('MAX_COIN', 'max_coin');
+  num('FIELDS', 'fields');
+  num('BASKET', 'basket');
+  num('SILO', 'silo');
+  num('FENCE_PCT', 'fence_pct');
+  num('FENCE_LOT', 'fence_lot');
+  num('FIELD_DUST', 'dust');
+  if (payload.STOCKROOM) s.stockroom = String(payload.STOCKROOM);
+  if (payload.CROP) s.crop = String(payload.CROP);
+  if (payload.EXPIRY) s.expiry = String(payload.EXPIRY);
   if (payload.HOOK) s.hook = String(payload.HOOK);
   if (payload.STEP_MULT != null && payload.STEP_MULT !== '') s.step_mult = payload.STEP_MULT;
   if (payload.EDGE_VENUE) s.edge_venue = String(payload.EDGE_VENUE);

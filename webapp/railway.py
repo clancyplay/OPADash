@@ -497,6 +497,16 @@ def _bot_env(venue: str, contract: str, strategy: str, account: dict, knobs: dic
             env["CROP"] = argv_tail[0]
             if len(argv_tail) > 1:
                 env["EXPIRY"] = argv_tail[1]
+    elif strategy == "wing" and argv_tail and "-" in argv_tail[0]:
+        env["CROP"], env["EXPIRY"] = argv_tail[0].split("-", 1)
+        env[keys[2]] = argv_tail[0]
+    elif strategy == "shop":
+        env["COUNTER_VENUE"] = venue
+        env["COUNTER"] = argv_tail[0] if argv_tail else contract
+        if len(argv_tail) > 1:
+            env["STOCKROOM"] = argv_tail[1]
+    elif strategy == "harvest" and argv_tail:
+        env["CROP"] = argv_tail[0]
     env.update(_slim_knobs(knobs))
     acct_id = str(account.get("id") or account.get("name") or "").strip()
     if acct_id:
@@ -512,10 +522,16 @@ def launch(
     account: dict,
     params: dict | None = None,
 ) -> dict:
-    from webapp.launch import BOTS, VENUE_ENV, _pair_argv, _pin_geom, _scrub_params
+    from webapp.launch import (
+        BOTS, _alias_knobs, _bot_argv, _launch_contract, _pin_geom, _scrub_params,
+    )
 
     if strategy not in BOTS:
         raise ValueError(f"unknown strategy '{strategy}'")
+    if strategy in ("pair", "wing", "harvest") and str(venue or "").strip().lower() != "delta":
+        raise ValueError(f"{strategy} quotes Delta")
+    if strategy == "shop" and str(venue or "").strip().lower() not in ("delta", "aster"):
+        raise ValueError("shop quotes Delta or Aster")
     if not ready():
         raise RuntimeError(
             "On Railway, New contract creates a new OPA6 service. "
@@ -524,12 +540,13 @@ def launch(
     if not _env_id():
         raise RuntimeError("RAILWAY_ENVIRONMENT_ID is missing on this service")
 
-    argv_tail = _pair_argv(contract) if strategy == "pair" else [contract]
-    knobs = _pin_geom(_scrub_params(params))
+    knobs = _alias_knobs(strategy, _pin_geom(_scrub_params(params)))
     if strategy == "pair":
         if knobs.get("MAX_POSITION"):
             knobs.setdefault("PAIR_MAX", knobs["MAX_POSITION"])
         knobs.setdefault("PAIR_HEDGE", "true")
+    argv_tail = _bot_argv(strategy, contract, knobs)
+    contract = _launch_contract(strategy, contract, argv_tail)
 
     acct_id = str(account.get("id") or account.get("name") or "").strip()
     name = _svc_name(strategy, contract, account.get("name") or acct_id)
