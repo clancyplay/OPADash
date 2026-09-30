@@ -197,7 +197,7 @@ def _infra_env(venue: str, template: dict[str, str]) -> dict[str, str]:
     return out
 
 
-def _fill_arb_other_leg(env: dict[str, str], copied: dict[str, str] | None = None) -> dict[str, str]:
+def _fill_arb_other_leg(env: dict[str, str], copied: dict[str, str] | None = None, quote_sym: str = "") -> dict[str, str]:
     """Template keys first, then OPADash / Balances keys (those win)."""
     from webapp.launch import VENUE_ENV, apply_arb_other_keys
 
@@ -210,7 +210,7 @@ def _fill_arb_other_leg(env: dict[str, str], copied: dict[str, str] | None = Non
             if key and copied.get(key) and not str(env.get(key) or "").strip():
                 env[key] = str(copied[key])
         env.update(_infra_env(other, copied))
-    apply_arb_other_keys(env, quote)
+    apply_arb_other_keys(env, quote, quote_sym)
     return env
 
 
@@ -353,42 +353,49 @@ def update_knobs(service_id: str, knobs: dict[str, str]) -> None:
     cleaned = {str(k): str(v) for k, v in (knobs or {}).items() if k is not None and v is not None}
     if not cleaned:
         return
-    _upsert_vars(sid, cleaned)
+    # Live Apply already pushed knobs into the process; don't bounce the replica.
+    _upsert_vars(sid, cleaned, skip_deploys=True)
 
 
-def _upsert_vars(service_id: str, knobs: dict[str, str]) -> None:
+def _upsert_vars(service_id: str, knobs: dict[str, str], *, skip_deploys: bool = False) -> None:
     pid, eid = _project_id(), _env_id()
     try:
+        payload: dict = {
+            "projectId": pid,
+            "environmentId": eid,
+            "serviceId": service_id,
+            "variables": knobs,
+        }
+        if skip_deploys:
+            payload["skipDeploys"] = True
         _gql(
             """
             mutation ($input: VariableCollectionUpsertInput!) {
               variableCollectionUpsert(input: $input)
             }
             """,
-            {"input": {
-                "projectId": pid,
-                "environmentId": eid,
-                "serviceId": service_id,
-                "variables": knobs,
-            }},
+            {"input": payload},
         )
         return
     except RuntimeError:
         pass
     for name, val in knobs.items():
+        one: dict = {
+            "projectId": pid,
+            "environmentId": eid,
+            "serviceId": service_id,
+            "name": name,
+            "value": val,
+        }
+        if skip_deploys:
+            one["skipDeploys"] = True
         _gql(
             """
             mutation ($input: VariableUpsertInput!) {
               variableUpsert(input: $input)
             }
             """,
-            {"input": {
-                "projectId": pid,
-                "environmentId": eid,
-                "serviceId": service_id,
-                "name": name,
-                "value": val,
-            }},
+            {"input": one},
         )
 
 
@@ -628,23 +635,21 @@ def launch(
     env = _infra_env(venue, copied)
     env.update(overlay)
     if strategy == "arb":
-        _fill_arb_other_leg(env, copied)
+        _fill_arb_other_leg(env, copied, contract)
 
     created = None
     static_ip = ""
     try:
         created = _create_empty(name)
         sid = str(created["id"])
-        _upsert_vars(sid, env)
+        # One GitHub deploy from serviceConnect. Skip auto-redeploys on vars/start.
+        _upsert_vars(sid, env, skip_deploys=True)
         _set_start(sid, "python3 run.py")
         static_ip = _enable_static_ip(sid)
         _connect(sid, source)
-        try:
-            _deploy(sid)
-        except RuntimeError:
-            pass
         if not static_ip:
             static_ip = _enable_static_ip(sid)
+        _arb_ok.add(sid)
     except Exception:
         if created and created.get("id"):
             try:
@@ -677,7 +682,7 @@ _stale_acct_cache: dict[str, tuple[float, tuple[str, str, str]]] = {}
 
 def _ensure_arb_other_keys(service_id: str, svc_name: str) -> tuple[dict[str, str], str]:
     """Patch a running arb bot that launched without the other-leg key, and fix leaked names."""
-    from webapp.launch import VENUE_ENV
+    from webapp.launch import VENUE_ENV, venue_key_env
 
     sid = str(service_id or "").strip()
     name = str(svc_name or "")
@@ -694,15 +699,22 @@ def _ensure_arb_other_keys(service_id: str, svc_name: str) -> tuple[dict[str, st
         _arb_ok.add(sid)
         return env, name
     if not skip_patch:
-        before = dict(env)
-        try:
-            _fill_arb_other_leg(env, env)
-        except ValueError:
-            return env, name
-        patch = {k: v for k, v in env.items() if v and before.get(k) != v}
+        other = str(env.get("ARB_VENUE") or "").strip().lower()
+        quote = str(env.get("QUOTE_VENUE") or "").strip().lower()
+        spec = VENUE_ENV.get(other) if other and other != quote else None
+        patch: dict[str, str] = {}
+        if spec:
+            need = [spec[0], spec[1]] + ([spec[3]] if spec[3] else [])
+            missing = [k for k in need if k and not str(env.get(k) or "").strip()]
+            if missing:
+                extra = venue_key_env(other)
+                for key in need:
+                    if key and not str(env.get(key) or "").strip() and extra.get(key):
+                        patch[key] = extra[key]
+                        env[key] = extra[key]
         if patch:
             try:
-                _upsert_vars(sid, patch)
+                _upsert_vars(sid, patch, skip_deploys=True)
             except Exception:
                 return env, name
             try:
@@ -710,8 +722,6 @@ def _ensure_arb_other_keys(service_id: str, svc_name: str) -> tuple[dict[str, st
             except RuntimeError:
                 pass
             _drop_bots_cache()
-        other = str(env.get("ARB_VENUE") or "").strip().lower()
-        spec = VENUE_ENV.get(other)
         if spec and str(env.get(spec[0]) or "").strip() and str(env.get(spec[1]) or "").strip():
             _arb_ok.add(sid)
     if name in _INFRA_VAR_NAMES:

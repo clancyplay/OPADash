@@ -97,7 +97,35 @@ def venue_key_env(venue: str) -> dict[str, str]:
     return {k: val for k, val in out.items() if val}
 
 
-def apply_arb_other_keys(env: dict[str, str], quote_venue: str = "") -> dict[str, str]:
+def _arb_coin_root(sym: str) -> str:
+    s = str(sym or "").upper().replace("-", "").replace("_", "")
+    for suf in ("USDTM", "PERPINTX", "USDT", "USDM", "USDC", "USD", "PERP"):
+        if s.endswith(suf) and len(s) > len(suf):
+            return s[: -len(suf)]
+    return s
+
+
+def arb_other_symbol(quote_sym: str, other_venue: str, explicit: str = "") -> str:
+    """Map the quote contract onto ARB_VENUE. Coinbase defaults to INTX perp, not spot."""
+    given = str(explicit or "").strip().upper()
+    if given:
+        return given
+    root = _arb_coin_root(quote_sym)
+    if not root:
+        return ""
+    v = str(other_venue or "").strip().lower()
+    if v in ("binance", "aster", "bybit"):
+        return root + "USDT"
+    if v == "kucoin":
+        return root + "USDTM"
+    if v == "delta":
+        return root + "USD"
+    if v == "coinbase":
+        return f"{root}-PERP"
+    return ""
+
+
+def apply_arb_other_keys(env: dict[str, str], quote_venue: str = "", quote_sym: str = "") -> dict[str, str]:
     """Put ARB_VENUE keys onto a bot env. Dash / wallet keys win over a template copy."""
     if str(env.get("STRATEGY") or "").strip().lower() != "arb":
         return env
@@ -112,9 +140,16 @@ def apply_arb_other_keys(env: dict[str, str], quote_venue: str = "") -> dict[str
     for key, val in extra.items():
         if val:
             env[key] = val
-    sym = str(env.get("ARB_SYMBOL") or "").strip()
-    if sym and spec[2]:
-        env[spec[2]] = sym
+    qsym = str(quote_sym or "").strip()
+    if not qsym:
+        qspec = VENUE_ENV.get(quote)
+        if qspec:
+            qsym = str(env.get(qspec[2]) or "").strip()
+    sym = arb_other_symbol(qsym, other, env.get("ARB_SYMBOL") or "")
+    if sym:
+        env["ARB_SYMBOL"] = sym
+        if spec[2]:
+            env[spec[2]] = sym
     need = [spec[0], spec[1]] + ([spec[3]] if spec[3] else [])
     missing = [k for k in need if k and not str(env.get(k) or "").strip()]
     if missing:
@@ -1101,7 +1136,7 @@ def launch(
     for name, val in knobs.items():
         env[name] = val
     if strategy == "arb":
-        apply_arb_other_keys(env, venue)
+        apply_arb_other_keys(env, venue, contract)
     if acct_id:
         env["DASH_ACCOUNT"] = acct_id
     if strategy == "pair":
