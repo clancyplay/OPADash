@@ -42,6 +42,8 @@ from webapp import scan as dash_scan
 
 logger = logging.getLogger("webapp")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 settings = Settings.from_env()
 
@@ -1105,7 +1107,7 @@ async def _pending_deploys(strategy: str) -> list[dict]:
     """Dash launches that exist on Railway (or locally) but have not pinged yet."""
     want = (strategy or "").strip().lower()
     try:
-        bots = dash_launch.list_bots()
+        bots = await asyncio.to_thread(dash_launch.list_bots)
     except Exception as extra:
         logger.debug("webapp: deploy pills failed — %s", extra)
         return []
@@ -2456,7 +2458,7 @@ async def ops_accounts(venue: str = Query("")) -> dict:
                 wallets_inr[aid] = float(inr)
         except Exception as extra:
             logger.debug("webapp: ops live overlay failed — %s", extra)
-    for bot in dash_launch.list_bots():
+    for bot in await asyncio.to_thread(dash_launch.list_bots):
         if not bot.get("alive"):
             continue
         running.append({
@@ -2484,7 +2486,7 @@ async def ops_products(venue: str = Query("delta")) -> dict:
 
 @app.get("/api/ops/bots")
 async def ops_bots() -> dict:
-    return {"bots": dash_launch.list_bots()}
+    return {"bots": await asyncio.to_thread(dash_launch.list_bots)}
 
 
 async def _opp_running() -> list[dict]:
@@ -2622,7 +2624,7 @@ async def _opp_running() -> list[dict]:
         except Exception as extra:
             logger.debug("webapp: opp pings failed — %s", extra)
     try:
-        for bot in dash_launch.list_bots():
+        for bot in await asyncio.to_thread(dash_launch.list_bots):
             if not bot.get("alive"):
                 continue
             add(
