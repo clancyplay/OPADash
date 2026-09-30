@@ -1518,6 +1518,12 @@ body.ops-open { overflow: hidden; }
 }
 .rp-ops-wal { display: block; }
 .rp-ops-bot .aid, .rp-ops-wal .aid { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.rp-ops-bot.removed { opacity: .72; }
+.rp-ops-origin {
+  font-size: 10px; padding: 1px 6px; border-radius: 8px; vertical-align: 1px;
+  background: rgba(171,71,188,.16); color: #ce93d8; border: 1px solid rgba(171,71,188,.3);
+}
+.rp-ops-origin.tmpl { background: rgba(255,224,130,.14); color: #ffe082; border-color: rgba(255,224,130,.3); }
 .rp-ops-wallets { margin-bottom: 8px; }
 @media (min-width: 721px) {
   .rp-ops { align-items: center; padding: 24px 16px; }

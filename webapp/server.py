@@ -2489,6 +2489,18 @@ async def ops_bots() -> dict:
     return {"bots": await asyncio.to_thread(dash_launch.list_bots)}
 
 
+@app.get("/api/ops/bots/removed")
+async def ops_bots_removed(
+    limit: int = Query(20, ge=1, le=200),
+    days: int = Query(14, ge=1, le=90),
+    strategy: str = Query("all"),
+) -> dict:
+    """Recently removed bots (any strategy, incl. arb), newest first."""
+    if _db is None or not _db.pool:
+        return {"removed": []}
+    return {"removed": await _db.get_bot_removals(limit=limit, days=days, strategy=strategy)}
+
+
 async def _opp_running() -> list[dict]:
     """Live pings plus dash-started processes, for the opportunities page."""
     names = dict(dash_ops.account_names())
@@ -2806,7 +2818,11 @@ async def ops_bot_stop(req: LaunchStopRequest) -> dict:
     if rec is None and not symbol:
         raise HTTPException(
             status_code=404,
-            detail="No dash-started service for this contract. Only bots launched from OPADash can be removed here.",
+            detail=(
+                "No running service found for this contract. "
+                "If it was started directly on Railway, open New contract → the running list "
+                "below and use its Delete button, or retry after Refresh."
+            ),
         )
     cmd_id = None
     if rec is not None and _db is not None and _db.pool and contract and strategy:
@@ -2844,13 +2860,30 @@ async def ops_bot_stop(req: LaunchStopRequest) -> dict:
     if rec is None and sweep.get("skipped"):
         raise HTTPException(
             status_code=404,
-            detail="No dash-started service for this contract. Only bots launched from OPADash can be removed here.",
+            detail=(
+                "No running service and no leftover book found for this contract. "
+                "If the bot was started directly on Railway, it now shows in the running list "
+                "(New contract panel) — remove it from there."
+            ),
         )
     if _db is not None and _db.pool and contract and strategy:
         try:
             await _db.drop_live_bot(contract, account, strategy)
         except Exception as extra:
             logger.debug("webapp: drop live pill failed — %s", extra)
+    if _db is not None and _db.pool and (rec is not None or not sweep.get("skipped")):
+        try:
+            await _db.log_bot_removal(
+                contract=contract or symbol,
+                strategy=strategy,
+                account=account,
+                account_name=account_name,
+                venue=venue,
+                service=str((rec or {}).get("service") or out.get("service") or ""),
+                kind=str((rec or {}).get("kind") or out.get("kind") or ""),
+            )
+        except Exception as extra:
+            logger.debug("webapp: removal log failed — %s", extra)
     if not sweep.get("skipped") and not sweep.get("ok"):
         leftover = 0.0
         try:

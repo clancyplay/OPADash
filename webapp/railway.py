@@ -754,7 +754,7 @@ def _wallet_by_tag() -> dict[str, dict]:
     return out
 
 
-def _resolve_listed_account(service_id: str, slug: str) -> tuple[str, str, str]:
+def _resolve_listed_account(service_id: str, slug: str, env: dict[str, str] | None = None) -> tuple[str, str, str]:
     """Map a service-name account onto the current wallet.
 
     Renaming MainAccount → MA leaves the Railway service on the old slug.
@@ -771,14 +771,15 @@ def _resolve_listed_account(service_id: str, slug: str) -> tuple[str, str, str]:
     sid = str(service_id or "").strip()
     now = time.time()
     cached = _stale_acct_cache.get(sid)
-    if sid and cached and now - cached[0] < 45:
+    if env is None and sid and cached and now - cached[0] < 45:
         return cached[1]
-    env: dict[str, str] = {}
-    if sid:
-        try:
-            env = _variables(sid)
-        except Exception:
-            env = {}
+    if env is None:
+        env = {}
+        if sid:
+            try:
+                env = _variables(sid)
+            except Exception:
+                env = {}
     aid = str(env.get("DASH_ACCOUNT") or "").strip()
     venue = str(env.get("QUOTE_VENUE") or "").strip().lower()
     hit = known.get(aid.lower()) if aid else None
@@ -799,11 +800,45 @@ def _resolve_listed_account(service_id: str, slug: str) -> tuple[str, str, str]:
 
 _bots_cache: tuple[float, list[dict]] | None = None
 _BOTS_TTL = 12.0
+_svc_env_cache: dict[str, tuple[float, dict]] = {}
+_SVC_ENV_TTL = 90.0
 
 
 def _drop_bots_cache() -> None:
     global _bots_cache
     _bots_cache = None
+
+
+def _svc_env(service_id: str) -> dict[str, str]:
+    """Service env vars with a short cache — keeps list refreshes off the API rate limit."""
+    sid = str(service_id or "").strip()
+    if not sid:
+        return {}
+    now = time.time()
+    hit = _svc_env_cache.get(sid)
+    if hit and now - hit[0] < _SVC_ENV_TTL:
+        return dict(hit[1])
+    try:
+        env = _variables(sid)
+    except Exception:
+        return dict(hit[1]) if hit else {}
+    _svc_env_cache[sid] = (now, env)
+    return dict(env)
+
+
+def _looks_like_opa6_bot(svc: dict, inst: dict) -> bool:
+    """A service that runs an OPA6 bot but was created on Railway directly (no dash- name)."""
+    name = str(svc.get("name") or "").lower()
+    if not name or "opadash" in name or "dash" == name:
+        return False
+    src = inst.get("source") if isinstance(inst.get("source"), dict) else {}
+    repo = str((src or {}).get("repo") or "").lower()
+    if "opadash" in repo:
+        return False
+    start = str(inst.get("startCommand") or "").lower()
+    if "run.py" in start or "strategies/" in start:
+        return True
+    return "opa6" in repo or "opa6" in name or "opa-6" in name
 
 
 def list_bots() -> list[dict]:
@@ -824,26 +859,42 @@ def _list_bots() -> list[dict]:
     except RuntimeError:
         return []
     eid = _env_id()
+    me = (os.getenv("RAILWAY_SERVICE_ID") or "").strip()
+    try:
+        tmpl = _template_service(proj)
+    except RuntimeError:
+        tmpl = None
+    tmpl_id = str((tmpl or {}).get("id") or "")
     out = []
     for svc in _svc_edges(proj):
         name = str(svc.get("name") or "")
-        botched = name in _INFRA_VAR_NAMES
-        if not name.lower().startswith("dash-") and not botched:
-            continue
         sid = str(svc.get("id") or "")
+        if me and sid == me:
+            continue
+        botched = name in _INFRA_VAR_NAMES
+        dashy = name.lower().startswith("dash-")
+        inst = _instance_for_env(svc, eid)
         env_hint: dict[str, str] = {}
-        if botched or name.lower().startswith("dash-arb-"):
+        external = False
+        if not dashy and not botched:
+            # Started from Railway directly — list it anyway so Remove works from here.
+            if not _looks_like_opa6_bot(svc, inst):
+                continue
+            env_hint = _svc_env(sid)
+            if not str(env_hint.get("STRATEGY") or "").strip():
+                continue
+            external = True
+        elif botched or name.lower().startswith("dash-arb-"):
             try:
                 env_hint, name = _ensure_arb_other_keys(sid, name)
             except Exception:
                 env_hint = {}
-        inst = _instance_for_env(svc, eid)
         status = ""
         dep = inst.get("latestDeployment")
         if isinstance(dep, dict):
             status = str(dep.get("status") or "")
         alive = status.upper() not in ("CRASHED", "FAILED", "REMOVED", "SKIPPED")
-        strategy, contract, account = _split_svc(name)
+        strategy, contract, account = ("", "", "") if external else _split_svc(name)
         if env_hint.get("STRATEGY"):
             strategy = str(env_hint.get("STRATEGY") or "").strip().lower()
         hint_sym = _symbol_from_env(env_hint) if env_hint else ""
@@ -851,7 +902,9 @@ def _list_bots() -> list[dict]:
             contract = hint_sym
         if env_hint.get("DASH_ACCOUNT"):
             account = str(env_hint.get("DASH_ACCOUNT") or "").strip()
-        account, account_name, venue = _resolve_listed_account(sid, account)
+        account, account_name, venue = _resolve_listed_account(sid, account, env_hint or None)
+        if not venue and env_hint.get("QUOTE_VENUE"):
+            venue = str(env_hint.get("QUOTE_VENUE") or "").strip().lower()
         out.append({
             "id": sid,
             "pid": 0,
@@ -867,6 +920,8 @@ def _list_bots() -> list[dict]:
             "params": {},
             "service": name,
             "status": status,
+            "origin": "railway" if external else "dash",
+            "template": bool(tmpl_id and sid == tmpl_id),
         })
     return out
 

@@ -1978,6 +1978,7 @@ async function submitOpsRemove() {
 async function refreshOpsBots() {
   const box = document.getElementById('opsBots');
   if (!box) return;
+  refreshOpsRemoved();
   try {
     const r = await fetch('/api/ops/bots');
     const d = r.ok ? await r.json() : { bots: [] };
@@ -1988,15 +1989,18 @@ async function refreshOpsBots() {
   if (!opsBots.length) {
     const rail = opsCatalog && opsCatalog.launch === 'railway';
     box.innerHTML = '<div class="rp-ops-empty">' +
-      (rail ? 'No dash-started Railway services.' : 'No dash-started processes.') + '</div>';
+      (rail ? 'No OPA6 services running on Railway.' : 'No dash-started processes.') + '</div>';
     return;
   }
   box.innerHTML = opsBots.map(b => {
     const when = b.started_at ? fmtIST(b.started_at) : '';
     const rail = b.kind === 'railway' || b.service;
+    const ext = b.origin === 'railway';
     return '<div class="rp-ops-bot">' +
       '<div><b>' + escHtml(b.contract) + '</b> · ' + escHtml(b.strategy) +
       ' <span class="rpnl-venue ' + escHtml(b.venue) + '">' + escHtml(b.venue) + '</span>' +
+      (ext ? ' <span class="rp-ops-origin">railway</span>' : '') +
+      (b.template ? ' <span class="rp-ops-origin tmpl">template</span>' : '') +
       '<div class="aid">' + escHtml(b.account_name || b.account || b.service || '') +
       (when ? ' · ' + when : '') +
       (b.status ? ' · ' + escHtml(b.status) : '') +
@@ -2007,12 +2011,45 @@ async function refreshOpsBots() {
   }).join('');
 }
 
+async function refreshOpsRemoved() {
+  const box = document.getElementById('opsRemoved');
+  if (!box) return;
+  let rows = [];
+  try {
+    const r = await fetch('/api/ops/bots/removed?limit=15&days=14');
+    const d = r.ok ? await r.json() : { removed: [] };
+    rows = d.removed || [];
+  } catch (e) {
+    rows = [];
+  }
+  if (!rows.length) {
+    box.innerHTML = '<div class="rp-ops-empty">Nothing removed in the last 14 days.</div>';
+    return;
+  }
+  box.innerHTML = rows.map(r => {
+    const secs = Math.floor(Date.parse(r.removed_at) / 1000);
+    const ok = isFinite(secs);
+    const when = ok ? fmtIST(secs) : '';
+    const ago = ok ? fmtAgo(Math.max(0, Math.floor(Date.now() / 1000) - secs)) : '';
+    return '<div class="rp-ops-bot removed">' +
+      '<div><b>' + escHtml(r.contract) + '</b>' +
+      (r.strategy ? ' · ' + escHtml(r.strategy) : '') +
+      (r.venue ? ' <span class="rpnl-venue ' + escHtml(r.venue) + '">' + escHtml(r.venue) + '</span>' : '') +
+      '<div class="aid">' + escHtml(r.account_name || r.account || r.service || '') +
+      (when ? ' · ' + when : '') + (ago ? ' · ' + ago : '') + '</div></div>' +
+      '</div>';
+  }).join('');
+}
+
 async function stopOpsBot(id) {
   const row = (opsBots || []).find(b => b.id === id) || {};
   const rail = row.kind === 'railway' || !!row.service;
-  if (!id || !confirm(rail
+  const tmpl = row.template
+    ? '\n\nThis is the template service OPADash copies for new contracts. Removing it is fine only if OPA6_RAILWAY_SERVICE / OPA6_GITHUB_REPO point elsewhere.'
+    : '';
+  if (!id || !confirm((rail
     ? 'Flatten this contract (cancel orders + close position), then delete the Railway service?'
-    : 'Flatten this contract (cancel orders + close position), then kill the process?')) return;
+    : 'Flatten this contract (cancel orders + close position), then kill the process?') + tmpl)) return;
   try {
     const r = await fetch('/api/ops/bots/stop', {
       method: 'POST',

@@ -300,6 +300,22 @@ class EventsDB:
                     PRIMARY KEY (strategy, account, contract)
                 );
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bot_removal (
+                    id           BIGSERIAL PRIMARY KEY,
+                    removed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    strategy     VARCHAR(40) NOT NULL DEFAULT '',
+                    account      VARCHAR(40) NOT NULL DEFAULT '',
+                    account_name VARCHAR(80) NOT NULL DEFAULT '',
+                    contract     VARCHAR(80) NOT NULL,
+                    venue        VARCHAR(20) NOT NULL DEFAULT '',
+                    service      VARCHAR(80) NOT NULL DEFAULT '',
+                    kind         VARCHAR(20) NOT NULL DEFAULT '',
+                    removed_by   VARCHAR(40) NOT NULL DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_bot_removal_at
+                    ON bot_removal (removed_at DESC);
+            """)
 
     async def update_live_state(self, symbol: str, data: dict) -> None:
         """Upsert per-symbol live state (positions, orders, book). Called by quoter every sync."""
@@ -453,6 +469,82 @@ class EventsDB:
                     )
         except Exception as extra:
             self.logger.warning("events_db: drop_live_bot failed — %s", extra)
+
+    async def log_bot_removal(
+        self,
+        *,
+        contract: str,
+        strategy: str = "",
+        account: str = "",
+        account_name: str = "",
+        venue: str = "",
+        service: str = "",
+        kind: str = "",
+        removed_by: str = "dashboard",
+    ) -> None:
+        """Remember a removed bot so the dashboard can show recent removals."""
+        if not self.pool:
+            return
+        name = canon_contract(contract) or str(contract or "").strip()
+        if not name:
+            return
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO bot_removal
+                        (contract, strategy, account, account_name, venue, service, kind, removed_by)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    """,
+                    name[:80], str(strategy or "")[:40], str(account or "")[:40],
+                    str(account_name or "")[:80], str(venue or "")[:20],
+                    str(service or "")[:80], str(kind or "")[:20], str(removed_by or "")[:40],
+                )
+        except Exception as extra:
+            self.logger.warning("events_db: log_bot_removal failed — %s", extra)
+
+    async def get_bot_removals(
+        self, limit: int = 20, days: int = 14, strategy: str = "all",
+    ) -> list[dict]:
+        """Recent removals, newest first. `strategy` filters; 'all' returns everything."""
+        if not self.pool:
+            return []
+        args: list = [max(1, int(days or 14))]
+        where = "removed_at >= NOW() - ($1::int * INTERVAL '1 day')"
+        if not strategy_is_all(strategy):
+            args.append(str(strategy).strip().lower())
+            where += f" AND LOWER(strategy) = ${len(args)}"
+        args.append(max(1, min(200, int(limit or 20))))
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    f"""
+                    SELECT removed_at, strategy, account, account_name,
+                           contract, venue, service, kind, removed_by
+                    FROM bot_removal
+                    WHERE {where}
+                    ORDER BY removed_at DESC
+                    LIMIT ${len(args)}
+                    """,
+                    *args,
+                )
+            return [
+                {
+                    "removed_at": r["removed_at"].isoformat(),
+                    "strategy": r["strategy"] or "",
+                    "account": r["account"] or "",
+                    "account_name": r["account_name"] or "",
+                    "contract": r["contract"] or "",
+                    "venue": r["venue"] or "",
+                    "service": r["service"] or "",
+                    "kind": r["kind"] or "",
+                    "removed_by": r["removed_by"] or "",
+                }
+                for r in rows
+            ]
+        except Exception as extra:
+            self.logger.debug("events_db: get_bot_removals failed — %s", extra)
+            return []
 
     async def get_bot_setups(self, strategy: str) -> dict[tuple, dict]:
         """Last known knobs keyed by (contract, account) and (contract, account, strategy)."""
