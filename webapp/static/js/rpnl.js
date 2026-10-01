@@ -41,8 +41,6 @@ function rpnlScopeApply() {
   if (rpnlReady) loadRpnlFresh();
 }
 function openRpnlFilters() {
-  const page = document.getElementById('rpnl');
-  if (page && page.classList.contains('more-open')) toggleRpnlMore();
   closeOhlcTools();
   openFilterModal({
     title: 'rPnL filters',
@@ -3385,25 +3383,6 @@ function initRpnl() {
   }
 }
 
-function toggleRpnlMore() {
-  const page = document.getElementById('rpnl');
-  if (!page) return;
-  const open = page.classList.toggle('more-open');
-  const btn = document.getElementById('rpnlMoreBtn');
-  if (btn) {
-    btn.classList.toggle('on', open);
-    btn.title = open ? 'Less' : 'More';
-    btn.setAttribute('aria-label', open ? 'Less' : 'More');
-    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-  }
-  if (open) {
-    const foot = document.getElementById('rpnlTools');
-    if (foot) foot.classList.remove('export-open');
-    const ex = document.getElementById('rpnlExportBtn');
-    if (ex) ex.classList.remove('on');
-    closeOhlcTools();
-  }
-}
 function toggleOhlcTools() {
   const box = document.getElementById('ohlcTools');
   const btn = document.getElementById('ohlcToolsBtn');
@@ -3412,10 +3391,6 @@ function toggleOhlcTools() {
   if (btn) {
     btn.classList.toggle('on', open);
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-  }
-  if (open) {
-    const page = document.getElementById('rpnl');
-    if (page && page.classList.contains('more-open')) toggleRpnlMore();
   }
 }
 function closeOhlcTools() {
@@ -3429,17 +3404,10 @@ function toggleRpnlExports() {
   const open = foot.classList.toggle('export-open');
   const btn = document.getElementById('rpnlExportBtn');
   if (btn) btn.classList.toggle('on', open);
-  if (open) {
-    const page = document.getElementById('rpnl');
-    if (page && page.classList.contains('more-open')) toggleRpnlMore();
-  }
 }
 function closeRpnlPopovers(ev) {
   const page = document.getElementById('rpnl');
   if (!page || !page.classList.contains('visible')) return;
-  if (page.classList.contains('more-open') && !(ev && ev.target && ev.target.closest('.rp-bar'))) {
-    toggleRpnlMore();
-  }
   const foot = document.getElementById('rpnlTools');
   if (foot && foot.classList.contains('export-open') && !(ev && ev.target && ev.target.closest('.rp-foot'))) {
     toggleRpnlExports();

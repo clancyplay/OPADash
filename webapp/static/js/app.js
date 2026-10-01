@@ -258,8 +258,6 @@ function showPage(name) {
     startRpnlLive();
   } else {
     stopRpnlLive();
-    const rp = document.getElementById('rpnl');
-    if (rp && rp.classList.contains('more-open') && typeof toggleRpnlMore === 'function') toggleRpnlMore();
     if (typeof closeOhlcTools === 'function') closeOhlcTools();
     if (typeof clearRpnlYScaleMode === 'function') clearRpnlYScaleMode();
     const foot = document.getElementById('rpnlTools');
