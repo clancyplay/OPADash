@@ -985,12 +985,38 @@ function opsFmtKnob(v) {
 
 function opsGeomLiveBits(s) {
   if (!s) return [];
-  if (s.geom) return String(s.geom).split(' · ').map(b => String(b || '').trim()).filter(Boolean);
+  const strat = (opsEdit && opsEdit.strategy) || (document.getElementById('opsStrategy') || {}).value || '';
+  const lenses = opsGeomLens().map(g => g.id);
+  const touchLike = strat === 'touch' || lenses.indexOf('bid') >= 0 || lenses.indexOf('ask') >= 0;
+  if (s.geom) {
+    let parts = String(s.geom).split(' · ').map(b => String(b || '').trim()).filter(Boolean);
+    if (touchLike) {
+      parts = parts.filter(b => !/^k\b/i.test(b));
+      const hasSide = parts.some(b => /^(bid|ask)\b/i.test(b));
+      if (!hasSide) {
+        const side = [];
+        const bidT = s.bid_ticks != null ? s.bid_ticks : (s.k_ticks != null ? s.k_ticks : null);
+        const bidP = s.bid != null ? s.bid : (s.k != null ? s.k : null);
+        const askT = s.ask_ticks != null ? s.ask_ticks : (s.k_ticks != null ? s.k_ticks : null);
+        const askP = s.ask != null ? s.ask : (s.k != null ? s.k : null);
+        if (bidT != null && Number(bidT) !== 0) side.push('bid ' + opsFmtKnob(bidT) + 't');
+        else if (bidP != null) side.push('bid ' + opsFmtKnob(bidP) + '%');
+        if (askT != null && Number(askT) !== 0) side.push('ask ' + opsFmtKnob(askT) + 't');
+        else if (askP != null) side.push('ask ' + opsFmtKnob(askP) + '%');
+        if (side.length) parts = side.concat(parts);
+      }
+    }
+    return parts;
+  }
   return opsGeomLens().map(g => {
-    const ticksKey = g.id === 'k' ? 'k_ticks' : (g.id === 'tail' ? 'step_ticks' : g.id + '_ticks');
-    const pctKey = g.id === 'k' ? 'k' : (g.id === 'tail' ? 'step' : g.id);
-    const ticks = s[ticksKey] != null ? s[ticksKey] : s[g.id + '_ticks'];
-    const pct = s[pctKey] != null ? s[pctKey] : s[g.id];
+    let ticksKey = g.id === 'k' ? 'k_ticks' : (g.id === 'tail' ? 'step_ticks' : g.id + '_ticks');
+    let pctKey = g.id === 'k' ? 'k' : (g.id === 'tail' ? 'step' : g.id);
+    let ticks = s[ticksKey] != null ? s[ticksKey] : s[g.id + '_ticks'];
+    let pct = s[pctKey] != null ? s[pctKey] : s[g.id];
+    if ((g.id === 'bid' || g.id === 'ask') && ticks == null && pct == null) {
+      ticks = s.k_ticks;
+      pct = s.k;
+    }
     const useTicks = ticks != null && ticks !== '' && Number(ticks) !== 0;
     const n = useTicks ? ticks : pct;
     if (n == null || n === '') return '';
@@ -1460,8 +1486,13 @@ function fillOpsFromSetup(s) {
   opsGeomLens().forEach(g => {
     const ticksKey = g.id === 'k' ? 'k_ticks' : (g.id === 'tail' ? 'step_ticks' : g.id + '_ticks');
     const pctKey = g.id === 'k' ? 'k' : (g.id === 'tail' ? 'step' : g.id);
-    const ticks = s[ticksKey] != null ? s[ticksKey] : s[g.id + '_ticks'];
-    const pct = s[pctKey] != null ? s[pctKey] : s[g.id];
+    let ticks = s[ticksKey] != null ? s[ticksKey] : s[g.id + '_ticks'];
+    let pct = s[pctKey] != null ? s[pctKey] : s[g.id];
+    // Legacy touch setups still publish K — seed bid/ask distance from it.
+    if ((g.id === 'bid' || g.id === 'ask') && ticks == null && pct == null) {
+      ticks = s.k_ticks;
+      pct = s.k;
+    }
     const row = document.querySelector('#opsGeom [data-geom="' + g.id + '"]');
     if (!row) return;
     if (!opsGeomHasBounds(g)) {

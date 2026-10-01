@@ -12,6 +12,13 @@
           <option value="all">All strategies</option>
         </select>
       </label>
+      <label class="fm-live" id="fmLiveOnlyWrap" hidden title="Hide stopped and historical contracts">
+        <span>
+          <b>Live only</b>
+          <small>Show running bots (and ones still starting)</small>
+        </span>
+        <input type="checkbox" id="fmLiveOnly" onchange="filterModalLiveOnlyChange(this.checked)" />
+      </label>
       <div class="fm-sec">
         <span>Exchanges &amp; accounts</span>
         <button type="button" class="pf-clear" onclick="filterModalClear()">Clear all</button>

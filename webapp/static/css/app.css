@@ -234,6 +234,23 @@
     font-size: 11px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: var(--muted);
   }
   .fm-field select { width: 100%; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 13px; }
+  .fm-live {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 12px; border-radius: 10px;
+    background: rgba(255, 255, 255, .03); border: 1px solid var(--border);
+    cursor: pointer; flex-shrink: 0;
+  }
+  .fm-live[hidden] { display: none; }
+  .fm-live span { display: grid; gap: 2px; min-width: 0; }
+  .fm-live b {
+    font-size: 13px; font-weight: 650; color: #fff;
+    text-transform: none; letter-spacing: 0;
+  }
+  .fm-live small {
+    font-size: 11px; font-weight: 500; color: var(--muted);
+    text-transform: none; letter-spacing: 0; line-height: 1.35;
+  }
+  .fm-live input { width: 18px; height: 18px; flex-shrink: 0; accent-color: var(--accent); }
   .fm-sec {
     display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
     font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--muted);

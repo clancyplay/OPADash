@@ -552,11 +552,20 @@ function openFilterModal(ctx) {
   if (title) title.textContent = ctx.title || 'Filters';
   const ss = document.getElementById('fmStrategy');
   if (ss && [...ss.options].some(o => o.value === currentStrategy)) ss.value = currentStrategy;
+  const liveWrap = document.getElementById('fmLiveOnlyWrap');
+  const liveEl = document.getElementById('fmLiveOnly');
+  if (liveWrap) liveWrap.hidden = !ctx.showLiveOnly;
+  if (liveEl && ctx.showLiveOnly) liveEl.checked = !!ctx.liveOnly;
   if (typeof ctx.refresh === 'function') ctx.refresh();
   scopeRender(document.getElementById('fmScopeTree'), ctx.scope);
   filterModalCount();
   modal.hidden = false;
   document.body.classList.add('modal-open');
+}
+function filterModalLiveOnlyChange(on) {
+  if (!activeFilterCtx || !activeFilterCtx.showLiveOnly) return;
+  activeFilterCtx.liveOnly = !!on;
+  if (typeof activeFilterCtx.onLiveOnly === 'function') activeFilterCtx.onLiveOnly(!!on);
 }
 function closeFilterModal() {
   const modal = document.getElementById('filterModal');

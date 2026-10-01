@@ -1,12 +1,20 @@
 // rPnL symbol list — fetched from DB fills table
 const rpnlScope = { selected: loadScopeSet('rpnl'), expanded: new Set(), groups: [] };
+const LS_RPNL_LIVE_ONLY = 'opadash.rpnlLiveOnly';
+let rpnlLiveOnly = (typeof lsGet === 'function' ? lsGet(LS_RPNL_LIVE_ONLY, '1') : '1') !== '0';
+
+function rpnlIsLiveRow(r) {
+  return !!(r && (r.live || rpnlIsBooting(r)));
+}
 function rpnlScopeMatch(row) {
   const venues = [row.quote_venue, row.hedge_venue, row.exchange]
     .map(v => String(v || '').toLowerCase()).filter(Boolean);
   return scopeMatch(rpnlScope, venues, row.account);
 }
 function rpnlApplyFilter(rows) {
-  return (Array.isArray(rows) ? rows : []).filter(rpnlScopeMatch);
+  let out = (Array.isArray(rows) ? rows : []).filter(rpnlScopeMatch);
+  if (rpnlLiveOnly) out = out.filter(rpnlIsLiveRow);
+  return out;
 }
 // Build exchange→accounts tree from the unfiltered symbol rows.
 function rpnlScopeGroups(rows) {
@@ -31,7 +39,10 @@ function rpnlSyncFilterUI() {
   rpnlScope.groups.forEach(g => g.accounts.forEach(a => live.add(scopeKey(g.ex, a.id))));
   [...rpnlScope.selected].forEach(k => { if (!live.has(k)) rpnlScope.selected.delete(k); });
   const stratN = strategyIsAll(currentStrategy) ? 0 : 1;
-  setFilterBadge('rpnlFilterBtn', stratN + rpnlScope.selected.size);
+  // Live-only is the default view — only badge when the user turns it off
+  // (showing historical too) or when strategy/accounts are narrowed.
+  const liveN = rpnlLiveOnly ? 0 : 1;
+  setFilterBadge('rpnlFilterBtn', stratN + liveN + rpnlScope.selected.size);
 }
 // Account/exchange is a client-side filter, so just re-render from cached rows.
 function rpnlScopeApply() {
@@ -40,6 +51,13 @@ function rpnlScopeApply() {
   rpnlRenderSymbolOptions();
   if (rpnlReady) loadRpnlFresh();
 }
+function setRpnlLiveOnly(on) {
+  rpnlLiveOnly = !!on;
+  if (typeof lsSet === 'function') lsSet(LS_RPNL_LIVE_ONLY, rpnlLiveOnly ? '1' : '0');
+  rpnlSyncFilterUI();
+  rpnlRenderSymbolOptions();
+  if (rpnlReady && typeof loadRpnlFresh === 'function') loadRpnlFresh();
+}
 function openRpnlFilters() {
   closeOhlcTools();
   openFilterModal({
@@ -47,6 +65,9 @@ function openRpnlFilters() {
     scope: rpnlScope,
     refresh: rpnlSyncFilterUI,
     apply: rpnlScopeApply,
+    showLiveOnly: true,
+    liveOnly: rpnlLiveOnly,
+    onLiveOnly: setRpnlLiveOnly,
   });
 }
 let rpnlSymbolRows = [];
@@ -941,14 +962,82 @@ function rpnlGeomBit(name, ticks, pct, extra) {
   return bit;
 }
 
-function rpnlSetupBits(s) {
+/** Signed bid/ask distance — ticks win when non-zero (incl. negative into the spread). */
+function rpnlSideDistBit(name, ticks, pct) {
+  const t = Number(ticks);
+  if (ticks != null && ticks !== '' && isFinite(t) && t !== 0) return name + ' ' + fmtG(t) + 't';
+  if (pct != null && pct !== '') return name + ' ' + fmtG(pct) + '%';
+  if (ticks != null && ticks !== '' && isFinite(t)) return name + ' ' + fmtG(t) + 't';
+  return null;
+}
+
+function rpnlHasSideDist(s) {
+  if (!s) return false;
+  return s.bid != null || s.ask != null || s.bid_ticks != null || s.ask_ticks != null;
+}
+
+function rpnlSideDistBits(s) {
+  const bits = [];
+  const bid = rpnlSideDistBit('bid', s.bid_ticks, s.bid);
+  const ask = rpnlSideDistBit('ask', s.ask_ticks, s.ask);
+  if (bid) bits.push(bid);
+  if (ask) bits.push(ask);
+  return bits;
+}
+
+/** Normalize live geom text: touch uses bid/ask distance, not K. */
+function rpnlNormGeomParts(s, strategy) {
+  const strat = String(strategy || (s && s.strategy) || '').toLowerCase();
+  const touchLike = strat === 'touch' || rpnlHasSideDist(s);
+  const raw = s && s.geom ? String(s.geom).split(' · ').map(function (b) {
+    return String(b || '').trim();
+  }).filter(Boolean) : null;
+
+  if (raw && raw.length) {
+    let parts = raw.slice();
+    if (touchLike) {
+      const kBit = parts.find(function (b) { return /^k\b/i.test(b); });
+      parts = parts.filter(function (b) { return !/^k\b/i.test(b); });
+      const hasSide = parts.some(function (b) { return /^(bid|ask)\b/i.test(b); });
+      if (!hasSide) {
+        let side = rpnlSideDistBits(s);
+        if (!side.length && (s.k != null || s.k_ticks != null)) {
+          // Legacy touch bots still publish K — show it as bid/ask distance.
+          const legacy = rpnlSideDistBit('bid', s.k_ticks, s.k);
+          const legacyAsk = rpnlSideDistBit('ask', s.k_ticks, s.k);
+          if (legacy) side = [legacy, legacyAsk].filter(Boolean);
+        }
+        if (!side.length && kBit) {
+          const m = String(kBit).match(/^k\s+(.+)$/i);
+          if (m && m[1]) side = ['bid ' + m[1], 'ask ' + m[1]];
+        }
+        if (side.length) parts = side.concat(parts);
+      }
+    }
+    return parts;
+  }
+
+  const bits = [];
+  if (touchLike) {
+    let side = rpnlSideDistBits(s);
+    if (!side.length && strat === 'touch' && (s.k != null || s.k_ticks != null)) {
+      const legacy = rpnlSideDistBit('bid', s.k_ticks, s.k);
+      const legacyAsk = rpnlSideDistBit('ask', s.k_ticks, s.k);
+      if (legacy) side = [legacy, legacyAsk].filter(Boolean);
+    }
+    side.forEach(function (b) { bits.push(b); });
+  }
+  return bits.length ? bits : null;
+}
+
+function rpnlSetupBits(s, strategy) {
   const bits = [];
   const on = v => v === true || v === 'true' || v === 'on' || v === 1 || v === '1';
   const hedge = on(s.pair_hedge) || s.role === 'hedge' || String(s.mode || '').toLowerCase() === 'hedge';
+  const strat = String(strategy || s.strategy || '').toLowerCase();
+  const touchLike = strat === 'touch' || rpnlHasSideDist(s);
   if (!hedge) {
     if (s.edge != null) bits.push('edge ' + fmtG(s.edge) + '%');
-    if (s.k_ticks != null && Number(s.k_ticks) !== 0) bits.push('k ' + fmtG(s.k_ticks) + 't');
-    else if (s.k != null) bits.push('k ' + fmtG(s.k) + '%');
     if (s.hook) bits.push('hook ' + s.hook);
   }
   if (hedge) bits.push('pair hedge');
@@ -957,8 +1046,9 @@ function rpnlSetupBits(s) {
   if (s.hedge_pct != null) bits.push('hedge ' + fmtG(s.hedge_pct) + '%');
   if (s.hedge_target != null) bits.push('target ' + fmtG(s.hedge_target));
   if (!hedge) {
-  if (s.geom) {
-    String(s.geom).split(' · ').forEach(function (b) {
+  const geomParts = rpnlNormGeomParts(s, strat);
+  if (geomParts && geomParts.length) {
+    geomParts.forEach(function (b) {
       if (b) bits.push(rpnlRoundGeomText(b));
     });
   } else {
@@ -970,9 +1060,14 @@ function rpnlSetupBits(s) {
       stepExtra = '×' + (isFinite(Number(t)) ? fmtG(Number(t)) : t);
     }
     const step = rpnlGeomBit('step', s.step_ticks, s.step, stepExtra);
+    if (touchLike) rpnlSideDistBits(s).forEach(function (b) { bits.push(b); });
     if (hem) bits.push(hem);
     if (span) bits.push(span);
     if (step) bits.push(step);
+    if (!touchLike) {
+      if (s.k_ticks != null && Number(s.k_ticks) !== 0) bits.push('k ' + fmtG(s.k_ticks) + 't');
+      else if (s.k != null) bits.push('k ' + fmtG(s.k) + '%');
+    }
   }
   if (s.touch_ticks != null) bits.push('touch ' + fmtG(s.touch_ticks) + 't');
   if (s.min_spread != null && Number(s.min_spread) > 0) bits.push('min spread ' + fmtG(s.min_spread) + '%');
@@ -987,12 +1082,6 @@ function rpnlSetupBits(s) {
   if (s.fate != null) bits.push('fate $' + fmtG(s.fate));
     if (s.live_orders != null && s.orders != null) bits.push('orders ' + s.live_orders + '/' + s.orders);
     else if (s.orders != null) bits.push('orders ' + s.orders);
-    if (!s.geom) {
-      if (s.bid_ticks != null && Number(s.bid_ticks) !== 0) bits.push('bid ' + fmtG(s.bid_ticks) + 't');
-      else if (s.bid != null && Number(s.bid) !== 0) bits.push('bid ' + fmtG(s.bid) + '%');
-      if (s.ask_ticks != null && Number(s.ask_ticks) !== 0) bits.push('ask ' + fmtG(s.ask_ticks) + 't');
-      else if (s.ask != null && Number(s.ask) !== 0) bits.push('ask ' + fmtG(s.ask) + '%');
-    }
     if (s.max_usd != null) bits.push('max $' + fmtG(s.max_usd));
     else if (s.max_pos != null) bits.push('max ' + fmtG(s.max_pos));
     if (s.ignore != null) bits.push((s.ignore_usd ? 'ignore $' : 'ignore ') + fmtG(s.ignore));
@@ -1022,10 +1111,10 @@ function rpnlSymbolBits(s) {
   return bits;
 }
 
-function rpnlCfgBits(s) {
+function rpnlCfgBits(s, strategy) {
   if (!s) return [];
-  if (s.kind === 'setup' || s.hem != null || s.geom != null || s.hem_auto != null || s.fit_auto != null || s.max_usd != null || s.k != null || s.edge != null || s.mode != null) {
-    return rpnlSetupBits(s);
+  if (s.kind === 'setup' || s.hem != null || s.geom != null || s.hem_auto != null || s.fit_auto != null || s.max_usd != null || s.k != null || s.edge != null || s.mode != null || s.bid != null || s.ask != null || s.bid_ticks != null || s.ask_ticks != null) {
+    return rpnlSetupBits(s, strategy);
   }
   return rpnlSymbolBits(s);
 }
@@ -1039,8 +1128,8 @@ function rpnlCfgTitle(s) {
     .join('\n');
 }
 
-function rpnlCfgHtml(s) {
-  const bits = rpnlCfgBits(s);
+function rpnlCfgHtml(s, strategy) {
+  const bits = rpnlCfgBits(s, strategy);
   const mode = rpnlModeText(s);
   if (!bits.length && !mode) return '<div class="p-cfg none">no bot setup yet</div>';
   const spans = [];
@@ -1423,7 +1512,7 @@ function renderRpnlInspect(row) {
   const quote = Number(row.rpnl) || 0;
   const hedge = hedged ? (Number(row.hedge_rpnl) || 0) : 0;
   const modeTxt = rpnlModeText(s, true);
-  const cfgSig = s ? rpnlCfgBits(s).join(',') : '';
+  const cfgSig = s ? rpnlCfgBits(s, row.strategy).join(',') : '';
   const sig = [
     row.contract, row.account, Number(!!row.live), quote, hedge, row.fills, row.hedge_fills,
     s && s.pos, s && s.entry, s && s.upnl, s && s.upnl_usd, s && s.mark, s && s.cv, s && s.usdinr, s && s.wallet_inr, s && s.mode, s && s.hold, s && s.pause_left,
@@ -1441,7 +1530,7 @@ function renderRpnlInspect(row) {
   const pairHedge = rpnlIsPairHedge(row);
   const hedgeOf = rpnlHedgeOf(row);
   const via = s && s.hedge_via;
-  const cfgHtml = (!pairHedge && s) ? rpnlCfgHtml(s) : '';
+  const cfgHtml = (!pairHedge && s) ? rpnlCfgHtml(s, row.strategy) : '';
   box.className = 'rpnl-inspect open' + (pairHedge ? ' hedge' : '');
   box.dataset.contract = row.contract || '';
   box.dataset.account = row.account || '';
@@ -1566,7 +1655,13 @@ function rpnlRoundGeomText(text) {
 }
 
 function rpnlPillGeom(r) {
-  const g = r && r.settings && r.settings.geom;
+  const s = r && r.settings;
+  if (!s) return '';
+  const parts = rpnlNormGeomParts(s, r.strategy);
+  if (parts && parts.length) {
+    return rpnlRoundGeomText(parts.join(' · ')).replace(/\(book\)/gi, '(b)');
+  }
+  const g = s.geom;
   if (!g) return '';
   return rpnlRoundGeomText(g).replace(/\(book\)/gi, '(b)');
 }
@@ -1665,7 +1760,9 @@ function renderRpnlSummary(rows, hours) {
   rpnlMarkPairHedges(rows);
   if (!rows.length) {
     wrap.dataset.keys = '';
-    wrap.innerHTML = '<div class="rpnl-empty">No live bots or fills in this window.</div>';
+    wrap.innerHTML = '<div class="rpnl-empty">' +
+      (rpnlLiveOnly ? 'No live bots in this window. Turn off Live only in Filters to see the rest.' : 'No live bots or fills in this window.') +
+      '</div>';
     rpnlSummaryCache = [];
     renderRpnlInspect(null);
     applyOhlcOrderLines([]);
