@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, quote
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -84,7 +84,21 @@ async def lifespan(app: FastAPI):
 # Cookie login (iPhone Safari does not keep HTTP Basic). Basic still works for curl.
 _COOKIE = "opadash"
 _COOKIE_DAYS = int(os.getenv("DASHBOARD_COOKIE_DAYS", "30") or 30)
-_PUBLIC_PATHS = {"/login", "/logout", "/healthz", "/api/health"}
+_PUBLIC_PATHS = {
+    "/login", "/logout", "/healthz", "/api/health",
+    "/sw.js", "/manifest.webmanifest",
+}
+
+
+def _is_public_path(path: str) -> bool:
+    if path in _PUBLIC_PATHS:
+        return True
+    # Icons + manifest are needed for install prompts before/without a session.
+    if path.startswith("/static/icons/"):
+        return True
+    if path == "/static/manifest.webmanifest":
+        return True
+    return False
 
 def _dash_user() -> str:
     return os.getenv("DASHBOARD_USERNAME", "admin")
@@ -182,7 +196,7 @@ def _http_auth_middleware(app_):
 
     class _AuthMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
-            if not _dash_pass() or request.url.path.startswith("/ws/") or request.url.path in _PUBLIC_PATHS:
+            if not _dash_pass() or request.url.path.startswith("/ws/") or _is_public_path(request.url.path):
                 return await call_next(request)
             if _cookie_ok(request):
                 return await call_next(request)
@@ -816,6 +830,28 @@ async def index() -> HTMLResponse:
     return HTMLResponse(_dashboard_html(), headers={"Cache-Control": "no-store"})
 
 
+@app.get("/sw.js")
+async def service_worker() -> FileResponse:
+    """Root-scoped SW so Chrome/Safari can install OPADash as a PWA."""
+    return FileResponse(
+        STATIC_DIR / "sw.js",
+        media_type="application/javascript; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache",
+            "Service-Worker-Allowed": "/",
+        },
+    )
+
+
+@app.get("/manifest.webmanifest")
+async def web_manifest() -> FileResponse:
+    return FileResponse(
+        STATIC_DIR / "manifest.webmanifest",
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
 _LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -823,8 +859,12 @@ _LOGIN_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="OPADash" />
 <meta name="theme-color" content="#161a25" />
 <title>OPADash login</title>
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png" />
+<link rel="apple-touch-icon" href="/static/icons/icon-180.png" />
 <style>
   * { box-sizing: border-box; }
   body {

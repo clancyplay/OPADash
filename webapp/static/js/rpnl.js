@@ -3391,7 +3391,9 @@ function toggleRpnlMore() {
   const open = page.classList.toggle('more-open');
   const btn = document.getElementById('rpnlMoreBtn');
   if (btn) {
-    btn.textContent = open ? 'Less' : 'More';
+    btn.classList.toggle('on', open);
+    btn.title = open ? 'Less' : 'More';
+    btn.setAttribute('aria-label', open ? 'Less' : 'More');
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
   if (open) {

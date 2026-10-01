@@ -15,6 +15,9 @@
   const lastPage = lsGet(LS_PAGE, 'home');
   if (lastPage && lastPage !== 'home' && PAGE_IDS.includes(lastPage)) showPage(lastPage);
 })();
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+}
 </script>
 </body>
 </html>

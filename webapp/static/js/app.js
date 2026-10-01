@@ -512,7 +512,15 @@ function setFilterBadge(btnId, count) {
   const b = document.getElementById(btnId);
   if (!b) return;
   b.classList.toggle('on', count > 0);
-  b.textContent = count > 0 ? 'Filters · ' + count : 'Filters';
+  const n = count > 0 ? Number(count) : 0;
+  const badge = b.querySelector('.rp-badge');
+  if (badge) {
+    badge.hidden = n <= 0;
+    badge.textContent = n > 0 ? String(n) : '';
+  } else {
+    b.textContent = n > 0 ? 'Filters · ' + n : 'Filters';
+  }
+  b.title = n > 0 ? 'Filters · ' + n : 'Filters';
 }
 
 // ---- Shared Filters modal ----

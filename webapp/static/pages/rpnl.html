@@ -2,8 +2,8 @@
 <div id="rpnl" class="page">
   <div class="rp-top">
     <div class="rp-bar">
-      <select id="rpnlSymbol" title="Symbol" aria-label="Symbol" onchange="loadRpnlFresh()"></select>
-      <select id="rpnlHours" title="Window" aria-label="Window" onchange="loadRpnlFresh()">
+      <select id="rpnlSymbol" class="rp-sel" title="Symbol" aria-label="Symbol" onchange="loadRpnlFresh()"></select>
+      <select id="rpnlHours" class="rp-sel rp-sel-hours" title="Window" aria-label="Window" onchange="loadRpnlFresh()">
         <option value="today">Today</option>
         <option value="1">1h</option>
         <option value="3">3h</option>
@@ -16,17 +16,31 @@
         <option value="336">14d</option>
         <option value="720">30d</option>
       </select>
-      <button class="btn rp-more-btn" type="button" id="rpnlMoreBtn" onclick="toggleRpnlMore()" aria-expanded="false">More</button>
+      <span class="rp-bar-gap" aria-hidden="true"></span>
+      <button class="btn rp-ico rp-more-btn" type="button" id="rpnlMoreBtn" onclick="toggleRpnlMore()" title="More" aria-label="More" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+      </button>
       <div class="rp-more">
         <select id="rpnlVenue" hidden title="Venue" aria-label="Venue" onchange="onRpnlVenueChange()">
           <option value="both">Both</option>
           <option value="quote">Quote</option>
           <option value="hedge">Hedge</option>
         </select>
-        <button class="btn" type="button" onclick="openRpOps()">New</button>
-        <button class="btn" type="button" onclick="loadRpnlFresh()">Refresh</button>
-        <label class="rp-check"><input type="checkbox" id="rpnlAuto" onchange="setupRpnlAuto()" checked /> Auto</label>
-        <button class="btn" type="button" id="rpnlFilterBtn" onclick="openRpnlFilters()">Filters</button>
+        <button class="btn rp-new" type="button" onclick="openRpOps()" title="New contract">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          <span>New</span>
+        </button>
+        <button class="btn rp-ico" type="button" onclick="loadRpnlFresh()" title="Refresh" aria-label="Refresh">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        </button>
+        <label class="btn rp-ico rp-auto" title="Auto refresh" aria-label="Auto refresh">
+          <input type="checkbox" id="rpnlAuto" onchange="setupRpnlAuto()" checked />
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.1-5.7"/><polyline points="21 3 21 9 15 9"/></svg>
+        </label>
+        <button class="btn rp-ico" type="button" id="rpnlFilterBtn" onclick="openRpnlFilters()" title="Filters" aria-label="Filters">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          <span class="rp-badge" hidden></span>
+        </button>
       </div>
     </div>
     <div id="rpnlStatus" class="status-bar" hidden></div>

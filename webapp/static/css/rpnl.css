@@ -89,16 +89,114 @@ body:has(#rpnl.visible) {
   align-items: center;
   gap: 6px;
   padding: 8px max(12px, var(--safe-r)) 8px max(12px, var(--safe-l));
-  background: rgba(22, 26, 37, .92);
+  background: linear-gradient(180deg, rgba(26, 30, 42, .98), rgba(20, 24, 34, .96));
   border-bottom: 1px solid var(--border);
   z-index: 30;
 }
-.rp-bar select {
+.rp-bar .rp-sel {
   min-width: 0;
   max-width: 160px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 28px 0 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .03);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 550;
+  letter-spacing: .01em;
 }
-.rp-bar #rpnlSymbol { flex: 1 1 0; width: 0; min-width: 0; max-width: 220px; }
-.rp-bar .btn { min-height: 30px; padding: 4px 10px; }
+.rp-bar .rp-sel:focus {
+  outline: none;
+  border-color: rgba(41, 98, 255, .55);
+  box-shadow: 0 0 0 2px rgba(41, 98, 255, .15);
+}
+.rp-bar #rpnlSymbol { flex: 1 1 0; width: 0; min-width: 0; max-width: 240px; }
+.rp-bar .rp-sel-hours { flex: 0 0 auto; max-width: 92px; }
+.rp-bar-gap {
+  flex: 1 1 8px;
+  min-width: 4px;
+  max-width: 24px;
+  height: 18px;
+  border-left: 1px solid rgba(255, 255, 255, .06);
+  margin: 0 2px 0 4px;
+}
+.rp-bar .btn {
+  min-height: 32px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  transition: background .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
+}
+.rp-bar .rp-ico {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  color: var(--muted);
+  background: rgba(255, 255, 255, .03);
+}
+.rp-bar .rp-ico:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, .07);
+  border-color: var(--border2);
+}
+.rp-bar .rp-ico.on,
+.rp-bar .rp-auto:has(input:checked) {
+  color: #9bb4ff;
+  border-color: rgba(41, 98, 255, .45);
+  background: rgba(41, 98, 255, .16);
+}
+.rp-bar .rp-ico svg { display: block; flex-shrink: 0; }
+.rp-bar .rp-new {
+  padding: 0 12px 0 10px;
+  color: #fff;
+  border-color: rgba(41, 98, 255, .55);
+  background: linear-gradient(180deg, rgba(41, 98, 255, .95), rgba(33, 82, 230, .92));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .12) inset, 0 4px 12px rgba(41, 98, 255, .22);
+}
+.rp-bar .rp-new:hover {
+  background: linear-gradient(180deg, #3a74ff, #2962ff);
+  border-color: var(--accent);
+}
+.rp-bar .rp-new span { letter-spacing: .02em; }
+.rp-bar .rp-auto {
+  position: relative;
+  cursor: pointer;
+  margin: 0;
+}
+.rp-bar .rp-auto input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.rp-bar .rp-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #161a25;
+}
+.rp-bar .rp-ico { position: relative; }
 .rp-more { display: contents; }
 .rp-more-btn { display: none; }
 .rp-check {
@@ -850,14 +948,15 @@ body:has(#rpnl.visible) {
     min-width: 0;
     max-width: 100%;
     padding: 6px max(8px, var(--safe-r)) 6px max(8px, var(--safe-l));
-    gap: 4px;
+    gap: 5px;
   }
-  .rp-bar select {
+  .rp-bar .rp-sel {
     flex: 0 0 auto;
     min-width: 0;
     max-width: none;
     min-height: 32px !important;
-    padding: 2px 6px !important;
+    height: 32px;
+    padding: 0 24px 0 8px !important;
     font-size: 16px;
   }
   .rp-bar #rpnlSymbol {
@@ -866,16 +965,28 @@ body:has(#rpnl.visible) {
     min-width: 0;
     max-width: none;
   }
+  .rp-bar .rp-sel-hours,
   .rp-bar #rpnlHours {
     flex: 0 0 auto;
     width: auto;
-    max-width: 88px;
+    max-width: 84px;
+  }
+  .rp-bar-gap {
+    display: none;
   }
   .rp-bar .btn {
     flex: 0 0 auto;
     min-height: 32px !important;
-    padding: 2px 8px !important;
+    height: 32px;
     font-size: 12px !important;
+  }
+  .rp-bar .rp-ico {
+    width: 32px;
+    min-width: 32px;
+    padding: 0 !important;
+  }
+  .rp-bar .rp-new {
+    padding: 0 10px 0 8px !important;
   }
   .rp-more-btn { display: none; }
   .rp-more {
