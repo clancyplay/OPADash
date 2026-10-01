@@ -51,7 +51,7 @@
     -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border);
     height: calc(var(--nav-h) + var(--safe-t));
-    overflow: hidden;
+    overflow: visible;
     position: sticky;
     top: 0;
     z-index: 50;
@@ -942,8 +942,8 @@
     nav .nav-links { height: var(--nav-h); }
     nav button { padding: 0 10px; height: var(--nav-h); font-size: 12px; }
     nav .db-badge { display: none; }
-    nav #strategy-select {
-      max-width: 96px; font-size: 16px; padding: 2px 6px;
+    nav .nav-filters-menu select {
+      font-size: 16px; padding: 2px 6px;
       min-height: 0; height: 30px; line-height: 1.1;
     }
     nav .nav-logout { font-size: 11px; margin-left: 6px; }
