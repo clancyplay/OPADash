@@ -22,6 +22,21 @@
   }, { passive: false });
 })();
 
+// Installed PWA / fullscreen: keep the app in portrait.
+(function lockPortrait() {
+  function tryLock() {
+    const o = screen.orientation;
+    if (!o || typeof o.lock !== 'function') return;
+    const p = o.lock('portrait');
+    if (p && typeof p.catch === 'function') p.catch(function () {});
+  }
+  tryLock();
+  window.addEventListener('orientationchange', tryLock);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) tryLock();
+  });
+})();
+
 // Mobile nested panes: page (parent) owns vertical scroll first. The table
 // only keeps Y when the page cannot move that way and the rows actually overflow.
 (function nestedPaneScroll() {
