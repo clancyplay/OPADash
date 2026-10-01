@@ -4,32 +4,37 @@ let rptDayChart = null, rptDaySeries = null;
 let rptCache = { accounts: [], exchanges: [] };
 const rptOpenAccts = new Set();
 
-// Account / Exchange filter — scoped to this page only.
-let rptFilterAccount = 'all';
-let rptFilterExchange = 'all';
-function rptFilterIsAll(v) { return !v || v === 'all'; }
-function rptSyncFilterOptions(accts, exchanges) {
-  const accountSel = document.getElementById('rptFilterAccount');
-  const exchangeSel = document.getElementById('rptFilterExchange');
-  if (accountSel) {
-    const keep = rptFilterAccount;
-    accountSel.innerHTML = '<option value="all">All</option>' +
-      (accts || []).filter(a => a.account).map(a =>
-        '<option value="' + escHtml(a.account) + '">' + escHtml(rptAcctName(a)) + '</option>').join('');
-    rptFilterAccount = [...accountSel.options].some(o => o.value === keep) ? keep : 'all';
-    accountSel.value = rptFilterAccount;
-  }
-  if (exchangeSel) {
-    const keep = rptFilterExchange;
-    exchangeSel.innerHTML = '<option value="all">All</option>' +
-      (exchanges || []).map(e =>
-        '<option value="' + escHtml(e.exchange) + '">' + escHtml(e.label || e.exchange) + '</option>').join('');
-    rptFilterExchange = [...exchangeSel.options].some(o => o.value === keep) ? keep : 'all';
-    exchangeSel.value = rptFilterExchange;
-  }
+// Exchange → accounts filter (multi-select), scoped to this page only.
+const rptScope = { selected: loadScopeSet('reports'), expanded: new Set(), groups: [] };
+function rptScopeGroups(accts) {
+  const pairs = [];
+  (accts || []).forEach(a => {
+    const acct = String(a.account || '');
+    if (!acct) return;
+    (a.exchanges || []).forEach(e => {
+      pairs.push({ ex: e.exchange, label: e.label || e.exchange, account: acct, accName: rptAcctName(a) });
+    });
+  });
+  return scopeGroupsFrom(pairs);
 }
-function onRptFilterAccountChange(val) { rptFilterAccount = val || 'all'; filterReportAccts(); }
-function onRptFilterExchangeChange(val) { rptFilterExchange = val || 'all'; filterReportAccts(); }
+function rptSyncFilterUI() {
+  rptScope.groups = rptScopeGroups(rptCache.accounts);
+  const live = new Set();
+  rptScope.groups.forEach(g => g.accounts.forEach(a => live.add(scopeKey(g.ex, a.id))));
+  [...rptScope.selected].forEach(k => { if (!live.has(k)) rptScope.selected.delete(k); });
+  scopeRender(document.getElementById('rptScopeTree'), rptScope);
+  const stratN = strategyIsAll(currentStrategy) ? 0 : 1;
+  setFilterBadge('rptFilterBtn', stratN + rptScope.selected.size);
+}
+function rptScopeApply() {
+  saveScopeSet('reports', rptScope.selected);
+  rptSyncFilterUI();
+  filterReportAccts();
+}
+function rptScopeClear() {
+  rptScope.selected.clear();
+  rptScopeApply();
+}
 function toggleRptFilterMenu() {
   const menu = document.getElementById('rptFilterMenu');
   const btn = document.getElementById('rptFilterBtn');
@@ -37,6 +42,10 @@ function toggleRptFilterMenu() {
   const open = menu.hidden;
   menu.hidden = !open;
   if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) {
+    scopeBind(document.getElementById('rptScopeTree'), rptScope, rptScopeApply);
+    rptSyncFilterUI();
+  }
 }
 document.addEventListener('click', event => {
   const wrap = document.getElementById('rptFilterWrap');
@@ -207,7 +216,7 @@ async function loadReports() {
     renderReportExchanges(d.by_exchange || []);
     renderReportMatrix(accts, d.by_exchange || []);
     renderReportAccounts(accts, d.snapshot);
-    rptSyncFilterOptions(accts, d.by_exchange || []);
+    rptSyncFilterUI();
     drawReportDays(roll.by_day || [], d.day || rptCurrentDay());
     filterReportAccts();
     requestAnimationFrame(resizeReportChart);
@@ -332,10 +341,10 @@ function filterReportAccts() {
   const q = ((document.getElementById('rptSearch') || {}).value || '').trim().toLowerCase();
   document.querySelectorAll('.rpt-acct').forEach(function (el) {
     const hay = (el.getAttribute('data-filter') || '').toLowerCase();
-    const acctOk = rptFilterIsAll(rptFilterAccount) || el.getAttribute('data-account') === rptFilterAccount;
-    const exchOk = rptFilterIsAll(rptFilterExchange) ||
-      (el.getAttribute('data-exchanges') || '').split(',').includes(rptFilterExchange);
-    el.classList.toggle('hidden', !!(q && hay.indexOf(q) < 0) || !acctOk || !exchOk);
+    const account = el.getAttribute('data-account') || '';
+    const exchanges = (el.getAttribute('data-exchanges') || '').split(',').filter(Boolean);
+    const scopeOk = scopeMatch(rptScope, exchanges, account);
+    el.classList.toggle('hidden', !!(q && hay.indexOf(q) < 0) || !scopeOk);
   });
 }
 

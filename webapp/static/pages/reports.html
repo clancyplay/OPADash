@@ -30,17 +30,16 @@
       <label class="ctrl-check"><input type="checkbox" id="reportsAuto" checked onchange="setupReportsAuto()" /> Auto 30s</label>
       <div class="pop-filter" id="rptFilterWrap">
         <button class="btn" type="button" id="rptFilterBtn" onclick="toggleRptFilterMenu()" aria-expanded="false" aria-controls="rptFilterMenu">Filters</button>
-        <div class="pop-filter-menu" id="rptFilterMenu" hidden>
-          <label>Account
-            <select id="rptFilterAccount" onchange="onRptFilterAccountChange(this.value)">
-              <option value="all">All</option>
+        <div class="pop-filter-menu pf-wide" id="rptFilterMenu" hidden>
+          <label class="pf-row">Strategy
+            <select id="rptFilterStrategy" onchange="setStrategy(this.value)">
+              <option value="all">All strategies</option>
             </select>
           </label>
-          <label>Exchange
-            <select id="rptFilterExchange" onchange="onRptFilterExchangeChange(this.value)">
-              <option value="all">All</option>
-            </select>
-          </label>
+          <div class="pf-head"><span>Exchanges &amp; accounts</span>
+            <button type="button" class="pf-clear" onclick="rptScopeClear()">Clear</button>
+          </div>
+          <div class="scope-tree" id="rptScopeTree"></div>
         </div>
       </div>
     </div>

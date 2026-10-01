@@ -1,55 +1,47 @@
 // rPnL symbol list — fetched from DB fills table
-let rpnlFilterAccount = 'all';
-let rpnlFilterExchange = 'all';
-function rpnlFilterIsAll(v) { return !v || v === 'all'; }
+const rpnlScope = { selected: loadScopeSet('rpnl'), expanded: new Set(), groups: [] };
+function rpnlScopeMatch(row) {
+  const venues = [row.quote_venue, row.hedge_venue, row.exchange]
+    .map(v => String(v || '').toLowerCase()).filter(Boolean);
+  return scopeMatch(rpnlScope, venues, row.account);
+}
 function rpnlApplyFilter(rows) {
-  return (Array.isArray(rows) ? rows : []).filter(row => {
-    const account = String(row.account || '');
-    const venues = [row.quote_venue, row.hedge_venue, row.exchange]
-      .map(v => String(v || '').toLowerCase());
-    return (rpnlFilterIsAll(rpnlFilterAccount) || account === rpnlFilterAccount) &&
-      (rpnlFilterIsAll(rpnlFilterExchange) || venues.includes(rpnlFilterExchange));
-  });
+  return (Array.isArray(rows) ? rows : []).filter(rpnlScopeMatch);
 }
-// Rebuilds the Account / Exchange dropdown options from the unfiltered row
-// list, so picking one option never hides the others next refresh.
-function rpnlSyncFilterOptions(rows) {
-  const accountSel = document.getElementById('rpnlFilterAccount');
-  const exchangeSel = document.getElementById('rpnlFilterExchange');
-  if (!accountSel && !exchangeSel) return;
-  const accounts = new Map();
-  const exchanges = new Set();
-  (Array.isArray(rows) ? rows : []).forEach(row => {
-    const account = String(row.account || '');
-    if (account) accounts.set(account, String(row.account_name || account));
-    [row.quote_venue, row.hedge_venue, row.exchange].forEach(v => {
-      v = String(v || '').toLowerCase();
-      if (v) exchanges.add(v);
-    });
+// Build exchange→accounts tree from the unfiltered symbol rows.
+function rpnlScopeGroups(rows) {
+  const pairs = [];
+  (Array.isArray(rows) ? rows : []).forEach(r => {
+    const acct = String(r.account || '');
+    if (!acct) return;
+    const name = r.account_name || acct;
+    const qv = String(r.quote_venue || '').toLowerCase();
+    if (qv) pairs.push({ ex: qv, label: r.quote_label || qv, account: acct, accName: name });
+    const hv = String(r.hedge_venue || '').toLowerCase();
+    if (hv && r.has_hedge) pairs.push({ ex: hv, label: r.hedge_label || hv, account: acct, accName: name });
+    const ex = String(r.exchange || '').toLowerCase();
+    if (ex) pairs.push({ ex, label: ex, account: acct, accName: name });
   });
-  if (accountSel) {
-    const keep = rpnlFilterAccount;
-    accountSel.innerHTML = '<option value="all">All</option>' +
-      [...accounts].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) =>
-        '<option value="' + escHtml(value) + '">' + escHtml(label) + '</option>').join('');
-    rpnlFilterAccount = [...accountSel.options].some(o => o.value === keep) ? keep : 'all';
-    accountSel.value = rpnlFilterAccount;
-  }
-  if (exchangeSel) {
-    const keep = rpnlFilterExchange;
-    exchangeSel.innerHTML = '<option value="all">All</option>' +
-      [...exchanges].sort().map(v => '<option value="' + escHtml(v) + '">' + escHtml(v) + '</option>').join('');
-    rpnlFilterExchange = [...exchangeSel.options].some(o => o.value === keep) ? keep : 'all';
-    exchangeSel.value = rpnlFilterExchange;
-  }
+  return scopeGroupsFrom(pairs);
 }
-function onRpnlFilterAccountChange(val) {
-  rpnlFilterAccount = val || 'all';
+function rpnlSyncFilterUI() {
+  rpnlScope.groups = rpnlScopeGroups(rpnlSymbolRows);
+  // Drop stale selections no longer present in the current view.
+  const live = new Set();
+  rpnlScope.groups.forEach(g => g.accounts.forEach(a => live.add(scopeKey(g.ex, a.id))));
+  [...rpnlScope.selected].forEach(k => { if (!live.has(k)) rpnlScope.selected.delete(k); });
+  scopeRender(document.getElementById('rpnlScopeTree'), rpnlScope);
+  const stratN = strategyIsAll(currentStrategy) ? 0 : 1;
+  setFilterBadge('rpnlFilterBtn', stratN + rpnlScope.selected.size);
+}
+function rpnlScopeApply() {
+  saveScopeSet('rpnl', rpnlScope.selected);
+  rpnlSyncFilterUI();
   fetchRpnlSymbols().then(() => { if (rpnlReady) loadRpnlFresh(); });
 }
-function onRpnlFilterExchangeChange(val) {
-  rpnlFilterExchange = val || 'all';
-  fetchRpnlSymbols().then(() => { if (rpnlReady) loadRpnlFresh(); });
+function rpnlScopeClear() {
+  rpnlScope.selected.clear();
+  rpnlScopeApply();
 }
 function toggleRpnlFilterMenu() {
   const menu = document.getElementById('rpnlFilterMenu');
@@ -62,18 +54,21 @@ function toggleRpnlFilterMenu() {
     const page = document.getElementById('rpnl');
     if (page && page.classList.contains('more-open')) toggleRpnlMore();
     closeOhlcTools();
+    scopeBind(document.getElementById('rpnlScopeTree'), rpnlScope, rpnlScopeApply);
+    rpnlSyncFilterUI();
   }
 }
+let rpnlSymbolRows = [];
 async function fetchRpnlSymbols() {
   try {
     const r = await fetch(withStrategy('/api/rpnl/symbols'));
     const rows = await r.json();
     const sel = document.getElementById('rpnlSymbol');
-    const raw = (Array.isArray(rows) ? rows : []).map(c => typeof c === 'string'
+    rpnlSymbolRows = (Array.isArray(rows) ? rows : []).map(c => typeof c === 'string'
       ? { contract: c, account: '', label: c }
       : c);
-    rpnlSyncFilterOptions(raw);
-    const list = rpnlApplyFilter(raw);
+    rpnlSyncFilterUI();
+    const list = rpnlApplyFilter(rpnlSymbolRows);
     if (list.length === 0) {
       sel.innerHTML = '<option value="">No data in DB</option>';
     } else {

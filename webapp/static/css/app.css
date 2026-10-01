@@ -82,20 +82,6 @@
     flex-shrink: 0; white-space: nowrap;
   }
   nav button.active { color: #fff; border-bottom-color: var(--accent); }
-  nav #strategy-select {
-    margin-left: 8px;
-    flex-shrink: 0;
-    max-width: 112px;
-    background: var(--bg, #0e1117);
-    color: var(--text, #d1d4dc);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    padding: 4px 8px;
-    cursor: pointer;
-  }
-  nav #strategy-select + .db-badge { margin-left: 12px; }
   nav .db-badge {
     margin-left: 8px;
     flex-shrink: 0;
@@ -196,7 +182,7 @@
   }
   button.btn:disabled { opacity: .45; cursor: default; }
 
-  /* Filters popover — rPnL / Reports pages only (account + exchange) */
+  /* Filters popover — rPnL / Reports pages only (strategy + exchange→accounts) */
   .pop-filter { position: relative; flex-shrink: 0; }
   .pop-filter-menu {
     position: absolute;
@@ -212,15 +198,60 @@
     border-radius: var(--radius-sm);
     box-shadow: 0 12px 28px rgba(0, 0, 0, .38);
   }
+  .pop-filter-menu.pf-wide { width: 248px; max-width: 86vw; }
   .pop-filter-menu[hidden] { display: none; }
-  .pop-filter-menu label {
-    display: grid;
-    gap: 4px;
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 600;
-  }
+  .pop-filter-menu label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; font-weight: 600; }
   .pop-filter-menu select { width: 100%; }
+  .pop-filter-menu .pf-row {
+    text-transform: uppercase; letter-spacing: .3px;
+  }
+  .pop-filter-menu .pf-row select { text-transform: none; letter-spacing: 0; font-weight: 500; }
+  .pf-head {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+    color: var(--muted); padding-top: 8px; border-top: 1px solid var(--border);
+    margin-top: 2px;
+  }
+  .pf-clear {
+    background: none; border: none; color: var(--accent); cursor: pointer;
+    font-size: 11px; font-weight: 600; padding: 2px 4px; text-transform: none; letter-spacing: 0;
+  }
+  .pf-clear:hover { text-decoration: underline; }
+
+  /* Scope tree: collapsible exchange nodes with multi-select accounts */
+  .scope-tree {
+    display: flex; flex-direction: column; gap: 2px;
+    max-height: 44vh; overflow-y: auto; margin: -2px -2px 0; padding: 2px;
+    scrollbar-width: thin;
+  }
+  .scope-empty { color: var(--muted); font-size: 12px; padding: 8px 4px; }
+  .scope-group { border-radius: 6px; }
+  .scope-group.open { background: rgba(255, 255, 255, .02); }
+  .scope-head { display: flex; align-items: center; gap: 6px; padding: 4px 4px; }
+  .scope-tw {
+    flex-shrink: 0; width: 18px; height: 18px; padding: 0;
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 11px; line-height: 1; border-radius: 4px;
+  }
+  .scope-tw:hover { background: var(--surface2); color: var(--text); }
+  .scope-chk {
+    display: flex !important; align-items: center; gap: 6px; flex: 1 1 auto;
+    min-width: 0; cursor: pointer; font-size: 12px !important;
+    text-transform: none !important; letter-spacing: 0 !important; color: var(--text) !important;
+  }
+  .scope-chk input, .scope-acct input { accent-color: var(--accent); cursor: pointer; flex-shrink: 0; margin: 0; }
+  .scope-chk .rpnl-venue { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scope-count { flex-shrink: 0; font-size: 10px; color: var(--muted); font-weight: 600; }
+  .scope-accts { display: flex; flex-direction: column; gap: 1px; padding: 0 4px 4px 28px; }
+  .scope-acct {
+    display: flex; align-items: center; gap: 7px; padding: 4px 6px;
+    border-radius: 5px; cursor: pointer; font-size: 12px; color: var(--text);
+    overflow: hidden;
+  }
+  .scope-acct span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (hover: hover) {
+    .scope-acct:hover { background: var(--surface2); }
+  }
 
   /* Status bar */
   .status-bar { padding: 6px max(16px, var(--safe-r)) 6px max(16px, var(--safe-l)); font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); min-height: 28px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -932,10 +963,6 @@
     nav .nav-links { height: var(--nav-h); }
     nav button { padding: 0 10px; height: var(--nav-h); font-size: 12px; }
     nav .db-badge { display: none; }
-    nav #strategy-select {
-      max-width: 96px; font-size: 16px; padding: 2px 6px;
-      min-height: 0; height: 30px; line-height: 1.1;
-    }
     nav .nav-logout { font-size: 11px; margin-left: 6px; }
 
     #home { padding: 24px 16px 36px; }

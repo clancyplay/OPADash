@@ -357,7 +357,7 @@ function setLoading(id, text) {
   setStatus(id, '<span class="spinner"></span><span>' + text + '</span>');
 }
 
-// Strategy filter — restored from localStorage so the last pick comes back.
+// Strategy filter — lives inside the rPnL + Reports "Filters" popovers.
 let currentStrategy = lsGet(LS_STRATEGY, 'all');
 function strategyIsAll(s) {
   return !s || ['all', '*', 'any'].includes(String(s).toLowerCase().trim());
@@ -367,38 +367,150 @@ function withStrategy(url) {
   const tag = strategyIsAll(currentStrategy) ? 'all' : currentStrategy;
   return url + (url.includes('?') ? '&' : '?') + 'strategy=' + encodeURIComponent(tag);
 }
+const STRATEGY_SELECTS = ['rpnlFilterStrategy', 'rptFilterStrategy'];
 async function fetchStrategies() {
   try {
-    const r = await fetch('/api/strategies');
-    const list = await r.json();
-    const sel = document.getElementById('strategy-select');
-    if (!sel) return;
+    const list = await (await fetch('/api/strategies')).json();
     const tags = (Array.isArray(list) ? list : []).filter(Boolean);
-    sel.innerHTML = '<option value="all">all</option>' +
+    const opts = '<option value="all">All strategies</option>' +
       tags.map(s => '<option value="' + escHtml(s) + '">' + escHtml(s) + '</option>').join('');
     const saved = lsGet(LS_STRATEGY, currentStrategy);
-    if ([...sel.options].some(o => o.value === saved)) currentStrategy = saved;
-    else currentStrategy = 'all';
-    sel.value = currentStrategy;
+    currentStrategy = (tags.includes(saved) || saved === 'all') ? saved : 'all';
     lsSet(LS_STRATEGY, currentStrategy);
+    STRATEGY_SELECTS.forEach(id => {
+      const s = document.getElementById(id);
+      if (!s) return;
+      s.innerHTML = opts;
+      s.value = currentStrategy;
+    });
   } catch { /* keep default all */ }
 }
-async function onStrategyChange(val) {
+// Shared strategy pick — server-side filter, so reload the active page.
+async function setStrategy(val) {
   currentStrategy = val || 'all';
   lsSet(LS_STRATEGY, currentStrategy);
+  STRATEGY_SELECTS.forEach(id => {
+    const s = document.getElementById(id);
+    if (s && [...s.options].some(o => o.value === currentStrategy)) s.value = currentStrategy;
+  });
   if (typeof rpnlForceKeepSel !== 'undefined') rpnlForceKeepSel = false;
   const cur = document.querySelector('.page.visible');
-  const name = cur ? cur.id : 'home';
-  if (typeof fetchRpnlSymbols === 'function') await fetchRpnlSymbols();
-  if (rpnlReady && typeof loadRpnlFresh === 'function') loadRpnlFresh();
-  if (name === 'data' && dataReady) initData();
-  if (balancesReady) loadBalances();
-  if (reportsReady) loadReports();
-  checkHealth();
+  const name = cur ? cur.id : '';
+  if (name === 'rpnl') {
+    if (typeof fetchRpnlSymbols === 'function') await fetchRpnlSymbols();
+    if (rpnlReady && typeof loadRpnlFresh === 'function') loadRpnlFresh();
+  } else if (name === 'reports') {
+    if (reportsReady) loadReports();
+  }
 }
 
-// rPnL / Reports each own a small "Filters" popover (account + exchange).
-// Escape closes whichever one is open; outside-click is wired per page.
+// ---- Scope filter: exchange → accounts tree, multi-select (rPnL + Reports) ----
+const SCOPE_SEP = '\u241f';
+function scopeKey(ex, acct) { return String(ex || '').toLowerCase() + SCOPE_SEP + String(acct || ''); }
+function loadScopeSet(key) {
+  try { return new Set(JSON.parse(lsGet('opadash.scope.' + key, '[]')) || []); } catch { return new Set(); }
+}
+function saveScopeSet(key, set) { lsSet('opadash.scope.' + key, JSON.stringify([...set])); }
+
+// pairs: [{ex, label, account, accName}] → grouped + sorted exchange nodes.
+function scopeGroupsFrom(pairs) {
+  const byEx = new Map();
+  (pairs || []).forEach(p => {
+    const ex = String(p.ex || '').toLowerCase();
+    const acct = String(p.account || '');
+    if (!ex || !acct) return;
+    if (!byEx.has(ex)) byEx.set(ex, { ex, label: p.label || ex, accounts: new Map() });
+    const g = byEx.get(ex);
+    if (p.label) g.label = p.label;
+    if (!g.accounts.has(acct)) g.accounts.set(acct, p.accName || acct);
+  });
+  return [...byEx.values()]
+    .sort((a, b) => String(a.label).localeCompare(String(b.label)))
+    .map(g => ({
+      ex: g.ex, label: g.label,
+      accounts: [...g.accounts].map(([id, name]) => ({ id, name }))
+        .sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    }));
+}
+
+function scopeRender(treeEl, state) {
+  if (!treeEl) return;
+  const groups = state.groups || [];
+  if (!groups.length) {
+    treeEl.innerHTML = '<div class="scope-empty">No accounts in view</div>';
+    return;
+  }
+  treeEl.innerHTML = groups.map(g => {
+    const total = g.accounts.length;
+    const sel = g.accounts.filter(a => state.selected.has(scopeKey(g.ex, a.id))).length;
+    const allOn = total > 0 && sel === total;
+    const open = state.expanded.has(g.ex);
+    return '<div class="scope-group' + (open ? ' open' : '') + '">' +
+      '<div class="scope-head">' +
+        '<button type="button" class="scope-tw" data-tw="' + escHtml(g.ex) + '" aria-label="toggle">' +
+          (open ? '▾' : '▸') + '</button>' +
+        '<label class="scope-chk">' +
+          '<input type="checkbox" data-ex-all="' + escHtml(g.ex) + '"' +
+            (allOn ? ' checked' : '') + (sel > 0 && !allOn ? ' data-indet="1"' : '') + '>' +
+          '<span class="rpnl-venue ' + rpnlVenueClass(g.ex) + '">' + escHtml(g.label) + '</span>' +
+        '</label>' +
+        '<span class="scope-count">' + (sel ? sel + '/' : '') + total + '</span>' +
+      '</div>' +
+      '<div class="scope-accts"' + (open ? '' : ' hidden') + '>' +
+        g.accounts.map(a =>
+          '<label class="scope-acct">' +
+            '<input type="checkbox" data-ex="' + escHtml(g.ex) + '" data-acct="' + escHtml(a.id) + '"' +
+              (state.selected.has(scopeKey(g.ex, a.id)) ? ' checked' : '') + '>' +
+            '<span>' + escHtml(a.name) + '</span>' +
+          '</label>').join('') +
+      '</div>' +
+    '</div>';
+  }).join('');
+  treeEl.querySelectorAll('input[data-indet]').forEach(i => { i.indeterminate = true; });
+}
+
+function scopeBind(treeEl, state, onSelect) {
+  if (!treeEl || treeEl.dataset.bound) return;
+  treeEl.dataset.bound = '1';
+  treeEl.addEventListener('click', ev => {
+    const tw = ev.target.closest('[data-tw]');
+    if (!tw) return;
+    const ex = tw.getAttribute('data-tw');
+    if (state.expanded.has(ex)) state.expanded.delete(ex); else state.expanded.add(ex);
+    scopeRender(treeEl, state);
+  });
+  treeEl.addEventListener('change', ev => {
+    const t = ev.target;
+    if (t.matches('[data-ex-all]')) {
+      const ex = t.getAttribute('data-ex-all');
+      const g = (state.groups || []).find(x => x.ex === ex);
+      if (g) g.accounts.forEach(a => {
+        const k = scopeKey(ex, a.id);
+        if (t.checked) state.selected.add(k); else state.selected.delete(k);
+      });
+    } else if (t.matches('[data-acct]')) {
+      const k = scopeKey(t.getAttribute('data-ex'), t.getAttribute('data-acct'));
+      if (t.checked) state.selected.add(k); else state.selected.delete(k);
+    } else { return; }
+    scopeRender(treeEl, state);
+    if (typeof onSelect === 'function') onSelect();
+  });
+}
+
+function scopeMatch(state, exchanges, account) {
+  if (!state || !state.selected || !state.selected.size) return true;
+  const acct = String(account || '');
+  return (exchanges || []).some(ex => state.selected.has(scopeKey(ex, acct)));
+}
+
+function setFilterBadge(btnId, count) {
+  const b = document.getElementById(btnId);
+  if (!b) return;
+  b.classList.toggle('on', count > 0);
+  b.textContent = count > 0 ? 'Filters · ' + count : 'Filters';
+}
+
+// Escape closes any open filter popover; outside-click is wired per page.
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
   document.querySelectorAll('.pop-filter-menu').forEach(menu => { menu.hidden = true; });
