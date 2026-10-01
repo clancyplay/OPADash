@@ -163,8 +163,6 @@ let pendingRpnlKey = null, pendingReportAcct = null, pendingReportWiden = false;
 let rpnlForceKeepSel = false;
 
 const LS_STRATEGY = 'opadash.strategy';
-const LS_ACCOUNT = 'opadash.account';
-const LS_EXCHANGE = 'opadash.exchange';
 const LS_PAGE = 'opadash.page';
 const LS_RPNL_HOURS = 'opadash.rpnlHours';
 const LS_RPNL_CANDLE = 'opadash.rpnlCandle';
@@ -359,28 +357,15 @@ function setLoading(id, text) {
   setStatus(id, '<span class="spinner"></span><span>' + text + '</span>');
 }
 
-// Dashboard filters — restored from localStorage so the last picks come back.
+// Strategy filter — restored from localStorage so the last pick comes back.
 let currentStrategy = lsGet(LS_STRATEGY, 'all');
-let currentAccount = lsGet(LS_ACCOUNT, 'all');
-let currentExchange = lsGet(LS_EXCHANGE, 'all');
 function strategyIsAll(s) {
   return !s || ['all', '*', 'any'].includes(String(s).toLowerCase().trim());
 }
-function accountIsAll(s) {
-  return strategyIsAll(s);
-}
-function exchangeIsAll(s) {
-  return strategyIsAll(s);
-}
-// Append the active dashboard filters to API URLs. APIs that do not use a
-// filter safely ignore it; rPnL also filters its client-side summary rows.
+// Append the active strategy to any strategy-tagged /api/* URL.
 function withStrategy(url) {
-  const params = new URLSearchParams({
-    strategy: strategyIsAll(currentStrategy) ? 'all' : currentStrategy,
-  });
-  if (!accountIsAll(currentAccount)) params.set('account', currentAccount);
-  if (!exchangeIsAll(currentExchange)) params.set('exchange', currentExchange);
-  return url + (url.includes('?') ? '&' : '?') + params.toString();
+  const tag = strategyIsAll(currentStrategy) ? 'all' : currentStrategy;
+  return url + (url.includes('?') ? '&' : '?') + 'strategy=' + encodeURIComponent(tag);
 }
 async function fetchStrategies() {
   try {
@@ -389,7 +374,7 @@ async function fetchStrategies() {
     const sel = document.getElementById('strategy-select');
     if (!sel) return;
     const tags = (Array.isArray(list) ? list : []).filter(Boolean);
-    sel.innerHTML = '<option value="all">All</option>' +
+    sel.innerHTML = '<option value="all">all</option>' +
       tags.map(s => '<option value="' + escHtml(s) + '">' + escHtml(s) + '</option>').join('');
     const saved = lsGet(LS_STRATEGY, currentStrategy);
     if ([...sel.options].some(o => o.value === saved)) currentStrategy = saved;
@@ -398,93 +383,25 @@ async function fetchStrategies() {
     lsSet(LS_STRATEGY, currentStrategy);
   } catch { /* keep default all */ }
 }
-function filterOptionRows(rows) {
-  return (Array.isArray(rows) ? rows : []).filter(row => {
-    const account = String(row.account || '');
-    const venues = [row.quote_venue, row.hedge_venue, row.exchange]
-      .map(v => String(v || '').toLowerCase());
-    return (accountIsAll(currentAccount) || account === currentAccount) &&
-      (exchangeIsAll(currentExchange) || venues.includes(currentExchange));
-  });
-}
-async function fetchFilterOptions() {
-  try {
-    const response = await fetch('/api/rpnl/symbols?strategy=all');
-    const rows = await response.json();
-    const accounts = new Map();
-    const exchanges = new Set();
-    (Array.isArray(rows) ? rows : []).forEach(row => {
-      const account = String(row.account || '');
-      if (account) accounts.set(account, String(row.account_name || account));
-      [row.quote_venue, row.hedge_venue, row.exchange].forEach(venue => {
-        venue = String(venue || '').toLowerCase();
-        if (venue) exchanges.add(venue);
-      });
-    });
-    const accountSelect = document.getElementById('account-select');
-    const exchangeSelect = document.getElementById('exchange-select');
-    if (accountSelect) {
-      accountSelect.innerHTML = '<option value="all">All</option>' +
-        [...accounts].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) =>
-          '<option value="' + escHtml(value) + '">' + escHtml(label) + '</option>').join('');
-      currentAccount = [...accountSelect.options].some(o => o.value === currentAccount) ? currentAccount : 'all';
-      accountSelect.value = currentAccount;
-      lsSet(LS_ACCOUNT, currentAccount);
-    }
-    if (exchangeSelect) {
-      exchangeSelect.innerHTML = '<option value="all">All</option>' +
-        [...exchanges].sort().map(value => '<option value="' + escHtml(value) + '">' + escHtml(value) + '</option>').join('');
-      currentExchange = [...exchangeSelect.options].some(o => o.value === currentExchange) ? currentExchange : 'all';
-      exchangeSelect.value = currentExchange;
-      lsSet(LS_EXCHANGE, currentExchange);
-    }
-  } catch { /* keep default all */ }
-}
-function toggleNavFilters() {
-  const menu = document.getElementById('navFiltersMenu');
-  const button = document.getElementById('navFiltersBtn');
-  if (!menu) return;
-  const open = menu.hidden;
-  menu.hidden = !open;
-  if (button) button.setAttribute('aria-expanded', open ? 'true' : 'false');
-}
-function closeNavFilters(event) {
-  const wrap = document.getElementById('navFilters');
-  const menu = document.getElementById('navFiltersMenu');
-  const button = document.getElementById('navFiltersBtn');
-  if (!menu || menu.hidden || (event && wrap && wrap.contains(event.target))) return;
-  menu.hidden = true;
-  if (button) button.setAttribute('aria-expanded', 'false');
-}
-async function refreshDashboardFilters() {
+async function onStrategyChange(val) {
+  currentStrategy = val || 'all';
+  lsSet(LS_STRATEGY, currentStrategy);
   if (typeof rpnlForceKeepSel !== 'undefined') rpnlForceKeepSel = false;
-  const currentPage = document.querySelector('.page.visible');
-  const pageName = currentPage ? currentPage.id : 'home';
+  const cur = document.querySelector('.page.visible');
+  const name = cur ? cur.id : 'home';
   if (typeof fetchRpnlSymbols === 'function') await fetchRpnlSymbols();
   if (rpnlReady && typeof loadRpnlFresh === 'function') loadRpnlFresh();
-  if (pageName === 'data' && dataReady) initData();
+  if (name === 'data' && dataReady) initData();
   if (balancesReady) loadBalances();
   if (reportsReady) loadReports();
   checkHealth();
 }
-async function onStrategyChange(val) {
-  currentStrategy = val || 'all';
-  lsSet(LS_STRATEGY, currentStrategy);
-  await refreshDashboardFilters();
-}
-async function onAccountChange(val) {
-  currentAccount = val || 'all';
-  lsSet(LS_ACCOUNT, currentAccount);
-  await refreshDashboardFilters();
-}
-async function onExchangeChange(val) {
-  currentExchange = val || 'all';
-  lsSet(LS_EXCHANGE, currentExchange);
-  await refreshDashboardFilters();
-}
-document.addEventListener('click', closeNavFilters);
+
+// rPnL / Reports each own a small "Filters" popover (account + exchange).
+// Escape closes whichever one is open; outside-click is wired per page.
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') closeNavFilters();
+  if (event.key !== 'Escape') return;
+  document.querySelectorAll('.pop-filter-menu').forEach(menu => { menu.hidden = true; });
 });
 
 

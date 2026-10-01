@@ -1,12 +1,79 @@
 // rPnL symbol list — fetched from DB fills table
+let rpnlFilterAccount = 'all';
+let rpnlFilterExchange = 'all';
+function rpnlFilterIsAll(v) { return !v || v === 'all'; }
+function rpnlApplyFilter(rows) {
+  return (Array.isArray(rows) ? rows : []).filter(row => {
+    const account = String(row.account || '');
+    const venues = [row.quote_venue, row.hedge_venue, row.exchange]
+      .map(v => String(v || '').toLowerCase());
+    return (rpnlFilterIsAll(rpnlFilterAccount) || account === rpnlFilterAccount) &&
+      (rpnlFilterIsAll(rpnlFilterExchange) || venues.includes(rpnlFilterExchange));
+  });
+}
+// Rebuilds the Account / Exchange dropdown options from the unfiltered row
+// list, so picking one option never hides the others next refresh.
+function rpnlSyncFilterOptions(rows) {
+  const accountSel = document.getElementById('rpnlFilterAccount');
+  const exchangeSel = document.getElementById('rpnlFilterExchange');
+  if (!accountSel && !exchangeSel) return;
+  const accounts = new Map();
+  const exchanges = new Set();
+  (Array.isArray(rows) ? rows : []).forEach(row => {
+    const account = String(row.account || '');
+    if (account) accounts.set(account, String(row.account_name || account));
+    [row.quote_venue, row.hedge_venue, row.exchange].forEach(v => {
+      v = String(v || '').toLowerCase();
+      if (v) exchanges.add(v);
+    });
+  });
+  if (accountSel) {
+    const keep = rpnlFilterAccount;
+    accountSel.innerHTML = '<option value="all">All</option>' +
+      [...accounts].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) =>
+        '<option value="' + escHtml(value) + '">' + escHtml(label) + '</option>').join('');
+    rpnlFilterAccount = [...accountSel.options].some(o => o.value === keep) ? keep : 'all';
+    accountSel.value = rpnlFilterAccount;
+  }
+  if (exchangeSel) {
+    const keep = rpnlFilterExchange;
+    exchangeSel.innerHTML = '<option value="all">All</option>' +
+      [...exchanges].sort().map(v => '<option value="' + escHtml(v) + '">' + escHtml(v) + '</option>').join('');
+    rpnlFilterExchange = [...exchangeSel.options].some(o => o.value === keep) ? keep : 'all';
+    exchangeSel.value = rpnlFilterExchange;
+  }
+}
+function onRpnlFilterAccountChange(val) {
+  rpnlFilterAccount = val || 'all';
+  fetchRpnlSymbols().then(() => { if (rpnlReady) loadRpnlFresh(); });
+}
+function onRpnlFilterExchangeChange(val) {
+  rpnlFilterExchange = val || 'all';
+  fetchRpnlSymbols().then(() => { if (rpnlReady) loadRpnlFresh(); });
+}
+function toggleRpnlFilterMenu() {
+  const menu = document.getElementById('rpnlFilterMenu');
+  const btn = document.getElementById('rpnlFilterBtn');
+  if (!menu) return;
+  const open = menu.hidden;
+  menu.hidden = !open;
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) {
+    const page = document.getElementById('rpnl');
+    if (page && page.classList.contains('more-open')) toggleRpnlMore();
+    closeOhlcTools();
+  }
+}
 async function fetchRpnlSymbols() {
   try {
     const r = await fetch(withStrategy('/api/rpnl/symbols'));
     const rows = await r.json();
     const sel = document.getElementById('rpnlSymbol');
-    const list = filterOptionRows((Array.isArray(rows) ? rows : []).map(c => typeof c === 'string'
+    const raw = (Array.isArray(rows) ? rows : []).map(c => typeof c === 'string'
       ? { contract: c, account: '', label: c }
-      : c));
+      : c);
+    rpnlSyncFilterOptions(raw);
+    const list = rpnlApplyFilter(raw);
     if (list.length === 0) {
       sel.innerHTML = '<option value="">No data in DB</option>';
     } else {
@@ -27,6 +94,7 @@ async function fetchRpnlSymbols() {
     if (sel) sel.innerHTML = '<option value="">Error</option>';
   }
 }
+
 
 function rpnlBootLabel(r) {
   const d = String((r && r.deploy) || '').trim().toLowerCase();
@@ -1599,7 +1667,7 @@ function rpnlPillValInner(r) {
 function renderRpnlSummary(rows, hours) {
   const wrap = document.getElementById('rpnlSummaryWrap');
   if (!wrap) return;
-  rows = filterOptionRows(filterRpnlWindowRows(rows));
+  rows = rpnlApplyFilter(filterRpnlWindowRows(rows));
   rpnlMarkPairHedges(rows);
   if (!rows.length) {
     wrap.dataset.keys = '';
@@ -3381,6 +3449,12 @@ function closeRpnlPopovers(ev) {
   const foot = document.getElementById('rpnlTools');
   if (foot && foot.classList.contains('export-open') && !(ev && ev.target && ev.target.closest('.rp-foot'))) {
     toggleRpnlExports();
+  }
+  const filterMenu = document.getElementById('rpnlFilterMenu');
+  if (filterMenu && !filterMenu.hidden && !(ev && ev.target && ev.target.closest('#rpnlFilterWrap'))) {
+    filterMenu.hidden = true;
+    const btn = document.getElementById('rpnlFilterBtn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
   }
   const t = ev && ev.target;
   if (!(t && (t.closest('#ohlcTools') || t.closest('#ohlcToolsBtn')))) {

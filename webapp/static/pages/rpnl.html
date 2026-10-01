@@ -26,6 +26,21 @@
         <button class="btn" type="button" onclick="openRpOps()">New</button>
         <button class="btn" type="button" onclick="loadRpnlFresh()">Refresh</button>
         <label class="rp-check"><input type="checkbox" id="rpnlAuto" onchange="setupRpnlAuto()" checked /> Auto</label>
+        <div class="pop-filter" id="rpnlFilterWrap">
+          <button class="btn" type="button" id="rpnlFilterBtn" onclick="toggleRpnlFilterMenu()" aria-expanded="false" aria-controls="rpnlFilterMenu">Filters</button>
+          <div class="pop-filter-menu" id="rpnlFilterMenu" hidden>
+            <label>Account
+              <select id="rpnlFilterAccount" onchange="onRpnlFilterAccountChange(this.value)">
+                <option value="all">All</option>
+              </select>
+            </label>
+            <label>Exchange
+              <select id="rpnlFilterExchange" onchange="onRpnlFilterExchangeChange(this.value)">
+                <option value="all">All</option>
+              </select>
+            </label>
+          </div>
+        </div>
       </div>
     </div>
     <div id="rpnlStatus" class="status-bar" hidden></div>

@@ -4,6 +4,49 @@ let rptDayChart = null, rptDaySeries = null;
 let rptCache = { accounts: [], exchanges: [] };
 const rptOpenAccts = new Set();
 
+// Account / Exchange filter — scoped to this page only.
+let rptFilterAccount = 'all';
+let rptFilterExchange = 'all';
+function rptFilterIsAll(v) { return !v || v === 'all'; }
+function rptSyncFilterOptions(accts, exchanges) {
+  const accountSel = document.getElementById('rptFilterAccount');
+  const exchangeSel = document.getElementById('rptFilterExchange');
+  if (accountSel) {
+    const keep = rptFilterAccount;
+    accountSel.innerHTML = '<option value="all">All</option>' +
+      (accts || []).filter(a => a.account).map(a =>
+        '<option value="' + escHtml(a.account) + '">' + escHtml(rptAcctName(a)) + '</option>').join('');
+    rptFilterAccount = [...accountSel.options].some(o => o.value === keep) ? keep : 'all';
+    accountSel.value = rptFilterAccount;
+  }
+  if (exchangeSel) {
+    const keep = rptFilterExchange;
+    exchangeSel.innerHTML = '<option value="all">All</option>' +
+      (exchanges || []).map(e =>
+        '<option value="' + escHtml(e.exchange) + '">' + escHtml(e.label || e.exchange) + '</option>').join('');
+    rptFilterExchange = [...exchangeSel.options].some(o => o.value === keep) ? keep : 'all';
+    exchangeSel.value = rptFilterExchange;
+  }
+}
+function onRptFilterAccountChange(val) { rptFilterAccount = val || 'all'; filterReportAccts(); }
+function onRptFilterExchangeChange(val) { rptFilterExchange = val || 'all'; filterReportAccts(); }
+function toggleRptFilterMenu() {
+  const menu = document.getElementById('rptFilterMenu');
+  const btn = document.getElementById('rptFilterBtn');
+  if (!menu) return;
+  const open = menu.hidden;
+  menu.hidden = !open;
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+document.addEventListener('click', event => {
+  const wrap = document.getElementById('rptFilterWrap');
+  const menu = document.getElementById('rptFilterMenu');
+  if (!menu || menu.hidden || (wrap && wrap.contains(event.target))) return;
+  menu.hidden = true;
+  const btn = document.getElementById('rptFilterBtn');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+});
+
 function initReports() { syncRptDayUi(); loadReports(); setupReportsAuto(); }
 
 function rptIstYmd(offsetDays) {
@@ -164,6 +207,7 @@ async function loadReports() {
     renderReportExchanges(d.by_exchange || []);
     renderReportMatrix(accts, d.by_exchange || []);
     renderReportAccounts(accts, d.snapshot);
+    rptSyncFilterOptions(accts, d.by_exchange || []);
     drawReportDays(roll.by_day || [], d.day || rptCurrentDay());
     filterReportAccts();
     requestAnimationFrame(resizeReportChart);
@@ -288,7 +332,10 @@ function filterReportAccts() {
   const q = ((document.getElementById('rptSearch') || {}).value || '').trim().toLowerCase();
   document.querySelectorAll('.rpt-acct').forEach(function (el) {
     const hay = (el.getAttribute('data-filter') || '').toLowerCase();
-    el.classList.toggle('hidden', q && hay.indexOf(q) < 0);
+    const acctOk = rptFilterIsAll(rptFilterAccount) || el.getAttribute('data-account') === rptFilterAccount;
+    const exchOk = rptFilterIsAll(rptFilterExchange) ||
+      (el.getAttribute('data-exchanges') || '').split(',').includes(rptFilterExchange);
+    el.classList.toggle('hidden', !!(q && hay.indexOf(q) < 0) || !acctOk || !exchOk);
   });
 }
 
@@ -335,7 +382,9 @@ function renderReportAccounts(accts, snapshot) {
     const stratBits = (a.strategies || []).map(function (s) {
       return '<span class="rpnl-strat">' + escHtml(s) + '</span>';
     }).join(' ');
-    return '<div class="rpt-acct' + open + '" id="acct-' + key + '" data-filter="' + escHtml(hay) + '">' +
+    return '<div class="rpt-acct' + open + '" id="acct-' + key + '" data-filter="' + escHtml(hay) +
+      '" data-account="' + escHtml(a.account || '') +
+      '" data-exchanges="' + escHtml((a.exchanges || []).map(function (e) { return e.exchange; }).join(',')) + '">' +
       '<div class="rpt-acct-h" onclick="toggleReportAcct(\'' + key + '\')">' +
         '<div><div class="aname">' + (a.live ? '<span class="rpt-live" title="live"></span>' : '') + name +
           (stratBits ? ' ' + stratBits : '') + '</div>' + idBit + '</div>' +

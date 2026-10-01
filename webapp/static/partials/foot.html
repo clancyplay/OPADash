@@ -9,7 +9,6 @@
 (async () => {
   restoreRpnlPrefs();
   await fetchStrategies();
-  await fetchFilterOptions();
   await fetchRpnlSymbols();
   checkHealth();
   const lastPage = lsGet(LS_PAGE, 'home');
