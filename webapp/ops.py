@@ -415,6 +415,25 @@ def strategy_catalog() -> list[dict]:
     return STRATEGIES
 
 
+def report_channels() -> list[str]:
+    """Telegram channel names from the TELEGRAM_CHANNELS JSON env — for the report dropdown."""
+    raw = (os.getenv("TELEGRAM_CHANNELS") or "").strip()
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    if not isinstance(data, dict):
+        return []
+    out: list[str] = []
+    for name in data.keys():
+        key = str(name or "").strip()
+        if key and key not in out:
+            out.append(key)
+    return out
+
+
 def public_accounts(venue: str = "") -> list[dict]:
     want = str(venue or "").strip().lower()
     rows = []

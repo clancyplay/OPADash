@@ -617,7 +617,7 @@ def _scrub_params(raw: dict | None) -> dict[str, str]:
             text = str(val).strip()
         if len(text) > 200:
             continue
-        if not text and not name.startswith("CLOCK"):
+        if not text and not name.startswith("CLOCK") and name != "REPORT_CHANNEL":
             continue
         out[name] = text
     return out
@@ -725,6 +725,7 @@ _KNOB_SETUP = (
     ("REPORT_PNL", "report_pnl", "bool"),
     ("REPORT_FILLS", "report_fills", "bool"),
     ("ALERT_RPNL_INR", "alert_rpnl", "float"),
+    ("REPORT_CHANNEL", "report_channel", "str"),
 )
 
 

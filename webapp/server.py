@@ -445,6 +445,7 @@ _SETUP_STR_KEYS = {
     "clock_tz", "clock_phase", "clock_why", "clock_window", "clock_windows", "clock_next",
     "stockroom", "crop", "expiry",
     "clock_orders", "clock_pos", "clock_override", "clock_day_reset", "clock_suggest", "clock_suggest_why",
+    "report_channel",
 }
 _SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr", "alert_rpnl"}
 _SETUP_KEYS = (
@@ -483,7 +484,7 @@ _SETUP_KEYS = (
     "clock_day_loss", "clock_day_win", "clock_day_rpnl", "clock_day_reset",
     "clock_hold", "clock_hold_left", "clock_suggest", "clock_suggest_why", "clock_suggest_n",
     "report_on", "report_secs", "report_setup", "report_errors", "report_position",
-    "report_pnl", "report_fills", "alert_rpnl",
+    "report_pnl", "report_fills", "alert_rpnl", "report_channel",
 )
 _SYMBOL_STRATS = {"opa3", "opa4"}
 
@@ -1334,6 +1335,7 @@ async def rpnl_chart(
     strategy: str = Query("opa3", description="strategy tag, e.g. opa3 | opa4"),
     account: str | None = Query(None, description="Delta account id; omit to merge all"),
     exchange: str = Query("both", description="quote | hedge | both"),
+    hedge_symbol: str | None = Query(None, description="Separate hedge contract (pair) — its rPnL becomes the hedge line"),
 ) -> dict:
     """Cumulative rPnL timeseries for a contract, bucketed by `bucket` minutes."""
     cfg = _SYMBOLS.get(symbol.upper())
@@ -1352,8 +1354,21 @@ async def rpnl_chart(
                 contract, since, bucket_minutes=bucket, strategy=strategy,
                 account=account, exchange="quote", quote_venue=qv,
             )
+        # Pair hedges a different contract; chart its quote-venue rPnL as the hedge line.
+        if want in ("hedge", "both") and hedge_symbol:
+            hcfg = _SYMBOLS.get(hedge_symbol.upper())
+            hcontract = hcfg.delta_symbol if hcfg else hedge_symbol.upper()
+            hmeta = await resolve_venues(hcontract, strategy=strategy, account=account)
+            hedge_points = await _db.get_rpnl_timeseries(
+                hcontract, since, bucket_minutes=bucket, strategy=strategy,
+                account=account, exchange="quote", quote_venue=hmeta["quote_venue"],
+            )
+            meta["has_hedge"] = True
+            meta["hedge_symbol"] = hcontract
+            meta["hedge_label"] = hmeta.get("quote_label") or "Hedge"
+            meta["hedge_venue"] = hmeta.get("quote_venue") or ""
         # Never draw a hedge series for a contract that was never hedged.
-        if want in ("hedge", "both") and meta["has_hedge"]:
+        elif want in ("hedge", "both") and meta["has_hedge"]:
             hedge_points = await _db.get_rpnl_timeseries(
                 contract, since, bucket_minutes=bucket, strategy=strategy,
                 account=None, exchange="not_quote", quote_venue=qv,
@@ -2256,7 +2271,7 @@ _SETUP_PAYLOAD_KEYS = frozenset({
     "EXIT_PCT", "OTM_PCT", "MAX_COIN",
     "FIELDS", "BASKET", "SILO", "FENCE", "FENCE_PCT", "FENCE_LOT", "FIELD_DUST",
     "REPORT_ON", "REPORT_SECS", "REPORT_SETUP", "REPORT_ERRORS", "REPORT_POSITION",
-    "REPORT_PNL", "REPORT_FILLS", "ALERT_RPNL_INR",
+    "REPORT_PNL", "REPORT_FILLS", "ALERT_RPNL_INR", "REPORT_CHANNEL",
     "max_usd", "max_pos",
 })
 _SETUP_BOOL = frozenset({
@@ -2307,7 +2322,9 @@ def _setup_payload(payload: dict | None) -> dict:
     out: dict = {}
     for key, val in raw.items():
         name = str(key or "").strip()
-        if name not in _SETUP_PAYLOAD_KEYS or val is None or val == "":
+        if name not in _SETUP_PAYLOAD_KEYS or val is None:
+            continue
+        if val == "" and name != "REPORT_CHANNEL":
             continue
         if name in _SETUP_BOOL:
             if isinstance(val, bool):
@@ -2365,6 +2382,9 @@ def _setup_payload(payload: dict | None) -> dict:
             if n != n or abs(n) > _MAX_POS_ABS_CAP:
                 raise HTTPException(status_code=400, detail="ALERT_RPNL_INR out of range")
             out[name] = n
+            continue
+        if name == "REPORT_CHANNEL":
+            out[name] = str(val).strip()[:60]
             continue
     if not out:
         raise HTTPException(status_code=400, detail="setup payload required")
@@ -2499,6 +2519,7 @@ async def ops_strategies() -> dict:
         "launch": dash_launch.launch_mode(),
         "geom": dash_ops.GEOM_LENS,
         "pair_params": dash_ops.PAIR_PARAMS,
+        "channels": dash_ops.report_channels(),
         **dash_ops.parent_status(),
     }
 

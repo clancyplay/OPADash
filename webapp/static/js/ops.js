@@ -1587,6 +1587,7 @@ function collectOpsReport() {
   return {
     REPORT_ON: on('rpOn') ? 'true' : 'false',
     REPORT_SECS: String(every * 60),
+    REPORT_CHANNEL: raw('rpChannel'),
     REPORT_SETUP: on('rpSetup') ? 'true' : 'false',
     REPORT_ERRORS: on('rpErrors') ? 'true' : 'false',
     REPORT_POSITION: on('rpPosition') ? 'true' : 'false',
@@ -1594,6 +1595,19 @@ function collectOpsReport() {
     REPORT_FILLS: on('rpFills') ? 'true' : 'false',
     ALERT_RPNL_INR: String(alert),
   };
+}
+
+function fillOpsChannels(selected) {
+  const sel = document.getElementById('rpChannel');
+  if (!sel) return;
+  const names = (opsCatalog && Array.isArray(opsCatalog.channels)) ? opsCatalog.channels : [];
+  const want = selected != null ? String(selected) : sel.value;
+  sel.innerHTML = '<option value="">Default</option>' +
+    names.map(n => '<option value="' + escHtml(String(n)) + '">' + escHtml(String(n)) + '</option>').join('');
+  if (want && !names.includes(want)) {
+    sel.insertAdjacentHTML('beforeend', '<option value="' + escHtml(want) + '">' + escHtml(want) + ' (missing)</option>');
+  }
+  sel.value = want || '';
 }
 
 function fillOpsReport(s) {
@@ -1610,6 +1624,7 @@ function fillOpsReport(s) {
   setChk('rpPosition', 'report_position', true);
   setChk('rpPnl', 'report_pnl', true);
   setChk('rpFills', 'report_fills', true);
+  fillOpsChannels(s.report_channel != null ? s.report_channel : '');
   const every = document.getElementById('rpEvery');
   if (every) {
     const secs = Number(s.report_secs);

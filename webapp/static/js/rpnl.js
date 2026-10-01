@@ -150,6 +150,7 @@ const LS_OHLC_FILLS = 'opadash.ohlcFills';
 const LS_OHLC_LOG = 'opadash.ohlcLog';
 const LS_OHLC_HILO = 'opadash.ohlcHiLo';
 let rpnlSummaryCache = [];
+let rpnlPairHedge = {};
 let rpnlLoadSeq = 0;
 let rpnlQuoteTimer = null;
 let rpnlLoadBusy = false;
@@ -710,6 +711,48 @@ function rpnlMarkPairHedges(rows) {
       if (!rpnlHedgeOf(r) && label) r._hedgeOf = label;
     });
   });
+}
+
+function rpnlPairLegLabel(opts) {
+  const names = opts.map(r => r.quote_symbol || r.contract).filter(Boolean);
+  if (!names.length) return '';
+  return names.length === 1 ? names[0] : names[0] + ' +' + (names.length - 1);
+}
+
+// Pair makes one pill per option leg plus a hedge-perp pill. Fold each account's
+// pair rows into a single group pill (combined rPnL, with an option/hedge split).
+function rpnlCollapsePairs(rows) {
+  rpnlPairHedge = {};
+  const groups = {};
+  const out = [];
+  (rows || []).forEach(r => {
+    if (String(r.strategy || '').toLowerCase() !== 'pair') { out.push(r); return; }
+    const k = (r.account || '') + '|pair';
+    (groups[k] = groups[k] || []).push(r);
+  });
+  Object.keys(groups).forEach(k => {
+    const g = groups[k];
+    const opts = g.filter(r => rpnlLooksOption(r.quote_symbol || r.contract));
+    const hedges = g.filter(r => rpnlIsPairHedge(r) || !rpnlLooksOption(r.quote_symbol || r.contract));
+    if (!opts.length) { Array.prototype.push.apply(out, g); return; }
+    const sum = (arr, key) => arr.reduce((s, r) => s + (Number(r[key]) || 0), 0);
+    const primary = opts.slice().sort((a, b) =>
+      rpnlRowRank(a) - rpnlRowRank(b) ||
+      (Math.abs(Number(b.rpnl) || 0) - Math.abs(Number(a.rpnl) || 0)))[0];
+    const group = Object.assign({}, primary);
+    group._pairGroup = true;
+    group._optRpnl = sum(opts, 'rpnl');
+    group._optFills = sum(opts, 'fills');
+    group._hedgeRpnl = sum(hedges, 'rpnl');
+    group._hedgeFills = sum(hedges, 'fills');
+    group._legLabel = rpnlPairLegLabel(opts);
+    group._legCount = opts.length;
+    group.live = g.some(r => r.live);
+    const hedgeSym = hedges.length ? (hedges[0].quote_symbol || hedges[0].contract) : '';
+    if (hedgeSym) rpnlPairHedge[rpnlOptionValue(group)] = hedgeSym;
+    out.push(group);
+  });
+  return out;
 }
 
 function rpnlOrdersBtnHtml(r) {
@@ -1495,7 +1538,7 @@ function rpnlPillHtml(r, cur, nameCount) {
   const acct = rpnlPillAcctText(r, nameCount);
   const qv = r.quote_venue || 'delta';
   const qlab = r.quote_label || 'Delta';
-  const qsym = r.quote_symbol || r.contract;
+  const qsym = r._pairGroup ? (r._legLabel || r.quote_symbol || r.contract) : (r.quote_symbol || r.contract);
   const main = rpnlPillMain(r);
   const mainCol = (bootOnly || r.removed) ? '#ffb74d' : (main >= 0 ? 'var(--green)' : 'var(--red)');
   const mode = rpnlPillMode(r);
@@ -1520,6 +1563,7 @@ function rpnlPillHtml(r, cur, nameCount) {
       rpnlPillSetupBtn(r, cur) +
     '</div>' +
     '<div class="p-val" style="color:' + mainCol + '">' + rpnlPillValInner(r) + '</div>' +
+    (r._pairGroup ? '<div class="p-hedge" title="option vs hedge">opt ' + inrFmt(r._optRpnl || 0) + ' · hedge ' + inrFmt(r._hedgeRpnl || 0) + '</div>' : '') +
     (hedgeBit && hedgeOf ? '<div class="p-hedge" title="' + escHtml(hedgeOf) + '">of ' + escHtml(hedgeOf) + '</div>' : '') +
     (!hedgeBit && via ? '<div class="p-hedge via" title="' + escHtml(via) + '">hedged by ' + escHtml(via) + '</div>' : '') +
     (maxBit ? '<div class="p-max">' + escHtml(maxBit) + '</div>' : '') +
@@ -1530,6 +1574,7 @@ function rpnlPillHtml(r, cur, nameCount) {
 }
 
 function rpnlPillMain(r) {
+  if (r && r._pairGroup) return (Number(r._optRpnl) || 0) + (Number(r._hedgeRpnl) || 0);
   const hedged = !!r.has_hedge && !!r.hedge_fills;
   return (Number(r.rpnl) || 0) + (hedged ? (Number(r.hedge_rpnl) || 0) : 0);
 }
@@ -1566,13 +1611,14 @@ function renderRpnlSummary(rows, hours) {
   }
   rpnlSummaryCache = rows;
   if (typeof refreshOpsLiveGeom === 'function') refreshOpsLiveGeom();
+  const display = rpnlCollapsePairs(rows);
   const cur = (document.getElementById('rpnlSymbol') || {}).value || '';
   const nameCount = {};
-  rows.forEach(r => {
+  display.forEach(r => {
     const n = (r.quote_symbol || r.contract) + '|' + rpnlAccountLabel(r);
     nameCount[n] = (nameCount[n] || 0) + 1;
   });
-  const sorted = rows.slice().sort((a, b) => rpnlRowRank(a) - rpnlRowRank(b));
+  const sorted = display.slice().sort((a, b) => rpnlRowRank(a) - rpnlRowRank(b));
   const keys = sorted.map(r => rpnlOptionValue(r)).join('\n');
   if (wrap.dataset.keys !== keys) {
     wrap.dataset.keys = keys;
@@ -3644,14 +3690,19 @@ async function loadRpnl(keepRange) {
       picked.strategy || (strategyIsAll(currentStrategy) ? 'all' : currentStrategy)
     );
     const candleIvl = (document.getElementById('rpnlCandle') || {}).value || '5m';
-    const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit + '&exchange=' + venue + stratQ;
+    const pairHedgeSym = rpnlPairHedge[sym + '::' + picked.account + '::' + picked.strategy] || '';
+    const exForUrl = pairHedgeSym ? 'both' : venue;
+    const hedgeQ = pairHedgeSym ? '&hedge_symbol=' + encodeURIComponent(pairHedgeSym) : '';
+    const url = '/api/rpnl?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit + '&exchange=' + exForUrl + stratQ + hedgeQ;
     const fillUrl = '/api/rpnl/fills?symbol=' + encodeURIComponent(sym) + winQ + '&bucket=' + bucket + acctBit + stratQ;
     const candleUrl = '/api/candles?symbol=' + encodeURIComponent(sym) + '&interval=' + candleIvl + winQ + acctBit + stratQ;
     const settled = await Promise.allSettled([
       fetch(url),
       fetch(candleUrl),
       fetch(fillUrl + '&exchange=quote'),
-      venue === 'quote' ? Promise.resolve(null) : fetch(fillUrl + '&exchange=hedge'),
+      pairHedgeSym
+        ? fetch('/api/rpnl/fills?symbol=' + encodeURIComponent(pairHedgeSym) + winQ + '&bucket=' + bucket + acctBit + stratQ + '&exchange=quote')
+        : (venue === 'quote' ? Promise.resolve(null) : fetch(fillUrl + '&exchange=hedge')),
     ]);
     if (seq !== rpnlLoadSeq) return;
     const take = i => settled[i].status === 'fulfilled' ? settled[i].value : null;

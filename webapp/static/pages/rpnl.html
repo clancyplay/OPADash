@@ -233,11 +233,14 @@
         </div>
         <div class="rp-ops-group" id="opsReport">
           <div class="rp-ops-sub">Report</div>
-          <p class="rp-ops-hint">Telegram updates for this contract. Turn off to go silent, or pick how often and what each message carries.</p>
+          <p class="rp-ops-hint">Telegram updates for this contract. Turn off to go silent, or pick how often, which channel, and what each message carries. Channels come from TELEGRAM_CHANNELS.</p>
           <div class="rp-ops-params">
             <label class="rp-ops-check"><input id="rpOn" type="checkbox" checked> On</label>
             <label>Every (min)
               <input id="rpEvery" type="number" min="1" step="1" value="5">
+            </label>
+            <label>Channel
+              <select id="rpChannel"><option value="">Default</option></select>
             </label>
             <label>Loss alert ₹
               <input id="rpAlert" type="number" step="1" value="-1000">
