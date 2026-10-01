@@ -65,7 +65,7 @@ def _gql(query: str, variables: dict | None = None) -> dict:
     last = None
     for url in GQL_URLS:
         try:
-            with httpx.Client(timeout=45.0) as client:
+            with httpx.Client(timeout=httpx.Timeout(12.0, connect=5.0)) as client:
                 r = client.post(url, json=payload, headers=headers)
         except httpx.HTTPError as extra:
             last = extra

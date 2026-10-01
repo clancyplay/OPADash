@@ -1111,9 +1111,11 @@ async def _pending_deploys(strategy: str, since: datetime | None = None) -> list
     """Dash launches that exist on Railway (or locally) but have not pinged yet."""
     want = (strategy or "").strip().lower()
     try:
-        bots = await asyncio.to_thread(dash_launch.list_bots)
+        # Railway's management API can be slow/rate-limited; never let the deploy
+        # pills block the page. On timeout we just skip them for this request.
+        bots = await asyncio.wait_for(asyncio.to_thread(dash_launch.list_bots), timeout=6.0)
     except Exception as extra:
-        logger.debug("webapp: deploy pills failed — %s", extra)
+        logger.debug("webapp: deploy pills skipped — %s", extra)
         return []
     out = []
     for bot in bots:

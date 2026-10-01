@@ -9,9 +9,9 @@
 (async () => {
   restoreRpnlPrefs();
   initFilterModal();
+  checkHealth();              // DB badge is DB-only; don't trap it behind Railway
   await fetchStrategies();
-  await fetchRpnlSymbols();
-  checkHealth();
+  await fetchRpnlSymbols();   // deploy-pill enrichment is time-bounded server-side
   const lastPage = lsGet(LS_PAGE, 'home');
   if (lastPage && lastPage !== 'home' && PAGE_IDS.includes(lastPage)) showPage(lastPage);
 })();
