@@ -446,7 +446,7 @@ _SETUP_STR_KEYS = {
     "stockroom", "crop", "expiry",
     "clock_orders", "clock_pos", "clock_override", "clock_day_reset", "clock_suggest", "clock_suggest_why",
 }
-_SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr"}
+_SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr", "alert_rpnl"}
 _SETUP_KEYS = (
     "hook", "hem", "span", "step", "hem_ticks", "span_ticks", "step_ticks", "step_mult",
     "hem_auto", "span_auto", "step_auto", "fit_auto", "span_spread", "vol_gate", "vol_stable",
@@ -482,6 +482,8 @@ _SETUP_KEYS = (
     "clock_arm", "clock_armed", "clock_override",
     "clock_day_loss", "clock_day_win", "clock_day_rpnl", "clock_day_reset",
     "clock_hold", "clock_hold_left", "clock_suggest", "clock_suggest_why", "clock_suggest_n",
+    "report_on", "report_secs", "report_setup", "report_errors", "report_position",
+    "report_pnl", "report_fills", "alert_rpnl",
 )
 _SYMBOL_STRATS = {"opa3", "opa4"}
 
@@ -2253,17 +2255,21 @@ _SETUP_PAYLOAD_KEYS = frozenset({
     "PACKET", "SHELF", "AISLE_PCT", "COVER_PCT", "STEP", "REACH", "PACE_MS", "DUST", "LOT", "WINDOW",
     "EXIT_PCT", "OTM_PCT", "MAX_COIN",
     "FIELDS", "BASKET", "SILO", "FENCE", "FENCE_PCT", "FENCE_LOT", "FIELD_DUST",
+    "REPORT_ON", "REPORT_SECS", "REPORT_SETUP", "REPORT_ERRORS", "REPORT_POSITION",
+    "REPORT_PNL", "REPORT_FILLS", "ALERT_RPNL_INR",
     "max_usd", "max_pos",
 })
 _SETUP_BOOL = frozenset({
     "FIT_AUTO", "SPAN_SPREAD", "HEM_AUTO", "SPAN_AUTO", "STEP_AUTO", "VOL_GATE", "DRY_RUN", "MAX_IN_USD", "PAIR_HEDGE", "FLIP",
     "WINDOW", "FENCE",
+    "REPORT_ON", "REPORT_SETUP", "REPORT_ERRORS", "REPORT_POSITION", "REPORT_PNL", "REPORT_FILLS",
 })
 _SETUP_INT = frozenset({
     "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS", "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",
     "K_TICKS", "TAILS", "PAIR_HEDGE_LOT", "QUOTE_MS",
     "HEM_MIN_TICKS", "HEM_MAX_TICKS", "SPAN_MIN_TICKS", "SPAN_MAX_TICKS", "STEP_MIN_TICKS", "STEP_MAX_TICKS",
     "PACKET", "SHELF", "STEP", "REACH", "PACE_MS", "FIELDS", "BASKET", "SILO", "FENCE_LOT",
+    "REPORT_SECS",
 })
 _SETUP_NUM = frozenset({
     "HEM_PCT", "SPAN_PCT", "STEP_PCT", "TAIL_PCT", "K_PCT", "EDGE_PCT",
@@ -2350,6 +2356,15 @@ def _setup_payload(payload: dict | None) -> dict:
             if v not in _SETUP_VENUE:
                 raise HTTPException(status_code=400, detail="EDGE_VENUE invalid")
             out[name] = v
+            continue
+        if name == "ALERT_RPNL_INR":
+            try:
+                n = float(val)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="ALERT_RPNL_INR invalid")
+            if n != n or abs(n) > _MAX_POS_ABS_CAP:
+                raise HTTPException(status_code=400, detail="ALERT_RPNL_INR out of range")
+            out[name] = n
             continue
     if not out:
         raise HTTPException(status_code=400, detail="setup payload required")

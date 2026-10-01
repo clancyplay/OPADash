@@ -231,6 +231,28 @@
             <button type="button" class="btn" onclick="opsClockCmd('skip')">Skip next close</button>
           </div>
         </div>
+        <div class="rp-ops-group" id="opsReport">
+          <div class="rp-ops-sub">Report</div>
+          <p class="rp-ops-hint">Telegram updates for this contract. Turn off to go silent, or pick how often and what each message carries.</p>
+          <div class="rp-ops-params">
+            <label class="rp-ops-check"><input id="rpOn" type="checkbox" checked> On</label>
+            <label>Every (min)
+              <input id="rpEvery" type="number" min="1" step="1" value="5">
+            </label>
+            <label>Loss alert ₹
+              <input id="rpAlert" type="number" step="1" value="-1000">
+            </label>
+          </div>
+          <p class="rp-ops-hint">Include in each update:</p>
+          <div class="rp-ops-params">
+            <label class="rp-ops-check"><input id="rpSetup" type="checkbox" checked> Setup</label>
+            <label class="rp-ops-check"><input id="rpErrors" type="checkbox" checked> Errors</label>
+            <label class="rp-ops-check"><input id="rpPosition" type="checkbox" checked> Wallet &amp; position</label>
+            <label class="rp-ops-check"><input id="rpPnl" type="checkbox" checked> PnL</label>
+            <label class="rp-ops-check"><input id="rpFills" type="checkbox" checked> Fills</label>
+          </div>
+          <p class="rp-ops-hint">Loss alert fires once on the alert chat when the window rPnL drops below this ₹ (negative). 0 turns it off.</p>
+        </div>
         <div id="opsGlossary"></div>
         <details class="rp-ops-extra ops-launch-only" id="opsExtraWrap">
           <summary>More env</summary>

@@ -56,6 +56,7 @@ function openRpOps() {
     applyOpsLaunchLead();
     renderOpsParams();
     onOpsStrategyChange();
+    fillOpsReport({});
     setOpsMsg('opsLaunchMsg', '', false);
   });
 }
@@ -1420,6 +1421,7 @@ function fillOpsFromSetup(s) {
   setText('opsP_CROP', s.crop);
   setText('opsP_EXPIRY', s.expiry);
   fillOpsClock(s);
+  fillOpsReport(s);
   opsGeomLens().forEach(g => {
     const ticksKey = g.id === 'k' ? 'k_ticks' : (g.id === 'tail' ? 'step_ticks' : g.id + '_ticks');
     const pctKey = g.id === 'k' ? 'k' : (g.id === 'tail' ? 'step' : g.id);
@@ -1576,6 +1578,49 @@ function collectOpsClock() {
   };
 }
 
+function collectOpsReport() {
+  const on = id => !!((document.getElementById(id) || {}).checked);
+  const raw = id => String((document.getElementById(id) || {}).value || '').trim();
+  const every = Math.max(1, Math.round(Number(raw('rpEvery')) || 5));
+  const alertRaw = raw('rpAlert');
+  const alert = alertRaw === '' ? 0 : (Number(alertRaw) || 0);
+  return {
+    REPORT_ON: on('rpOn') ? 'true' : 'false',
+    REPORT_SECS: String(every * 60),
+    REPORT_SETUP: on('rpSetup') ? 'true' : 'false',
+    REPORT_ERRORS: on('rpErrors') ? 'true' : 'false',
+    REPORT_POSITION: on('rpPosition') ? 'true' : 'false',
+    REPORT_PNL: on('rpPnl') ? 'true' : 'false',
+    REPORT_FILLS: on('rpFills') ? 'true' : 'false',
+    ALERT_RPNL_INR: String(alert),
+  };
+}
+
+function fillOpsReport(s) {
+  s = s || {};
+  const setChk = (id, key, dflt) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!(key in s) || s[key] == null) { el.checked = dflt; return; }
+    el.checked = s[key] === true || s[key] === 'true' || s[key] === 'on' || s[key] === 1 || s[key] === '1';
+  };
+  setChk('rpOn', 'report_on', true);
+  setChk('rpSetup', 'report_setup', true);
+  setChk('rpErrors', 'report_errors', true);
+  setChk('rpPosition', 'report_position', true);
+  setChk('rpPnl', 'report_pnl', true);
+  setChk('rpFills', 'report_fills', true);
+  const every = document.getElementById('rpEvery');
+  if (every) {
+    const secs = Number(s.report_secs);
+    every.value = isFinite(secs) && secs > 0 ? String(Math.max(1, Math.round(secs / 60))) : '5';
+  }
+  const alert = document.getElementById('rpAlert');
+  if (alert) {
+    alert.value = (s.alert_rpnl != null && s.alert_rpnl !== '') ? String(s.alert_rpnl) : '-1000';
+  }
+}
+
 function opsClockError() {
   const raw = String((document.getElementById('ckWindows') || {}).value || '').trim();
   if (!raw) return '';
@@ -1722,7 +1767,7 @@ async function submitOpsLaunch() {
     const r = await fetch('/api/ops/launch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ venue, account, contract, strategy, params: Object.assign(collectOpsParams(), collectOpsClock()) }),
+      body: JSON.stringify({ venue, account, contract, strategy, params: Object.assign(collectOpsParams(), collectOpsClock(), collectOpsReport()) }),
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
@@ -1863,6 +1908,7 @@ async function submitOpsEdit() {
   if (geomErr) return setOpsMsg('opsLaunchMsg', geomErr, true);
   const payload = collectOpsParams();
   const clock = collectOpsClock();
+  Object.assign(payload, collectOpsReport());
   const btn = document.getElementById('opsLaunchBtn');
   if (btn) btn.disabled = true;
   setOpsMsg('opsLaunchMsg', 'Applying…', false);

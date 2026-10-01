@@ -717,6 +717,14 @@ _KNOB_SETUP = (
     ("CLOCK_DAY_RESET", "clock_day_reset", "str"),
     ("CLOCK_HOLD_SECS", "clock_hold", "float"),
     ("CLOCK_ARM", "clock_arm", "bool"),
+    ("REPORT_ON", "report_on", "bool"),
+    ("REPORT_SECS", "report_secs", "int"),
+    ("REPORT_SETUP", "report_setup", "bool"),
+    ("REPORT_ERRORS", "report_errors", "bool"),
+    ("REPORT_POSITION", "report_position", "bool"),
+    ("REPORT_PNL", "report_pnl", "bool"),
+    ("REPORT_FILLS", "report_fills", "bool"),
+    ("ALERT_RPNL_INR", "alert_rpnl", "float"),
 )
 
 
