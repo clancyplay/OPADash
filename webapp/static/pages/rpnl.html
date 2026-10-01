@@ -26,20 +26,7 @@
         <button class="btn" type="button" onclick="openRpOps()">New</button>
         <button class="btn" type="button" onclick="loadRpnlFresh()">Refresh</button>
         <label class="rp-check"><input type="checkbox" id="rpnlAuto" onchange="setupRpnlAuto()" checked /> Auto</label>
-        <div class="pop-filter" id="rpnlFilterWrap">
-          <button class="btn" type="button" id="rpnlFilterBtn" onclick="toggleRpnlFilterMenu()" aria-expanded="false" aria-controls="rpnlFilterMenu">Filters</button>
-          <div class="pop-filter-menu pf-wide" id="rpnlFilterMenu" hidden>
-            <label class="pf-row">Strategy
-              <select id="rpnlFilterStrategy" onchange="setStrategy(this.value)">
-                <option value="all">All strategies</option>
-              </select>
-            </label>
-            <div class="pf-head"><span>Exchanges &amp; accounts</span>
-              <button type="button" class="pf-clear" onclick="rpnlScopeClear()">Clear</button>
-            </div>
-            <div class="scope-tree" id="rpnlScopeTree"></div>
-          </div>
-        </div>
+        <button class="btn" type="button" id="rpnlFilterBtn" onclick="openRpnlFilters()">Filters</button>
       </div>
     </div>
     <div id="rpnlStatus" class="status-bar" hidden></div>

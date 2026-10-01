@@ -22,7 +22,6 @@ function rptSyncFilterUI() {
   const live = new Set();
   rptScope.groups.forEach(g => g.accounts.forEach(a => live.add(scopeKey(g.ex, a.id))));
   [...rptScope.selected].forEach(k => { if (!live.has(k)) rptScope.selected.delete(k); });
-  scopeRender(document.getElementById('rptScopeTree'), rptScope);
   const stratN = strategyIsAll(currentStrategy) ? 0 : 1;
   setFilterBadge('rptFilterBtn', stratN + rptScope.selected.size);
 }
@@ -31,30 +30,14 @@ function rptScopeApply() {
   rptSyncFilterUI();
   filterReportAccts();
 }
-function rptScopeClear() {
-  rptScope.selected.clear();
-  rptScopeApply();
+function openRptFilters() {
+  openFilterModal({
+    title: 'Report filters',
+    scope: rptScope,
+    refresh: rptSyncFilterUI,
+    apply: rptScopeApply,
+  });
 }
-function toggleRptFilterMenu() {
-  const menu = document.getElementById('rptFilterMenu');
-  const btn = document.getElementById('rptFilterBtn');
-  if (!menu) return;
-  const open = menu.hidden;
-  menu.hidden = !open;
-  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-  if (open) {
-    scopeBind(document.getElementById('rptScopeTree'), rptScope, rptScopeApply);
-    rptSyncFilterUI();
-  }
-}
-document.addEventListener('click', event => {
-  const wrap = document.getElementById('rptFilterWrap');
-  const menu = document.getElementById('rptFilterMenu');
-  if (!menu || menu.hidden || (wrap && wrap.contains(event.target))) return;
-  menu.hidden = true;
-  const btn = document.getElementById('rptFilterBtn');
-  if (btn) btn.setAttribute('aria-expanded', 'false');
-});
 
 function initReports() { syncRptDayUi(); loadReports(); setupReportsAuto(); }
 

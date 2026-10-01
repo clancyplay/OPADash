@@ -30,60 +30,57 @@ function rpnlSyncFilterUI() {
   const live = new Set();
   rpnlScope.groups.forEach(g => g.accounts.forEach(a => live.add(scopeKey(g.ex, a.id))));
   [...rpnlScope.selected].forEach(k => { if (!live.has(k)) rpnlScope.selected.delete(k); });
-  scopeRender(document.getElementById('rpnlScopeTree'), rpnlScope);
   const stratN = strategyIsAll(currentStrategy) ? 0 : 1;
   setFilterBadge('rpnlFilterBtn', stratN + rpnlScope.selected.size);
 }
+// Account/exchange is a client-side filter, so just re-render from cached rows.
 function rpnlScopeApply() {
   saveScopeSet('rpnl', rpnlScope.selected);
   rpnlSyncFilterUI();
-  fetchRpnlSymbols().then(() => { if (rpnlReady) loadRpnlFresh(); });
+  rpnlRenderSymbolOptions();
+  if (rpnlReady) loadRpnlFresh();
 }
-function rpnlScopeClear() {
-  rpnlScope.selected.clear();
-  rpnlScopeApply();
-}
-function toggleRpnlFilterMenu() {
-  const menu = document.getElementById('rpnlFilterMenu');
-  const btn = document.getElementById('rpnlFilterBtn');
-  if (!menu) return;
-  const open = menu.hidden;
-  menu.hidden = !open;
-  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-  if (open) {
-    const page = document.getElementById('rpnl');
-    if (page && page.classList.contains('more-open')) toggleRpnlMore();
-    closeOhlcTools();
-    scopeBind(document.getElementById('rpnlScopeTree'), rpnlScope, rpnlScopeApply);
-    rpnlSyncFilterUI();
-  }
+function openRpnlFilters() {
+  const page = document.getElementById('rpnl');
+  if (page && page.classList.contains('more-open')) toggleRpnlMore();
+  closeOhlcTools();
+  openFilterModal({
+    title: 'rPnL filters',
+    scope: rpnlScope,
+    refresh: rpnlSyncFilterUI,
+    apply: rpnlScopeApply,
+  });
 }
 let rpnlSymbolRows = [];
+function rpnlRenderSymbolOptions() {
+  const sel = document.getElementById('rpnlSymbol');
+  if (!sel) return;
+  const list = rpnlApplyFilter(rpnlSymbolRows);
+  if (list.length === 0) {
+    sel.innerHTML = '<option value="">No data in DB</option>';
+    return;
+  }
+  const keep = sel.value;
+  list.sort((a, b) => rpnlRowRank(a) - rpnlRowRank(b));
+  sel.innerHTML = list.map(c =>
+    '<option value="' + escHtml(rpnlOptionValue(c)) + '">' +
+      escHtml(rpnlSelMark(c) + (c.label || c.contract)) + '</option>'
+  ).join('');
+  if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
+  else {
+    const hit = keep && [...sel.options].find(o => rpnlSelMatch(o.value, keep));
+    if (hit) sel.value = hit.value;
+  }
+}
 async function fetchRpnlSymbols() {
   try {
     const r = await fetch(withStrategy('/api/rpnl/symbols'));
     const rows = await r.json();
-    const sel = document.getElementById('rpnlSymbol');
     rpnlSymbolRows = (Array.isArray(rows) ? rows : []).map(c => typeof c === 'string'
       ? { contract: c, account: '', label: c }
       : c);
     rpnlSyncFilterUI();
-    const list = rpnlApplyFilter(rpnlSymbolRows);
-    if (list.length === 0) {
-      sel.innerHTML = '<option value="">No data in DB</option>';
-    } else {
-      const keep = sel.value;
-      list.sort((a, b) => rpnlRowRank(a) - rpnlRowRank(b));
-      sel.innerHTML = list.map(c =>
-        '<option value="' + escHtml(rpnlOptionValue(c)) + '">' +
-          escHtml(rpnlSelMark(c) + (c.label || c.contract)) + '</option>'
-      ).join('');
-      if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
-      else {
-        const hit = keep && [...sel.options].find(o => rpnlSelMatch(o.value, keep));
-        if (hit) sel.value = hit.value;
-      }
-    }
+    rpnlRenderSymbolOptions();
   } catch {
     const sel = document.getElementById('rpnlSymbol');
     if (sel) sel.innerHTML = '<option value="">Error</option>';
@@ -3444,12 +3441,6 @@ function closeRpnlPopovers(ev) {
   const foot = document.getElementById('rpnlTools');
   if (foot && foot.classList.contains('export-open') && !(ev && ev.target && ev.target.closest('.rp-foot'))) {
     toggleRpnlExports();
-  }
-  const filterMenu = document.getElementById('rpnlFilterMenu');
-  if (filterMenu && !filterMenu.hidden && !(ev && ev.target && ev.target.closest('#rpnlFilterWrap'))) {
-    filterMenu.hidden = true;
-    const btn = document.getElementById('rpnlFilterBtn');
-    if (btn) btn.setAttribute('aria-expanded', 'false');
   }
   const t = ev && ev.target;
   if (!(t && (t.closest('#ohlcTools') || t.closest('#ohlcToolsBtn')))) {

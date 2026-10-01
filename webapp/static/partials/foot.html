@@ -8,6 +8,7 @@
 <script>
 (async () => {
   restoreRpnlPrefs();
+  initFilterModal();
   await fetchStrategies();
   await fetchRpnlSymbols();
   checkHealth();

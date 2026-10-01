@@ -779,6 +779,7 @@ _DASHBOARD_PARTS = (
     "pages/rpnl.html",
     "pages/opps.html",
     "pages/data.html",
+    "partials/filter-modal.html",
     "partials/foot.html",
 )
 

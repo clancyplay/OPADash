@@ -367,7 +367,7 @@ function withStrategy(url) {
   const tag = strategyIsAll(currentStrategy) ? 'all' : currentStrategy;
   return url + (url.includes('?') ? '&' : '?') + 'strategy=' + encodeURIComponent(tag);
 }
-const STRATEGY_SELECTS = ['rpnlFilterStrategy', 'rptFilterStrategy'];
+const STRATEGY_SELECTS = ['fmStrategy'];
 async function fetchStrategies() {
   try {
     const list = await (await fetch('/api/strategies')).json();
@@ -435,7 +435,7 @@ function scopeGroupsFrom(pairs) {
 
 function scopeRender(treeEl, state) {
   if (!treeEl) return;
-  const groups = state.groups || [];
+  const groups = (state && state.groups) || [];
   if (!groups.length) {
     treeEl.innerHTML = '<div class="scope-empty">No accounts in view</div>';
     return;
@@ -469,17 +469,22 @@ function scopeRender(treeEl, state) {
   treeEl.querySelectorAll('input[data-indet]').forEach(i => { i.indeterminate = true; });
 }
 
-function scopeBind(treeEl, state, onSelect) {
+// getState returns the live scope object, so one bound tree can serve any page.
+function scopeBind(treeEl, getState, onSelect) {
   if (!treeEl || treeEl.dataset.bound) return;
   treeEl.dataset.bound = '1';
   treeEl.addEventListener('click', ev => {
     const tw = ev.target.closest('[data-tw]');
     if (!tw) return;
+    const state = getState();
+    if (!state) return;
     const ex = tw.getAttribute('data-tw');
     if (state.expanded.has(ex)) state.expanded.delete(ex); else state.expanded.add(ex);
     scopeRender(treeEl, state);
   });
   treeEl.addEventListener('change', ev => {
+    const state = getState();
+    if (!state) return;
     const t = ev.target;
     if (t.matches('[data-ex-all]')) {
       const ex = t.getAttribute('data-ex-all');
@@ -510,10 +515,52 @@ function setFilterBadge(btnId, count) {
   b.textContent = count > 0 ? 'Filters · ' + count : 'Filters';
 }
 
-// Escape closes any open filter popover; outside-click is wired per page.
+// ---- Shared Filters modal ----
+let activeFilterCtx = null;
+function filterModalCount() {
+  const el = document.getElementById('fmCount');
+  if (!el || !activeFilterCtx) return;
+  const n = activeFilterCtx.scope.selected.size;
+  el.textContent = n ? n + ' account' + (n === 1 ? '' : 's') + ' selected' : 'All accounts';
+}
+function openFilterModal(ctx) {
+  activeFilterCtx = ctx;
+  const modal = document.getElementById('filterModal');
+  if (!modal) return;
+  const title = document.getElementById('filterModalTitle');
+  if (title) title.textContent = ctx.title || 'Filters';
+  const ss = document.getElementById('fmStrategy');
+  if (ss && [...ss.options].some(o => o.value === currentStrategy)) ss.value = currentStrategy;
+  if (typeof ctx.refresh === 'function') ctx.refresh();
+  scopeRender(document.getElementById('fmScopeTree'), ctx.scope);
+  filterModalCount();
+  modal.hidden = false;
+  document.body.classList.add('modal-open');
+}
+function closeFilterModal() {
+  const modal = document.getElementById('filterModal');
+  if (modal) modal.hidden = true;
+  document.body.classList.remove('modal-open');
+}
+function filterModalClear() {
+  if (!activeFilterCtx) return;
+  activeFilterCtx.scope.selected.clear();
+  scopeRender(document.getElementById('fmScopeTree'), activeFilterCtx.scope);
+  filterModalCount();
+  if (typeof activeFilterCtx.apply === 'function') activeFilterCtx.apply();
+}
+function initFilterModal() {
+  const tree = document.getElementById('fmScopeTree');
+  if (!tree) return;
+  scopeBind(tree, () => activeFilterCtx && activeFilterCtx.scope, () => {
+    filterModalCount();
+    if (activeFilterCtx && typeof activeFilterCtx.apply === 'function') activeFilterCtx.apply();
+  });
+}
+
+// Escape closes the Filters modal.
 document.addEventListener('keydown', event => {
-  if (event.key !== 'Escape') return;
-  document.querySelectorAll('.pop-filter-menu').forEach(menu => { menu.hidden = true; });
+  if (event.key === 'Escape') closeFilterModal();
 });
 
 

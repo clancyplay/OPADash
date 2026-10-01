@@ -182,36 +182,59 @@
   }
   button.btn:disabled { opacity: .45; cursor: default; }
 
-  /* Filters popover — rPnL / Reports pages only (strategy + exchange→accounts) */
-  .pop-filter { position: relative; flex-shrink: 0; }
-  .pop-filter-menu {
-    position: absolute;
-    top: calc(100% + 6px);
-    right: 0;
-    z-index: 45;
-    display: grid;
-    gap: 8px;
-    min-width: 170px;
-    padding: 10px;
-    background: var(--surface);
-    border: 1px solid var(--border2);
-    border-radius: var(--radius-sm);
-    box-shadow: 0 12px 28px rgba(0, 0, 0, .38);
+  /* Filters modal — shared by rPnL + Reports (strategy + exchange→accounts) */
+  .filter-modal[hidden] { display: none; }
+  .filter-modal {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; align-items: center; justify-content: center;
+    padding: max(16px, var(--safe-t)) 16px max(16px, var(--safe-b));
   }
-  .pop-filter-menu.pf-wide { width: 248px; max-width: 86vw; }
-  .pop-filter-menu[hidden] { display: none; }
-  .pop-filter-menu label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; font-weight: 600; }
-  .pop-filter-menu select { width: 100%; }
-  .pop-filter-menu .pf-row {
-    text-transform: uppercase; letter-spacing: .3px;
+  .filter-modal-backdrop {
+    position: absolute; inset: 0;
+    background: rgba(0, 0, 0, .55);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
   }
-  .pop-filter-menu .pf-row select { text-transform: none; letter-spacing: 0; font-weight: 500; }
-  .pf-head {
+  .filter-modal-card {
+    position: relative; z-index: 1;
+    width: 400px; max-width: 94vw; max-height: 86vh;
+    display: flex; flex-direction: column; min-height: 0;
+    background: var(--surface); border: 1px solid var(--border2);
+    border-radius: 14px; box-shadow: 0 24px 64px rgba(0, 0, 0, .55);
+    overflow: hidden;
+    animation: fm-pop .16s ease-out;
+  }
+  @keyframes fm-pop { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+  .filter-modal-h {
     display: flex; align-items: center; justify-content: space-between;
-    font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
-    color: var(--muted); padding-top: 8px; border-top: 1px solid var(--border);
-    margin-top: 2px;
+    padding: 14px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
   }
+  .filter-modal-h h3 { margin: 0; font-size: 15px; font-weight: 650; color: #fff; }
+  .filter-modal-x {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    width: 30px; height: 30px; border-radius: 8px; font-size: 15px; line-height: 1;
+  }
+  .filter-modal-x:hover { background: var(--surface2); color: var(--text); }
+  .filter-modal-body {
+    display: flex; flex-direction: column; gap: 12px; min-height: 0;
+    padding: 14px 16px; overflow: hidden;
+  }
+  .fm-field {
+    display: grid; gap: 6px; flex-shrink: 0;
+    font-size: 11px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: var(--muted);
+  }
+  .fm-field select { width: 100%; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 13px; }
+  .fm-sec {
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+    font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--muted);
+    padding-top: 12px; border-top: 1px solid var(--border);
+  }
+  .filter-modal-foot {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 12px 16px; border-top: 1px solid var(--border); flex-shrink: 0;
+  }
+  .fm-count { font-size: 12px; color: var(--muted); }
+  .btn.primary { border-color: var(--accent); color: #fff; background: rgba(41, 98, 255, .9); }
+  .btn.primary:hover { background: var(--accent); }
   .pf-clear {
     background: none; border: none; color: var(--accent); cursor: pointer;
     font-size: 11px; font-weight: 600; padding: 2px 4px; text-transform: none; letter-spacing: 0;
@@ -220,38 +243,41 @@
 
   /* Scope tree: collapsible exchange nodes with multi-select accounts */
   .scope-tree {
-    display: flex; flex-direction: column; gap: 2px;
-    max-height: 44vh; overflow-y: auto; margin: -2px -2px 0; padding: 2px;
-    scrollbar-width: thin;
+    flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px;
+    min-height: 0; overflow-y: auto; margin: 0 -4px; padding: 2px 4px;
+    scrollbar-width: thin; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
   }
-  .scope-empty { color: var(--muted); font-size: 12px; padding: 8px 4px; }
-  .scope-group { border-radius: 6px; }
+  .scope-empty { color: var(--muted); font-size: 12px; padding: 10px 4px; }
+  .scope-group { border-radius: 8px; }
   .scope-group.open { background: rgba(255, 255, 255, .02); }
-  .scope-head { display: flex; align-items: center; gap: 6px; padding: 4px 4px; }
+  .scope-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px; }
   .scope-tw {
-    flex-shrink: 0; width: 18px; height: 18px; padding: 0;
+    flex-shrink: 0; width: 20px; height: 20px; padding: 0;
     background: none; border: none; color: var(--muted); cursor: pointer;
-    font-size: 11px; line-height: 1; border-radius: 4px;
+    font-size: 11px; line-height: 1; border-radius: 5px;
   }
   .scope-tw:hover { background: var(--surface2); color: var(--text); }
   .scope-chk {
-    display: flex !important; align-items: center; gap: 6px; flex: 1 1 auto;
-    min-width: 0; cursor: pointer; font-size: 12px !important;
-    text-transform: none !important; letter-spacing: 0 !important; color: var(--text) !important;
+    display: flex; align-items: center; gap: 8px; flex: 1 1 auto;
+    min-width: 0; cursor: pointer; font-size: 13px; color: var(--text);
   }
-  .scope-chk input, .scope-acct input { accent-color: var(--accent); cursor: pointer; flex-shrink: 0; margin: 0; }
+  .scope-chk input, .scope-acct input {
+    accent-color: var(--accent); cursor: pointer; flex-shrink: 0; margin: 0;
+    width: 16px; height: 16px;
+  }
   .scope-chk .rpnl-venue { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .scope-count { flex-shrink: 0; font-size: 10px; color: var(--muted); font-weight: 600; }
-  .scope-accts { display: flex; flex-direction: column; gap: 1px; padding: 0 4px 4px 28px; }
+  .scope-count { flex-shrink: 0; font-size: 11px; color: var(--muted); font-weight: 600; }
+  .scope-accts { display: flex; flex-direction: column; gap: 1px; padding: 0 6px 6px 34px; }
   .scope-acct {
-    display: flex; align-items: center; gap: 7px; padding: 4px 6px;
-    border-radius: 5px; cursor: pointer; font-size: 12px; color: var(--text);
-    overflow: hidden;
+    display: flex; align-items: center; gap: 9px; padding: 6px 8px;
+    border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text); overflow: hidden;
   }
   .scope-acct span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   @media (hover: hover) {
     .scope-acct:hover { background: var(--surface2); }
+    .scope-head:hover { background: rgba(255, 255, 255, .02); border-radius: 8px; }
   }
+  body.modal-open { overflow: hidden; }
 
   /* Status bar */
   .status-bar { padding: 6px max(16px, var(--safe-r)) 6px max(16px, var(--safe-l)); font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); min-height: 28px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

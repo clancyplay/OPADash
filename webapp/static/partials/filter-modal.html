@@ -1,0 +1,26 @@
+<!-- Shared Filters modal (rPnL + Reports) -->
+<div class="filter-modal" id="filterModal" hidden>
+  <div class="filter-modal-backdrop" onclick="closeFilterModal()"></div>
+  <div class="filter-modal-card" role="dialog" aria-modal="true" aria-labelledby="filterModalTitle">
+    <div class="filter-modal-h">
+      <h3 id="filterModalTitle">Filters</h3>
+      <button class="filter-modal-x" type="button" onclick="closeFilterModal()" aria-label="Close">✕</button>
+    </div>
+    <div class="filter-modal-body">
+      <label class="fm-field">Strategy
+        <select id="fmStrategy" onchange="setStrategy(this.value)">
+          <option value="all">All strategies</option>
+        </select>
+      </label>
+      <div class="fm-sec">
+        <span>Exchanges &amp; accounts</span>
+        <button type="button" class="pf-clear" onclick="filterModalClear()">Clear all</button>
+      </div>
+      <div class="scope-tree" id="fmScopeTree"></div>
+    </div>
+    <div class="filter-modal-foot">
+      <span class="fm-count" id="fmCount">All accounts</span>
+      <button class="btn primary" type="button" onclick="closeFilterModal()">Done</button>
+    </div>
+  </div>
+</div>
