@@ -723,7 +723,11 @@ function rpnlPosHtml(s, cls, venue, sym) {
   if (Math.abs(n) < 1e-12) return '<span class="' + cls + '">flat</span>';
   const side = n > 0 ? 'long' : 'short';
   const unit = rpnlBaseUnit(sym);
-  let t = side + ' ' + fmtG(Math.abs(n)) + (unit ? ' ' + unit : '');
+  const cv = Number(s.cv);
+  const qty = (isFinite(cv) && cv > 0 && Math.abs(cv - 1) > 1e-9)
+    ? fmtG(Math.abs(n)) + ' lots x ' + fmtG(cv) + (unit ? ' ' + unit : '')
+    : fmtG(Math.abs(n)) + (unit ? ' ' + unit : '');
+  let t = side + ' ' + qty;
   if (s.entry != null && Number(s.entry) > 0) t += ' @ ' + fmtG(s.entry);
   let extra = '';
   const u = liveUpnlInr(s, venue);
