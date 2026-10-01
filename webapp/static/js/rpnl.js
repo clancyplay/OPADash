@@ -1676,11 +1676,14 @@ function rpnlPillWallet(r) {
   return 'bal ' + inrFmt(n);
 }
 
+function rpnlPillAcctKey(r) {
+  return (r.quote_symbol || r.contract) + '|' + rpnlAccountLabel(r) + '|' + (r.strategy || '');
+}
+
 function rpnlPillAcctText(r, nameCount) {
   const acct = rpnlAccountLabel(r);
   if (!acct) return '';
-  const qsym = r.quote_symbol || r.contract;
-  const dupe = nameCount && nameCount[qsym + '|' + acct] > 1 && r.account && r.account !== acct;
+  const dupe = nameCount && nameCount[rpnlPillAcctKey(r)] > 1 && r.account && r.account !== acct;
   return dupe ? acct + ' #' + r.account : acct;
 }
 
@@ -1778,7 +1781,7 @@ function renderRpnlSummary(rows, hours) {
   const cur = (document.getElementById('rpnlSymbol') || {}).value || '';
   const nameCount = {};
   display.forEach(r => {
-    const n = (r.quote_symbol || r.contract) + '|' + rpnlAccountLabel(r);
+    const n = rpnlPillAcctKey(r);
     nameCount[n] = (nameCount[n] || 0) + 1;
   });
   const sorted = display.slice().sort((a, b) => rpnlRowRank(a) - rpnlRowRank(b));
