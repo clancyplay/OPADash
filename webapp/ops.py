@@ -103,7 +103,7 @@ def _pace(*, quote_ms="150", place_secs=None):
     return rows
 
 
-def _max(label="Max", default="10000"):
+def _max(label="Max", default="100"):
     """Max number + USD/lots unit. Pair stays coin-only and does not use this."""
     return [{
         "key": "MAX_POSITION",
