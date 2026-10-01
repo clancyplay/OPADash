@@ -987,10 +987,12 @@ function rpnlSetupBits(s) {
   if (s.fate != null) bits.push('fate $' + fmtG(s.fate));
     if (s.live_orders != null && s.orders != null) bits.push('orders ' + s.live_orders + '/' + s.orders);
     else if (s.orders != null) bits.push('orders ' + s.orders);
-    if (s.bid != null && Number(s.bid) !== 0) bits.push('bid ' + fmtG(s.bid) + '%');
-    if (s.ask != null && Number(s.ask) !== 0) bits.push('ask ' + fmtG(s.ask) + '%');
-    if (s.bid_ticks != null) bits.push('bid +' + fmtG(s.bid_ticks) + 't');
-    if (s.ask_ticks != null) bits.push('ask −' + fmtG(s.ask_ticks) + 't');
+    if (!s.geom) {
+      if (s.bid_ticks != null && Number(s.bid_ticks) !== 0) bits.push('bid ' + fmtG(s.bid_ticks) + 't');
+      else if (s.bid != null && Number(s.bid) !== 0) bits.push('bid ' + fmtG(s.bid) + '%');
+      if (s.ask_ticks != null && Number(s.ask_ticks) !== 0) bits.push('ask ' + fmtG(s.ask_ticks) + 't');
+      else if (s.ask != null && Number(s.ask) !== 0) bits.push('ask ' + fmtG(s.ask) + '%');
+    }
     if (s.max_usd != null) bits.push('max $' + fmtG(s.max_usd));
     else if (s.max_pos != null) bits.push('max ' + fmtG(s.max_pos));
     if (s.ignore != null) bits.push((s.ignore_usd ? 'ignore $' : 'ignore ') + fmtG(s.ignore));
@@ -1044,7 +1046,7 @@ function rpnlCfgHtml(s) {
   const spans = [];
   if (mode) spans.push('<span>' + escHtml(mode) + '</span>');
   bits.forEach(function (b) {
-    const geom = /^(hem|span|step|tail|k) /.test(String(b));
+    const geom = /^(hem|span|step|tail|k|bid|ask) /.test(String(b));
     spans.push('<span' + (geom ? ' class="p-geom"' : '') + '>' + escHtml(b) + '</span>');
   });
   return '<div class="p-cfg" title="' + escHtml(rpnlCfgTitle(s)).replace(/\n/g, '&#10;') + '">' +

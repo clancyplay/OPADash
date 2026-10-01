@@ -230,19 +230,22 @@ def _symbol_from_env(env: dict[str, str]) -> str:
 def _slim_knobs(knobs: dict[str, str]) -> dict[str, str]:
     """Keep form knobs. Ticks win — drop the unused % (or unused 0 ticks)."""
     out = dict(knobs)
-    for ticks, pct in (
-        ("HEM_TICKS", "HEM_PCT"),
-        ("SPAN_TICKS", "SPAN_PCT"),
-        ("STEP_TICKS", "STEP_PCT"),
-        ("K_TICKS", "K_PCT"),
-        ("TAIL_TICKS", "TAIL_PCT"),
+    for ticks, pct, signed in (
+        ("HEM_TICKS", "HEM_PCT", False),
+        ("SPAN_TICKS", "SPAN_PCT", False),
+        ("STEP_TICKS", "STEP_PCT", False),
+        ("K_TICKS", "K_PCT", False),
+        ("TAIL_TICKS", "TAIL_PCT", False),
+        ("BID_TICKS", "BID_PCT", True),
+        ("ASK_TICKS", "ASK_PCT", True),
     ):
         raw = out.get(ticks)
         try:
             n = int(float(raw)) if raw not in (None, "") else 0
         except (TypeError, ValueError):
             n = 0
-        if n > 0:
+        ticks_win = (n != 0) if signed else (n > 0)
+        if ticks_win:
             out.pop(pct, None)
         else:
             out.pop(ticks, None)

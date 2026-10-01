@@ -49,6 +49,24 @@ GEOM_LENS = [
         "allow_zero": True,
         "bound": False,
     },
+    {
+        "id": "bid", "label": "Bid",
+        "hint": "+ deeper in book, − into the spread. 0 joins best bid",
+        "pct_key": "BID_PCT", "ticks_key": "BID_TICKS",
+        "pct_default": "0", "ticks_default": "0",
+        "allow_zero": True,
+        "signed": True,
+        "bound": False,
+    },
+    {
+        "id": "ask", "label": "Ask",
+        "hint": "+ deeper in book, − into the spread. 0 joins best ask",
+        "pct_key": "ASK_PCT", "ticks_key": "ASK_TICKS",
+        "pct_default": "0", "ticks_default": "0",
+        "allow_zero": True,
+        "signed": True,
+        "bound": False,
+    },
 ]
 _GEOM_HINT = (
     "Min and max per edge, as % of price or whole ticks. Ticks win. "
@@ -157,35 +175,38 @@ def _ladder(*, auto=True, auto_defaults=None, touch=False, vol=False, fate=True,
 
 
 def _touch_like(*, k_default="0", step_default="0.05", per_side=False):
-    """Join BBO (touch / lean): k + step, no hem/span."""
-    rows = _max() + [
-        _ORDERS,
-        _IGNORE,
-        _geom(
+    """Join BBO (touch / lean): ladder step, no hem/span/hook.
+
+    Touch uses per-side bid/ask distance (+ deeper, − into the spread).
+    Lean keeps a single K offset from the touch.
+    """
+    if per_side:
+        geom = _geom(
+            ["bid", "ask", "step"],
+            "Bid/ask distance from the touch (+ deeper in book, − into the spread). "
+            "Step is the same-side gap between rungs. Blank step follows the book.",
+            defaults={
+                "bid": {"pct_default": "0", "ticks_default": "0"},
+                "ask": {"pct_default": "0", "ticks_default": "0"},
+                "step": {"pct_default": step_default},
+            },
+        )
+    else:
+        geom = _geom(
             ["k", "step"],
             "K is the offset from the touch (0 joins BBO). Step min/max is the same-side gap. Blank follows the book.",
             defaults={"k": {"pct_default": k_default}, "step": {"pct_default": step_default}},
-        ),
-    ]
-    if per_side:
-        rows += [
-            {"key": "BID_PCT", "label": "Bid %", "type": "number", "default": "", "group": "quote",
-             "hint": "Buy offset from best bid. + rests behind, − quotes inside the spread. Blank follows K."},
-            {"key": "BID_TICKS", "label": "Bid ticks", "type": "int", "default": "", "group": "quote",
-             "hint": "Buy tick offset from best bid. Wins over %. − quotes inside the spread."},
-            {"key": "ASK_PCT", "label": "Ask %", "type": "number", "default": "", "group": "quote",
-             "hint": "Sell offset from best ask. + rests behind, − quotes inside the spread. Blank follows K."},
-            {"key": "ASK_TICKS", "label": "Ask ticks", "type": "int", "default": "", "group": "quote",
-             "hint": "Sell tick offset from best ask. Wins over %. − quotes inside the spread."},
-        ]
-    rows += [
+        )
+    return _max() + [
+        _ORDERS,
+        _IGNORE,
+        geom,
         {**_MULT, "embed": True},
         *_pace(place_secs="60"),
         *_fate(),
         {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
         _DRY,
     ]
-    return rows
 
 
 PAIR_PARAMS = [
@@ -266,7 +287,7 @@ STRATEGIES = [
     },
     {
         "id": "touch", "label": "Touch",
-        "blurb": "Join best bid/ask. No hem/span.",
+        "blurb": "Ladder at the touch. Bid/ask distance (+ deeper / − into spread). No hook/hem/span.",
         "params": _touch_like(per_side=True),
     },
     {

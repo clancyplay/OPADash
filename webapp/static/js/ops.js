@@ -498,8 +498,19 @@ function opsGeomDef(id) {
 
 function opsGeomHasBounds(g) {
   const row = (typeof g === 'string') ? opsGeomDef(g) : (g || {});
-  if (!row || !row.id || row.id === 'k') return false;
+  if (!row || !row.id) return false;
   return row.bound !== false;
+}
+
+function opsGeomSigned(g) {
+  const row = (typeof g === 'string') ? opsGeomDef(g) : (g || {});
+  return !!(row && row.signed);
+}
+
+function opsGeomInputMin(g, unit) {
+  if (opsGeomSigned(g)) return '';
+  if (unit === 'ticks') return g.allow_zero ? '0' : '1';
+  return '0';
 }
 
 function opsGeomPrefix(g) {
@@ -638,7 +649,7 @@ function setOpsGeomUnit(id, unit) {
   if (!row) return;
   const prev = opsGeomRowUnit(id);
   const g = opsGeomDef(id);
-  const tickMin = g.allow_zero ? '0' : '0';
+  const tickMin = opsGeomInputMin(g, 'ticks');
   row.querySelectorAll('.rp-ops-unit:not(.rp-ops-len-mode) button').forEach(b => {
     b.classList.toggle('on', b.getAttribute('data-unit') === unit);
   });
@@ -658,7 +669,12 @@ function setOpsGeomUnit(id, unit) {
       minEl.value = nextMin;
       maxEl.value = nextMax;
       minEl.step = maxEl.step = unit === 'ticks' ? '1' : 'any';
-      minEl.min = maxEl.min = unit === 'ticks' ? tickMin : '0';
+      if (tickMin === '') {
+        minEl.removeAttribute('min');
+        maxEl.removeAttribute('min');
+      } else {
+        minEl.min = maxEl.min = unit === 'ticks' ? tickMin : '0';
+      }
     }
   } else {
     const inp = document.getElementById('opsG_' + id);
@@ -666,7 +682,9 @@ function setOpsGeomUnit(id, unit) {
       if (prev === 'ticks') row.dataset.ticks = inp.value;
       else row.dataset.pct = inp.value;
       inp.step = unit === 'ticks' ? '1' : 'any';
-      inp.min = unit === 'ticks' ? (g.allow_zero ? '0' : '1') : '0';
+      const nextMin = opsGeomInputMin(g, unit);
+      if (nextMin === '') inp.removeAttribute('min');
+      else inp.min = nextMin;
       const next = unit === 'ticks'
         ? (row.dataset.ticks || g.ticks_default || '0')
         : (row.dataset.pct || g.pct_default || '0');
@@ -732,16 +750,18 @@ function renderOpsGeom() {
         '<select id="opsP_STEP_MULT" aria-label="Step ×" onchange="updateOpsGeomSum()">' +
         opsSelectOptions(mult) + '</select></div>';
     }
-    const tickMin = g.allow_zero ? '0' : '0';
+    const tickMin = opsGeomInputMin(g, 'ticks');
     if (!hasBound) {
       const pct = st.pct != null && st.pct !== '' ? st.pct : g.pct_default;
       const ticks = st.ticks != null && st.ticks !== '' ? st.ticks : g.ticks_default;
       const val = unit === 'ticks' ? ticks : pct;
+      const minAttr = opsGeomInputMin(g, unit);
       return '<div class="rp-ops-len' + (hasMult ? ' has-mult' : '') + '" data-geom="' + escHtml(g.id) +
         '" data-pct="' + escHtml(pct) + '" data-ticks="' + escHtml(ticks) + '">' +
         '<span class="rp-ops-len-lab">' + escHtml(g.label) + '</span>' +
-        '<input id="opsG_' + escHtml(g.id) + '" type="number" min="' + (unit === 'ticks' ? (g.allow_zero ? '0' : '1') : '0') +
-          '" step="' + (unit === 'ticks' ? '1' : 'any') + '" inputmode="decimal" value="' + escHtml(val) +
+        '<input id="opsG_' + escHtml(g.id) + '" type="number"' +
+          (minAttr === '' ? '' : ' min="' + minAttr + '"') +
+          ' step="' + (unit === 'ticks' ? '1' : 'any') + '" inputmode="decimal" value="' + escHtml(val) +
           '" oninput="onOpsGeomInput(\'' + escHtml(g.id) + '\')" />' +
         '<div class="rp-ops-unit" role="group" aria-label="' + escHtml(g.label) + ' unit">' +
           '<button type="button" data-unit="pct"' + (unit === 'pct' ? ' class="on"' : '') +
@@ -767,13 +787,13 @@ function renderOpsGeom() {
         '<span class="rp-ops-bound-mode">' + mode + '</span></span>' +
       '<label class="rp-ops-bound rp-ops-bound-min">' +
         '<span>min</span>' +
-        '<input id="opsG_' + escHtml(g.id) + '_min" type="number" min="' + (unit === 'ticks' ? tickMin : '0') +
+        '<input id="opsG_' + escHtml(g.id) + '_min" type="number" min="' + (unit === 'ticks' ? (tickMin || '0') : '0') +
           '" step="' + (unit === 'ticks' ? '1' : 'any') + '" inputmode="decimal" placeholder="any" value="' + escHtml(minVal) +
           '" oninput="onOpsGeomInput(\'' + escHtml(g.id) + '\')" />' +
       '</label>' +
       '<label class="rp-ops-bound rp-ops-bound-max">' +
         '<span>max</span>' +
-        '<input id="opsG_' + escHtml(g.id) + '_max" type="number" min="' + (unit === 'ticks' ? tickMin : '0') +
+        '<input id="opsG_' + escHtml(g.id) + '_max" type="number" min="' + (unit === 'ticks' ? (tickMin || '0') : '0') +
           '" step="' + (unit === 'ticks' ? '1' : 'any') + '" inputmode="decimal" placeholder="any" value="' + escHtml(maxVal) +
           '" oninput="onOpsGeomInput(\'' + escHtml(g.id) + '\')" />' +
       '</label>' +
@@ -971,7 +991,7 @@ function opsGeomLiveBits(s) {
     const pctKey = g.id === 'k' ? 'k' : (g.id === 'tail' ? 'step' : g.id);
     const ticks = s[ticksKey] != null ? s[ticksKey] : s[g.id + '_ticks'];
     const pct = s[pctKey] != null ? s[pctKey] : s[g.id];
-    const useTicks = ticks != null && Number(ticks) > 0;
+    const useTicks = ticks != null && ticks !== '' && Number(ticks) !== 0;
     const n = useTicks ? ticks : pct;
     if (n == null || n === '') return '';
     return g.label.toLowerCase() + ' ' + opsFmtKnob(n) + (useTicks ? 't' : '%');
@@ -1081,8 +1101,8 @@ const OPS_GLOSS = {
   FIELD_DUST: 'Ignore option book size below this.',
   K_PCT: 'Percent offset from the touch. 0 joins the book.',
   K_TICKS: 'Tick offset from the touch. Ticks win over percent when both are set.',
-  BID_PCT: 'Buy offset from best bid. + rests behind, − quotes inside the spread. Blank follows K.',
-  ASK_PCT: 'Sell offset from best ask. + rests behind, − quotes inside the spread. Blank follows K.',
+  BID_PCT: 'Buy distance from best bid. + deeper in book, − into the spread.',
+  ASK_PCT: 'Sell distance from best ask. + deeper in book, − into the spread.',
 };
 
 function renderOpsGlossary() {
@@ -1102,9 +1122,13 @@ function renderOpsGlossary() {
       const lenses = p.lenses || [];
       if (lenses.indexOf('hem') >= 0) add('hem', 'Hem', 'Cover-side edge off the hook. Min/max, or blank to follow the book.');
       if (lenses.indexOf('span') >= 0) add('span', 'Span', 'Far edge, measured from the hem. Min/max, or blank to follow the book.');
+      if (lenses.indexOf('bid') >= 0) add('bid', 'Bid', 'Buy distance from best bid. + deeper in book, − into the spread. 0 joins the bid.');
+      if (lenses.indexOf('ask') >= 0) add('ask', 'Ask', 'Sell distance from best ask. + deeper in book, − into the spread. 0 joins the ask.');
       if (lenses.indexOf('step') >= 0 || lenses.indexOf('tail') >= 0) add('step', 'Step', 'First same-side gap behind an edge. Min/max, or blank to follow the book.');
       if (lenses.indexOf('k') >= 0) add('k', 'K', 'Offset from the touch. 0 joins the bid–ask.');
-      add('bounds', 'Min / max', 'Blank both follows the live book. Same number locks that edge. Min only is a floor; max can be anything.');
+      if (lenses.indexOf('hem') >= 0 || lenses.indexOf('span') >= 0 || lenses.indexOf('step') >= 0 || lenses.indexOf('tail') >= 0) {
+        add('bounds', 'Min / max', 'Blank both follows the live book. Same number locks that edge. Min only is a floor; max can be anything.');
+      }
       return;
     }
     add(p.key, p.label || p.key, p.hint || OPS_GLOSS[p.key] || '');
@@ -1151,9 +1175,11 @@ function renderOpsParams() {
   });
   const blurb = spec.blurb ? '<p class="rp-ops-hint rp-ops-blurb">' + escHtml(spec.blurb) + '</p>' : '';
   box.innerHTML = blurb + groups.map(g => {
+    const body = renderOpsGroupItems(g.items);
+    if (!body) return '';
     const h = titles[g.id] ? '<div class="rp-ops-sub">' + titles[g.id] + '</div>' : '';
     return '<div class="rp-ops-group" data-ops-group="' + escHtml(g.id || '') + '">' + h +
-      '<div class="rp-ops-params">' + renderOpsGroupItems(g.items) + '</div></div>';
+      '<div class="rp-ops-params">' + body + '</div></div>';
   }).join('');
   const gloss = document.getElementById('opsGlossary');
   if (gloss) gloss.innerHTML = renderOpsGlossary();
@@ -1172,8 +1198,10 @@ function collectOpsGeom(out) {
       const inp = document.getElementById('opsG_' + g.id);
       if (!row || !inp) return;
       const unit = opsGeomRowUnit(g.id);
+      const signed = opsGeomSigned(g);
       if (unit === 'ticks') {
-        const t = Math.max(0, Math.round(Number(inp.value) || 0));
+        const raw = Number(inp.value);
+        const t = signed ? Math.round(raw || 0) : Math.max(0, Math.round(raw || 0));
         out[g.ticks_key] = String(t);
         out[g.pct_key] = row.dataset.pct || g.pct_default || '0';
       } else {
@@ -1222,9 +1250,12 @@ function validateOpsGeom() {
       const inp = document.getElementById('opsG_' + g.id);
       const n = Number(inp && inp.value);
       const unit = opsGeomRowUnit(g.id);
-      if (g.allow_zero) {
-        if (!isFinite(n) || n < 0) return g.label + ' must be ≥ 0';
-      } else if (!isFinite(n) || !(n > 0)) {
+      if (!isFinite(n)) return g.label + ' is invalid';
+      if (opsGeomSigned(g)) {
+        /* signed distance: any finite number */
+      } else if (g.allow_zero) {
+        if (n < 0) return g.label + ' must be ≥ 0';
+      } else if (!(n > 0)) {
         return g.label + ' must be > 0';
       }
       if (unit === 'ticks' && n !== Math.round(n)) return g.label + ' ticks must be a whole number';
@@ -1438,12 +1469,14 @@ function fillOpsFromSetup(s) {
       if (!inp) return;
       if (pct != null && pct !== '') row.dataset.pct = String(pct);
       if (ticks != null && ticks !== '') row.dataset.ticks = String(ticks);
-      const useTicks = ticks != null && Number(ticks) > 0;
+      const useTicks = ticks != null && ticks !== '' && Number(ticks) !== 0;
       row.querySelectorAll('.rp-ops-unit:not(.rp-ops-len-mode) button').forEach(b => {
         b.classList.toggle('on', b.getAttribute('data-unit') === (useTicks ? 'ticks' : 'pct'));
       });
       inp.step = useTicks ? '1' : 'any';
-      inp.min = useTicks ? (g.allow_zero ? '0' : '1') : '0';
+      const nextMin = opsGeomInputMin(g, useTicks ? 'ticks' : 'pct');
+      if (nextMin === '') inp.removeAttribute('min');
+      else inp.min = nextMin;
       inp.value = useTicks ? String(ticks) : (pct != null && pct !== '' ? String(pct) : inp.value);
       return;
     }
