@@ -156,9 +156,9 @@ def _ladder(*, auto=True, auto_defaults=None, touch=False, vol=False, fate=True,
     return rows
 
 
-def _touch_like(*, k_default="0", step_default="0.05"):
+def _touch_like(*, k_default="0", step_default="0.05", per_side=False):
     """Join BBO (touch / lean): k + step, no hem/span."""
-    return _max() + [
+    rows = _max() + [
         _ORDERS,
         _IGNORE,
         _geom(
@@ -166,12 +166,26 @@ def _touch_like(*, k_default="0", step_default="0.05"):
             "K is the offset from the touch (0 joins BBO). Step min/max is the same-side gap. Blank follows the book.",
             defaults={"k": {"pct_default": k_default}, "step": {"pct_default": step_default}},
         ),
+    ]
+    if per_side:
+        rows += [
+            {"key": "BID_PCT", "label": "Bid %", "type": "number", "default": "", "group": "quote",
+             "hint": "Buy offset from best bid. + rests behind, − quotes inside the spread. Blank follows K."},
+            {"key": "BID_TICKS", "label": "Bid ticks", "type": "int", "default": "", "group": "quote",
+             "hint": "Buy tick offset from best bid. Wins over %. − quotes inside the spread."},
+            {"key": "ASK_PCT", "label": "Ask %", "type": "number", "default": "", "group": "quote",
+             "hint": "Sell offset from best ask. + rests behind, − quotes inside the spread. Blank follows K."},
+            {"key": "ASK_TICKS", "label": "Ask ticks", "type": "int", "default": "", "group": "quote",
+             "hint": "Sell tick offset from best ask. Wins over %. − quotes inside the spread."},
+        ]
+    rows += [
         {**_MULT, "embed": True},
         *_pace(place_secs="60"),
         *_fate(),
         {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
         _DRY,
     ]
+    return rows
 
 
 PAIR_PARAMS = [
@@ -253,7 +267,7 @@ STRATEGIES = [
     {
         "id": "touch", "label": "Touch",
         "blurb": "Join best bid/ask. No hem/span.",
-        "params": _touch_like(),
+        "params": _touch_like(per_side=True),
     },
     {
         "id": "momentum", "label": "Momentum",

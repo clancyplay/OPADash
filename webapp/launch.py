@@ -631,6 +631,8 @@ _KNOB_SETUP = (
     ("STEP_PCT", "step", "float"),
     ("TAIL_PCT", "step", "float"),
     ("K_PCT", "k", "float"),
+    ("BID_PCT", "bid", "float"),
+    ("ASK_PCT", "ask", "float"),
     ("EDGE_PCT", "edge", "float"),
     ("HEM_TICKS", "hem_ticks", "int"),
     ("SPAN_TICKS", "span_ticks", "int"),

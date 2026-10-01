@@ -1081,6 +1081,8 @@ const OPS_GLOSS = {
   FIELD_DUST: 'Ignore option book size below this.',
   K_PCT: 'Percent offset from the touch. 0 joins the book.',
   K_TICKS: 'Tick offset from the touch. Ticks win over percent when both are set.',
+  BID_PCT: 'Buy offset from best bid. + rests behind, − quotes inside the spread. Blank follows K.',
+  ASK_PCT: 'Sell offset from best ask. + rests behind, − quotes inside the spread. Blank follows K.',
 };
 
 function renderOpsGlossary() {
@@ -1347,6 +1349,8 @@ function fillOpsFromSetup(s) {
   setNum('opsP_QUOTE_MS', s.quote_ms);
   setNum('opsP_PLACE_SECS', s.place_secs);
   setNum('opsP_IGNORE_MIN_SIZE', s.ignore);
+  setNum('opsP_BID_PCT', s.bid);
+  setNum('opsP_ASK_PCT', s.ask);
   setNum('opsP_BID_TICKS', s.bid_ticks);
   setNum('opsP_ASK_TICKS', s.ask_ticks);
   setNum('opsP_STEP_PCT', s.step);
@@ -1846,6 +1850,8 @@ function opsRememberEdit(payload) {
   num('ORDERS', 'orders');
   num('TAILS', 'tails');
   num('TOUCH_TICKS', 'touch_ticks');
+  num('BID_PCT', 'bid');
+  num('ASK_PCT', 'ask');
   num('BID_TICKS', 'bid_ticks');
   num('ASK_TICKS', 'ask_ticks');
   num('FATE_USD', 'fate');

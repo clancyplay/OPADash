@@ -987,6 +987,8 @@ function rpnlSetupBits(s) {
   if (s.fate != null) bits.push('fate $' + fmtG(s.fate));
     if (s.live_orders != null && s.orders != null) bits.push('orders ' + s.live_orders + '/' + s.orders);
     else if (s.orders != null) bits.push('orders ' + s.orders);
+    if (s.bid != null && Number(s.bid) !== 0) bits.push('bid ' + fmtG(s.bid) + '%');
+    if (s.ask != null && Number(s.ask) !== 0) bits.push('ask ' + fmtG(s.ask) + '%');
     if (s.bid_ticks != null) bits.push('bid +' + fmtG(s.bid_ticks) + 't');
     if (s.ask_ticks != null) bits.push('ask −' + fmtG(s.ask_ticks) + 't');
     if (s.max_usd != null) bits.push('max $' + fmtG(s.max_usd));

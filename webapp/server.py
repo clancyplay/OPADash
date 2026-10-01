@@ -474,7 +474,7 @@ _SETUP_KEYS = (
     "mode", "mode_why", "pause_left", "size_pct",
     "min_spread", "spread_pad",
     "role", "pair_hedge", "hedge_of", "hedge_via", "hedge_target", "hedge_pct", "hedge_lot",
-    "bid_ticks", "ask_ticks",
+    "bid", "ask", "bid_ticks", "ask_ticks",
     "packet", "shelf", "aisle", "cover", "window", "shop_step", "reach", "pace_ms", "dust", "lot", "stockroom",
     "exit", "otm", "max_coin", "crop", "expiry",
     "fields", "basket", "silo", "fence", "fence_pct", "fence_lot",
@@ -2300,6 +2300,7 @@ _MAX_POS_ABS_CAP = 50_000_000.0
 
 _SETUP_PAYLOAD_KEYS = frozenset({
     "HEM_PCT", "SPAN_PCT", "STEP_PCT", "TAIL_PCT", "K_PCT", "EDGE_PCT",
+    "BID_PCT", "ASK_PCT",
     "HEM_TICKS", "SPAN_TICKS", "STEP_TICKS", "K_TICKS", "TAILS",
     "ORDERS", "TOUCH_TICKS", "BID_TICKS", "ASK_TICKS",
     "FATE_USD", "GRIND_USD", "QUOTE_MS", "PLACE_SECS", "IGNORE_MIN_SIZE",
@@ -2331,6 +2332,7 @@ _SETUP_INT = frozenset({
 })
 _SETUP_NUM = frozenset({
     "HEM_PCT", "SPAN_PCT", "STEP_PCT", "TAIL_PCT", "K_PCT", "EDGE_PCT",
+    "BID_PCT", "ASK_PCT",
     "HEM_MIN_PCT", "HEM_MAX_PCT", "SPAN_MIN_PCT", "SPAN_MAX_PCT", "STEP_MIN_PCT", "STEP_MAX_PCT",
     "FATE_USD", "GRIND_USD", "MAX_POSITION", "max_usd", "max_pos",
     "PLACE_SECS", "IGNORE_MIN_SIZE",
@@ -2340,6 +2342,7 @@ _SETUP_NUM = frozenset({
     "AISLE_PCT", "COVER_PCT", "DUST", "LOT", "EXIT_PCT", "OTM_PCT", "MAX_COIN", "FENCE_PCT", "FIELD_DUST",
 })
 _SETUP_HOOK = frozenset({"position", "liquidity", "bid", "ask"})
+_SETUP_SIGNED = frozenset({"K_PCT", "K_TICKS", "BID_PCT", "BID_TICKS", "ASK_PCT", "ASK_TICKS"})
 _SETUP_MULT = frozenset({"1", "2", "3", "log", "log2", "log10", "ln", "e"})
 _SETUP_VENUE = frozenset({"delta", "binance", "bybit", "kucoin", "coinbase", "aster"})
 
@@ -2380,7 +2383,7 @@ def _setup_payload(payload: dict | None) -> dict:
                 n = int(float(val))
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail=f"{name} invalid")
-            if n < 0:
+            if n < 0 and name not in _SETUP_SIGNED:
                 raise HTTPException(status_code=400, detail=f"{name} must be ≥ 0")
             if name in ("ORDERS", "PAIR_HEDGE_LOT", "QUOTE_MS", "PACKET", "SHELF", "PACE_MS", "FIELDS", "BASKET", "FENCE_LOT") and n < 1:
                 raise HTTPException(status_code=400, detail=f"{name} must be ≥ 1")
@@ -2391,7 +2394,8 @@ def _setup_payload(payload: dict | None) -> dict:
                 n = float(val)
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail=f"{name} invalid")
-            if n != n or n < 0 or n > _MAX_POS_ABS_CAP:
+            lo = -_MAX_POS_ABS_CAP if name in _SETUP_SIGNED else 0
+            if n != n or n < lo or n > _MAX_POS_ABS_CAP:
                 raise HTTPException(status_code=400, detail=f"{name} out of range")
             if name in ("max_usd", "max_pos", "MAX_POSITION") and n <= 0:
                 raise HTTPException(status_code=400, detail="max must be > 0")
