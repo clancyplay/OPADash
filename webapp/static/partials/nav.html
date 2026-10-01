@@ -8,9 +8,26 @@
     <button id="navOpps" onclick="showPage('opps')">Opps</button>
     <button id="navData" onclick="showPage('data')">Data</button>
   </div>
-  <select id="strategy-select" title="Strategy filter" onchange="onStrategyChange(this.value)">
-    <option value="all">all</option>
-  </select>
+  <div class="nav-filters" id="navFilters">
+    <button class="nav-filters-btn" id="navFiltersBtn" type="button" onclick="toggleNavFilters()" aria-expanded="false" aria-controls="navFiltersMenu">Filters</button>
+    <div class="nav-filters-menu" id="navFiltersMenu" hidden>
+      <label>Strategy
+        <select id="strategy-select" title="Strategy filter" onchange="onStrategyChange(this.value)">
+          <option value="all">All</option>
+        </select>
+      </label>
+      <label>Account
+        <select id="account-select" title="Account filter" onchange="onAccountChange(this.value)">
+          <option value="all">All</option>
+        </select>
+      </label>
+      <label>Exchange
+        <select id="exchange-select" title="Exchange filter" onchange="onExchangeChange(this.value)">
+          <option value="all">All</option>
+        </select>
+      </label>
+    </div>
+  </div>
   <span class="db-badge pend" id="dbBadge">DB checking...</span>
   <a class="nav-logout" href="/logout">Log out</a>
 </nav>

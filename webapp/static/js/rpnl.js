@@ -4,9 +4,9 @@ async function fetchRpnlSymbols() {
     const r = await fetch(withStrategy('/api/rpnl/symbols'));
     const rows = await r.json();
     const sel = document.getElementById('rpnlSymbol');
-    const list = (Array.isArray(rows) ? rows : []).map(c => typeof c === 'string'
+    const list = filterOptionRows((Array.isArray(rows) ? rows : []).map(c => typeof c === 'string'
       ? { contract: c, account: '', label: c }
-      : c);
+      : c));
     if (list.length === 0) {
       sel.innerHTML = '<option value="">No data in DB</option>';
     } else {
@@ -1599,7 +1599,7 @@ function rpnlPillValInner(r) {
 function renderRpnlSummary(rows, hours) {
   const wrap = document.getElementById('rpnlSummaryWrap');
   if (!wrap) return;
-  rows = filterRpnlWindowRows(rows);
+  rows = filterOptionRows(filterRpnlWindowRows(rows));
   rpnlMarkPairHedges(rows);
   if (!rows.length) {
     wrap.dataset.keys = '';

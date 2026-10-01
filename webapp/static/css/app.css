@@ -82,10 +82,12 @@
     flex-shrink: 0; white-space: nowrap;
   }
   nav button.active { color: #fff; border-bottom-color: var(--accent); }
-  nav #strategy-select {
+  nav .nav-filters {
+    position: relative;
     margin-left: 8px;
     flex-shrink: 0;
-    max-width: 112px;
+  }
+  nav .nav-filters-btn {
     background: var(--bg, #0e1117);
     color: var(--text, #d1d4dc);
     border: 1px solid var(--border);
@@ -94,8 +96,42 @@
     font-weight: 600;
     padding: 4px 8px;
     cursor: pointer;
+    height: auto;
   }
-  nav #strategy-select + .db-badge { margin-left: 12px; }
+  nav .nav-filters-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 60;
+    display: grid;
+    gap: 8px;
+    min-width: 180px;
+    padding: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, .38);
+  }
+  nav .nav-filters-menu[hidden] { display: none; }
+  nav .nav-filters-menu label {
+    display: grid;
+    gap: 4px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  nav .nav-filters-menu select {
+    width: 100%;
+    max-width: 180px;
+    background: var(--bg, #0e1117);
+    color: var(--text, #d1d4dc);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    padding: 5px 8px;
+    cursor: pointer;
+  }
+  nav .nav-filters + .db-badge { margin-left: 12px; }
   nav .db-badge {
     margin-left: 8px;
     flex-shrink: 0;
