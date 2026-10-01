@@ -97,10 +97,21 @@
   nav .db-badge.warn { background: rgba(239,83,80,.15);  color: #ef5350; border: 1px solid rgba(239,83,80,.35); }
   nav .db-badge.pend { background: rgba(127,133,152,.12); color: var(--muted); border: 1px solid var(--border2); }
   nav .nav-logout {
-    margin-left: 8px; font-size: 12px; color: var(--muted); text-decoration: none;
-    flex-shrink: 0; white-space: nowrap; font-weight: 650;
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-left: 10px; font-size: 12px; font-weight: 650;
+    color: #ef5350; text-decoration: none;
+    flex-shrink: 0; white-space: nowrap;
+    padding: 5px 10px; border-radius: 8px;
+    border: 1px solid rgba(239, 83, 80, .35);
+    background: rgba(239, 83, 80, .1);
+    transition: background .15s, border-color .15s, color .15s;
   }
-  nav .nav-logout:hover { color: #fff; }
+  nav .nav-logout-ic { flex-shrink: 0; }
+  nav .nav-logout:hover {
+    color: #fff;
+    background: var(--red);
+    border-color: var(--red);
+  }
 
   /* Pages */
   .page { display: none; min-width: 0; }
@@ -989,7 +1000,8 @@
     nav .nav-links { height: var(--nav-h); }
     nav button { padding: 0 10px; height: var(--nav-h); font-size: 12px; }
     nav .db-badge { display: none; }
-    nav .nav-logout { font-size: 11px; margin-left: 6px; }
+    nav .nav-logout { margin-left: 6px; padding: 5px 8px; }
+    nav .nav-logout-txt { display: none; }
 
     #home { padding: 24px 16px 36px; }
     #home h1 { font-size: 26px; }
