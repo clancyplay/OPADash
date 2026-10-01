@@ -249,6 +249,11 @@ def _suggest(strategy: str, row: dict, other: dict | None = None) -> dict:
         edge_venue = other["venue"]
     if other and strategy == "arb":
         arb_symbol = other.get("symbol") or ""
+        # Coinbase INTX perps trade under the -PERP-INTX id; show that, not the raw -PERP.
+        if str(other.get("venue") or "").lower() == "coinbase" and arb_symbol:
+            up = arb_symbol.upper()
+            if up.endswith("-PERP"):
+                arb_symbol = up + "-INTX"
     label = f"{strategy} · {LABELS.get(row['venue'], row['venue'])} {row['symbol']}"
     if edge_venue:
         label += f" vs {LABELS.get(edge_venue, edge_venue)}"
