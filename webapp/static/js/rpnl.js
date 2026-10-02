@@ -3179,7 +3179,8 @@ function rpnlChartBase(timeScaleVisible) {
     },
     handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
     handleScale: {
-      axisPressedMouseMove: { time: true, price: true },
+      // time:false so dragging the x-axis doesn't compress the chart; wheel + pinch still zoom.
+      axisPressedMouseMove: { time: false, price: true },
       axisDoubleClickReset: true,
       mouseWheel: true,
       pinch: true,
