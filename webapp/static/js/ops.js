@@ -1285,8 +1285,7 @@ function renderOpsParams() {
     if (!last || last.id !== id) groups.push({ id: id, items: [p] });
     else last.items.push(p);
   });
-  const blurb = spec.blurb ? '<p class="rp-ops-hint rp-ops-blurb">' + escHtml(spec.blurb) + '</p>' : '';
-  box.innerHTML = blurb + groups.map(g => {
+  box.innerHTML = groups.map(g => {
     const body = renderOpsGroupItems(g.items);
     if (!body) return '';
     const h = titles[g.id] ? '<div class="rp-ops-sub">' + titles[g.id] + '</div>' : '';
