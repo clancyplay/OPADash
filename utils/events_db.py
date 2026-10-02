@@ -2555,9 +2555,9 @@ class EventsDB:
                 for s in (r["strategies"] or []):
                     if s and s not in row["strategies"]:
                         row["strategies"].append(s)
-                for e in (r["exchanges"] or []):
-                    if e:
-                        row["venues"].setdefault(e, None)
+                # Do NOT seed venues from fill exchanges — shop/arb/edge can log
+                # CoinDCX/Binance fills under the Delta DASH_ACCOUNT id, which
+                # wrongly paints those venues onto a Delta-only wallet card.
                 for c in (r["contracts"] or []):
                     cc = canon_contract(c) if c else ""
                     if cc and cc not in row["contracts"]:

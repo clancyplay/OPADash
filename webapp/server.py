@@ -3603,18 +3603,73 @@ def _finish_balance_board(board: dict) -> dict:
     return board
 
 
+def _wallet_label_maps() -> tuple[dict[str, str], dict[str, set[str]]]:
+    """Configured display names + which exchanges each wallet id belongs to."""
+    try:
+        from webapp.ops import account_names, account_tags, load_wallet_accounts
+        from webapp.wallets import load_account_labels
+    except Exception:
+        return {}, {}
+    names = account_names()
+    exch_for: dict[str, set[str]] = {}
+    try:
+        for acct in list(load_wallet_accounts()) + list(load_account_labels()):
+            exch = str(acct.get("exchange") or "").strip().lower()
+            if not exch:
+                continue
+            for tag in account_tags(acct):
+                exch_for.setdefault(tag, set()).add(exch)
+    except Exception:
+        pass
+    return names, exch_for
+
+
+def _apply_wallet_identity(board: dict) -> dict:
+    """Prefer config names (SA2) and drop venues that aren't that wallet's exchange.
+
+    Live bots often publish only the numeric Delta uid with no account_name, and
+    older fill rows can leave CoinDCX/Binance chips on a Delta-only card.
+    """
+    names, exch_for = _wallet_label_maps()
+    for row in board.get("accounts") or []:
+        aid = str(row.get("account") or "").strip()
+        shown = str(row.get("account_name") or "").strip()
+        want = names.get(aid) or (names.get(shown) if shown else "") or ""
+        if want:
+            row["account_name"] = want
+        elif not shown:
+            row["account_name"] = aid
+        allowed = set()
+        if aid and aid in exch_for:
+            allowed |= exch_for[aid]
+        if shown and shown in exch_for:
+            allowed |= exch_for[shown]
+        if want and want in exch_for:
+            allowed |= exch_for[want]
+        if not allowed:
+            continue
+        venues = dict(row.get("venues") or {})
+        errs = dict(row.get("venue_errors") or {})
+        row["venues"] = {k: v for k, v in venues.items() if str(k).lower() in allowed}
+        if errs:
+            row["venue_errors"] = {k: v for k, v in errs.items() if str(k).lower() in allowed}
+    return _finish_balance_board(board)
+
+
 def _overlay_live_wallets(board: dict, setups: dict, live_keys: set) -> dict:
     live = _live_wallet_map(setups, live_keys)
+    names, _exch = _wallet_label_maps()
     if not live:
-        return _finish_balance_board(board)
+        return _apply_wallet_identity(board)
     now = int(datetime.now(timezone.utc).timestamp())
     by_acct = {str(a.get("account") or ""): a for a in (board.get("accounts") or [])}
     for aid, (inr, exch) in live.items():
         row = by_acct.get(aid)
+        label = names.get(aid) or aid
         if row is None:
             row = {
                 "account": aid,
-                "account_name": aid,
+                "account_name": label,
                 "strategies": [],
                 "contracts": [],
                 "venues": {},
@@ -3622,6 +3677,10 @@ def _overlay_live_wallets(board: dict, setups: dict, live_keys: set) -> dict:
                 "total": None,
             }
             by_acct[aid] = row
+        elif names.get(aid):
+            row["account_name"] = names[aid]
+        elif not row.get("account_name") or row.get("account_name") == row.get("account"):
+            row["account_name"] = label
         if not exch:
             known = [k for k, v in (row.get("venues") or {}).items() if v is not None]
             exch = known[0] if len(known) == 1 else "delta"
@@ -3629,7 +3688,7 @@ def _overlay_live_wallets(board: dict, setups: dict, live_keys: set) -> dict:
         row["time"] = now
         row["live"] = True
     board["accounts"] = list(by_acct.values())
-    return _finish_balance_board(board)
+    return _apply_wallet_identity(board)
 
 
 def _merge_idle_wallets(board: dict, idle_rows: list[dict], live_ids: set[str]) -> dict:
@@ -3677,7 +3736,7 @@ def _merge_idle_wallets(board: dict, idle_rows: list[dict], live_ids: set[str]) 
         row["idle"] = True
         row["live"] = False
     board["accounts"] = list(by_acct.values())
-    return _finish_balance_board(board)
+    return _apply_wallet_identity(board)
 
 
 async def _persist_idle_wallets(idle_rows: list[dict], strategy: str) -> None:
@@ -3737,6 +3796,8 @@ async def balances_board(
     if idle_rows:
         out = _merge_idle_wallets(out, idle_rows, live_ids)
         await _persist_idle_wallets(idle_rows, strategy)
+    else:
+        out = _apply_wallet_identity(out)
     out["source"] = "ws+idle"
     out["strategy"] = strategy
     out["scope"] = scope

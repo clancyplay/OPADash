@@ -67,6 +67,129 @@ def _fingerprint(key: str) -> str:
     return hashlib.sha256(raw).hexdigest()[:12] if raw else ""
 
 
+def _parse_aliases(raw) -> list[str]:
+    aliases: list[str] = []
+    if isinstance(raw, str):
+        raw = [p.strip() for p in raw.split(",")]
+    if isinstance(raw, (list, tuple)):
+        for bit in raw:
+            text = _clean(bit)
+            if text and text not in aliases:
+                aliases.append(text)
+    return aliases
+
+
+def load_account_labels() -> list[dict]:
+    """Display names for wallet ids — keys optional.
+
+    Live bot rows often only carry the numeric Delta uid. OPADash env can map
+    that uid → SA3 via BAL_n_ID / BAL_n_NAME (even without BAL_n_KEY), 
+    accounts.json, or ACCOUNT_NAMES=47699925=SA3,58729058=SA2.
+    """
+    load_env_file()
+    rows: list[dict] = []
+    seen: dict[str, int] = {}
+
+    def add(item: dict) -> None:
+        aid = _clean(item.get("id") or item.get("account") or item.get("uid"))
+        name = _clean(item.get("name") or item.get("account_name") or item.get("label"))
+        exch = _clean(item.get("exchange") or item.get("venue")).lower()
+        if not aid and not name:
+            return
+        if not name:
+            name = aid
+        aliases = _parse_aliases(item.get("aliases") or item.get("aka") or item.get("old_names"))
+        sk = aid or name
+        if sk in seen:
+            idx = seen[sk]
+            prev = rows[idx]
+            # Upgrade a bare uid label when a real display name arrives later.
+            if prev.get("name") in ("", prev.get("id")) and name and name != aid:
+                rows[idx] = {
+                    "exchange": exch or prev.get("exchange") or "",
+                    "id": aid or prev.get("id") or "",
+                    "name": name,
+                    "aliases": aliases or list(prev.get("aliases") or []),
+                }
+            return
+        seen[sk] = len(rows)
+        rows.append({
+            "exchange": exch,
+            "id": aid,
+            "name": name,
+            "aliases": aliases,
+        })
+
+    raw = _clean(os.getenv("ACCOUNT_NAMES") or os.getenv("WALLET_NAMES"))
+    if raw:
+        if raw.startswith("{"):
+            try:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    for aid, name in data.items():
+                        add({"id": aid, "name": name})
+            except json.JSONDecodeError:
+                logger.warning("wallets: ACCOUNT_NAMES is not valid JSON")
+        else:
+            for part in raw.split(","):
+                bit = part.strip()
+                if not bit:
+                    continue
+                if "=" in bit:
+                    aid, name = bit.split("=", 1)
+                elif ":" in bit:
+                    aid, name = bit.split(":", 1)
+                else:
+                    continue
+                add({"id": aid, "name": name})
+
+    raw = _clean(os.getenv("BALANCE_ACCOUNTS"))
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, list):
+                for rec in data:
+                    if isinstance(rec, dict):
+                        add(rec)
+        except json.JSONDecodeError:
+            pass
+
+    paths = []
+    extra = _clean(os.getenv("BALANCE_ACCOUNTS_FILE"))
+    if extra:
+        paths.append(Path(extra).expanduser())
+    paths.append(_ROOT / "config" / "accounts.json")
+    for path in paths:
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(data, dict):
+            data = data.get("accounts") or data.get("wallets") or []
+        if isinstance(data, list):
+            for rec in data:
+                if isinstance(rec, dict):
+                    add(rec)
+
+    for i in range(1, 80):
+        p = f"BAL_{i}_"
+        aid = os.getenv(p + "ID") or os.getenv(p + "ACCOUNT") or os.getenv(p + "UID")
+        name = os.getenv(p + "NAME") or os.getenv(p + "LABEL")
+        exch = os.getenv(p + "EXCHANGE") or os.getenv(p + "VENUE")
+        if not aid and not name:
+            continue
+        add({
+            "exchange": exch,
+            "id": aid,
+            "name": name,
+            "aliases": os.getenv(p + "ALIASES") or os.getenv(p + "AKA"),
+        })
+
+    return rows
+
+
 def load_wallet_accounts() -> list[dict]:
     """All configured subaccount keys. Secrets stay on the object; never log them."""
     load_env_file()
@@ -85,15 +208,7 @@ def load_wallet_accounts() -> list[dict]:
         seen.add(fp)
         role = _clean(item.get("role")).lower()
         parent = item.get("parent") is True or role == "parent" or str(item.get("parent") or "").lower() in ("1", "true", "yes", "on")
-        aliases: list[str] = []
-        raw_aliases = item.get("aliases") or item.get("aka") or item.get("old_names")
-        if isinstance(raw_aliases, str):
-            raw_aliases = [p.strip() for p in raw_aliases.split(",")]
-        if isinstance(raw_aliases, (list, tuple)):
-            for bit in raw_aliases:
-                text = _clean(bit)
-                if text and text not in aliases:
-                    aliases.append(text)
+        aliases = _parse_aliases(item.get("aliases") or item.get("aka") or item.get("old_names"))
         rows.append({
             "exchange": exch,
             "id": _clean(item.get("id") or item.get("account") or item.get("uid")),

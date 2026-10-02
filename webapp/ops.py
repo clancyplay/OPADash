@@ -496,18 +496,30 @@ def public_accounts(venue: str = "") -> list[dict]:
 def account_names() -> dict[str, str]:
     """Stable account id / old alias → current display name."""
     out: dict[str, str] = {}
-    for acct in load_wallet_accounts():
-        aid = str(acct.get("id") or "").strip()
-        name = str(acct.get("name") or "").strip()
+
+    def put(aid: str, name: str, aliases: list | None = None) -> None:
+        aid = str(aid or "").strip()
+        name = str(name or "").strip()
         if not name:
-            continue
+            return
         if aid:
             out[aid] = name
         out[name] = name
-        for aka in acct.get("aliases") or []:
+        for aka in aliases or []:
             text = str(aka or "").strip()
             if text:
                 out[text] = name
+
+    for acct in load_wallet_accounts():
+        put(acct.get("id") or "", acct.get("name") or "", acct.get("aliases") or [])
+
+    # Labels without API keys (BAL_n_ID + BAL_n_NAME, ACCOUNT_NAMES, …).
+    try:
+        from webapp.wallets import load_account_labels
+        for acct in load_account_labels():
+            put(acct.get("id") or "", acct.get("name") or "", acct.get("aliases") or [])
+    except Exception:
+        pass
     return out
 
 

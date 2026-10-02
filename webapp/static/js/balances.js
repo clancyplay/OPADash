@@ -58,7 +58,9 @@ function balStatus(a) {
 function balVenueKeys(a) {
   const venues = (a && a.venues) || {};
   const errs = (a && a.venue_errors) || {};
-  const keys = Object.keys(venues);
+  const keys = Object.keys(venues).filter(function (ex) {
+    return venues[ex] != null || errs[ex];
+  });
   Object.keys(errs).forEach(function (ex) {
     if (keys.indexOf(ex) < 0) keys.push(ex);
   });
