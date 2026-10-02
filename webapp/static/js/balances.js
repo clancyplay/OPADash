@@ -10,6 +10,8 @@ let balSparkSeries = null;
 let balHidden = {};
 let balResizeBound = false;
 let balActReq = 0;
+let balExFilter = 'all';
+let balSearchQ = '';
 
 const BAL_EX_COLORS = {
   delta: '#5b8def',
@@ -40,11 +42,78 @@ function balMoney(n) {
   return '₹' + Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
+function balAcctName(a) {
+  const name = String((a && a.account_name) || '').trim();
+  const id = String((a && a.account) || '').trim();
+  if (name) return name;
+  return id || 'unnamed';
+}
+
+function balStatus(a) {
+  if (a && a.live) return { key: 'live', label: 'Live' };
+  if (a && a.idle) return { key: 'idle', label: 'Idle' };
+  return { key: 'snap', label: 'Snapshot' };
+}
+
+function balVenueKeys(a) {
+  const venues = (a && a.venues) || {};
+  const errs = (a && a.venue_errors) || {};
+  const keys = Object.keys(venues);
+  Object.keys(errs).forEach(function (ex) {
+    if (keys.indexOf(ex) < 0) keys.push(ex);
+  });
+  return keys.sort();
+}
+
+function balPrimaryEx(a) {
+  const venues = (a && a.venues) || {};
+  let best = '';
+  let bestV = -Infinity;
+  Object.keys(venues).forEach(function (ex) {
+    const v = Number(venues[ex]);
+    if (isFinite(v) && v > bestV) {
+      bestV = v;
+      best = ex;
+    }
+  });
+  if (best) return best;
+  const keys = balVenueKeys(a);
+  return keys[0] || '';
+}
+
+function balMatchesFilter(a) {
+  if (balExFilter && balExFilter !== 'all') {
+    const keys = balVenueKeys(a);
+    if (keys.indexOf(balExFilter) < 0) return false;
+  }
+  const q = String(balSearchQ || '').trim().toLowerCase();
+  if (!q) return true;
+  const hay = [
+    balAcctName(a),
+    a.account,
+    (a.strategies || []).join(' '),
+    balVenueKeys(a).join(' '),
+  ].join(' ').toLowerCase();
+  return hay.indexOf(q) >= 0;
+}
+
+function onBalFilterChange() {
+  const inp = document.getElementById('balSearch');
+  balSearchQ = inp ? inp.value : '';
+  if (balLastBoard) renderBalBoard(balLastBoard, balLastHist);
+}
+
+function setBalExFilter(ex) {
+  balExFilter = String(ex || 'all');
+  if (balLastBoard) renderBalBoard(balLastBoard, balLastHist);
+}
+
 function balUpdatedHtml(a) {
   const t = a.time ? fmtIST(a.time) : '—';
-  if (a.live) return t + '<div class="aid">live WS</div>';
-  if (a.idle) return t + '<div class="aid">idle · ' + balIdleLabel() + ' REST</div>';
-  return t;
+  const st = balStatus(a);
+  const extra = st.key === 'live' ? ' · WS'
+    : (st.key === 'idle' ? ' · REST/' + balIdleLabel() : '');
+  return t + '<div class="aid">' + escHtml(st.label + extra) + '</div>';
 }
 
 function balIdleLabel(secs) {
@@ -552,6 +621,19 @@ function renderBalBoard(d, hist) {
       (e.balance == null ? '—' : balMoney(e.balance)) + '</div></div>';
   }).join('');
 
+  const filt = document.getElementById('balExFilter');
+  if (filt) {
+    const opts = [{ exchange: 'all', label: 'All' }].concat(exch.map(function (e) {
+      return { exchange: e.exchange, label: e.label || e.exchange };
+    }));
+    if (!opts.some(function (o) { return o.exchange === balExFilter; })) balExFilter = 'all';
+    filt.innerHTML = opts.map(function (o) {
+      const on = balExFilter === o.exchange ? ' on' : '';
+      return '<button type="button" class="bal-exchip' + on + '" data-ex="' + escHtml(o.exchange) +
+        '" onclick="setBalExFilter(this.dataset.ex)">' + escHtml(o.label) + '</button>';
+    }).join('');
+  }
+
   const byAcct = {};
   ((hist && hist.accounts) || []).forEach(function (a) { byAcct[a.account] = a; });
   const movers = accts.map(function (a) {
@@ -564,53 +646,111 @@ function renderBalBoard(d, hist) {
   if (!movers.length) {
     moversEl.innerHTML = '';
   } else {
-    moversEl.innerHTML = movers.map(function (x) {
-      const name = x.a.account_name && x.a.account_name !== x.a.account ? x.a.account_name : (x.a.account || 'unnamed');
+    moversEl.innerHTML = '<div class="bal-movers-h">Biggest moves</div>' + movers.map(function (x) {
+      const name = balAcctName(x.a);
+      const ex = balPrimaryEx(x.a);
       return '<button type="button" class="bal-mover" data-account="' + escHtml(x.a.account || '') +
-        '" onclick="selectBalAccount(this.dataset.account)"><span class="an">' + escHtml(name) + '</span>' +
+        '" onclick="selectBalAccount(this.dataset.account)">' +
+        (ex ? '<span class="rpnl-venue ' + rpnlVenueClass(ex) + '">' + escHtml(balExLabel(ex)) + '</span>' : '') +
+        '<span class="an">' + escHtml(name) + '</span>' +
         '<span class="bal-delta ' + (x.d >= 0 ? 'up' : 'dn') + '">' +
         (typeof rptSigned === 'function' ? rptSigned(x.d) : balMoney(x.d)) + '</span></button>';
     }).join('');
   }
 
-  const head = '<tr><th>Account</th>' + exch.map(function (e) {
-    return '<th>' + escHtml(e.label || e.exchange) + '</th>';
-  }).join('') + '<th>Total</th><th>Δ range</th><th>Updated</th></tr>';
-  const body = accts.map(function (a) {
-    const name = a.account_name && a.account_name !== a.account ? a.account_name : (a.account || 'unnamed');
-    const tags = (a.strategies || []).join(' · ');
-    const idBit = (tags ? '<div class="aid">' + escHtml(tags) + '</div>' : '') +
-      (a.account && a.account !== a.account_name ? '<div class="aid">' + escHtml(a.account) + '</div>' : '');
-    const errs = a.venue_errors || {};
-    const cells = exch.map(function (c) {
-      const v = (a.venues || {})[c.exchange];
-      const err = errs[c.exchange];
-      if (err) {
-        return '<td class="bal-err" title="' + escHtml(err) + '">' + escHtml(err) + '</td>';
+  const list = document.getElementById('balWallets');
+  if (!list) return;
+  const shown = accts.filter(balMatchesFilter).slice().sort(function (a, b) {
+    const ea = balPrimaryEx(a);
+    const eb = balPrimaryEx(b);
+    if (ea !== eb) return ea.localeCompare(eb);
+    const ta = a.total == null ? -1e18 : Number(a.total);
+    const tb = b.total == null ? -1e18 : Number(b.total);
+    if (tb !== ta) return tb - ta;
+    return balAcctName(a).localeCompare(balAcctName(b));
+  });
+  if (!shown.length) {
+    list.innerHTML = '<div class="bal-empty">No subaccounts match this filter.</div>';
+    return;
+  }
+
+  let html = '';
+  let lastGroup = null;
+  shown.forEach(function (a) {
+    const ex = balPrimaryEx(a) || 'other';
+    if (balExFilter === 'all' && ex !== lastGroup) {
+      lastGroup = ex;
+      html += '<div class="bal-group">' +
+        '<span class="rpnl-venue ' + rpnlVenueClass(ex) + '">' + escHtml(balExLabel(ex === 'other' ? '' : ex) || 'Other') + '</span>' +
+        '<span class="bal-group-n"></span></div>';
+    }
+    html += balWalletCardHtml(a, byAcct[a.account] || {});
+  });
+  // Fill group counts
+  list.innerHTML = html;
+  if (balExFilter === 'all') {
+    list.querySelectorAll('.bal-group').forEach(function (g) {
+      let n = 0;
+      let el = g.nextElementSibling;
+      while (el && !el.classList.contains('bal-group')) {
+        if (el.classList.contains('bal-card')) n += 1;
+        el = el.nextElementSibling;
       }
-      return (v == null || v === '') ? '<td style="color:var(--muted)">—</td>' : '<td>' + balMoney(v) + '</td>';
-    }).join('');
-    const dlt = balDelta((byAcct[a.account] || {}).points);
-    const dCell = dlt == null
-      ? '<td style="color:var(--muted)">—</td>'
-      : '<td class="bal-delta ' + (dlt >= 0 ? 'up' : 'dn') + '">' +
-        (typeof rptSigned === 'function' ? rptSigned(dlt) : balMoney(dlt)) + '</td>';
-    const sel = (balSelected && balSelected === a.account) ? ' bal-sel' : '';
-    return '<tr class="rpt-click' + sel + '" data-account="' + escHtml(a.account || '') +
-      '" onclick="selectBalAccount(this.dataset.account)">' +
-      '<td><div class="an">' + escHtml(name) + '</div>' + idBit + '</td>' + cells +
-      '<td>' + (a.total == null ? '—' : balMoney(a.total)) + '</td>' +
-      dCell +
-      '<td>' + balUpdatedHtml(a) + '</td></tr>';
+      const bit = g.querySelector('.bal-group-n');
+      if (bit) bit.textContent = n + (n === 1 ? ' wallet' : ' wallets');
+    });
+  }
+}
+
+function balWalletCardHtml(a, histRow) {
+  const id = a.account || '';
+  const name = balAcctName(a);
+  const st = balStatus(a);
+  const dlt = balDelta((histRow && histRow.points) || []);
+  const sel = (balSelected && balSelected === id) ? ' on' : '';
+  const venues = a.venues || {};
+  const errs = a.venue_errors || {};
+  const vKeys = balVenueKeys(a);
+  const venueBits = vKeys.map(function (ex) {
+    const err = errs[ex];
+    const v = venues[ex];
+    return '<div class="bal-vrow">' +
+      '<span class="rpnl-venue ' + rpnlVenueClass(ex) + '">' + escHtml(balExLabel(ex)) + '</span>' +
+      '<span class="bal-vamt' + (err ? ' err' : '') + '" title="' + escHtml(err || '') + '">' +
+        (err ? escHtml(err) : (v == null ? '—' : balMoney(v))) +
+      '</span></div>';
   }).join('');
-  const foot = '<tr><td>Total</td>' + exch.map(function (e) {
-    return '<td>' + (e.balance == null ? '—' : balMoney(e.balance)) + '</td>';
-  }).join('') + '<td>' + (tot.balance == null ? '—' : balMoney(tot.balance)) + '</td><td>' +
-    (totDelta == null ? '' : '<span class="bal-delta ' + (totDelta >= 0 ? 'up' : 'dn') + '">' +
-      (typeof rptSigned === 'function' ? rptSigned(totDelta) : balMoney(totDelta)) + '</span>') +
-    '</td><td></td></tr>';
-  document.getElementById('balMatrix').innerHTML =
-    '<table class="rpt-matrix"><thead>' + head + '</thead><tbody>' + body + '</tbody><tfoot>' + foot + '</tfoot></table>';
+  const strat = (a.strategies || []).filter(Boolean);
+  const stratBits = strat.length
+    ? '<div class="bal-strats">' + strat.map(function (s) {
+        return '<span class="bal-strat">' + escHtml(s) + '</span>';
+      }).join('') + '</div>'
+    : '';
+  const deltaBit = dlt == null ? '' :
+    '<span class="bal-delta ' + (dlt >= 0 ? 'up' : 'dn') + '">' +
+      (typeof rptSigned === 'function' ? rptSigned(dlt) : balMoney(dlt)) +
+    '</span>';
+  return '<button type="button" class="bal-card' + sel + '" data-account="' + escHtml(id) +
+    '" onclick="selectBalAccount(this.dataset.account)">' +
+    '<div class="bal-card-top">' +
+      '<div class="bal-card-id">' +
+        '<div class="bal-card-name">' + escHtml(name) + '</div>' +
+        (id ? '<div class="bal-card-uid"><span class="k">UID</span> ' + escHtml(id) + '</div>' : '') +
+      '</div>' +
+      '<div class="bal-card-tot">' +
+        '<div class="bal-card-amt">' + (a.total == null ? '—' : balMoney(a.total)) + '</div>' +
+        (deltaBit ? '<div class="bal-card-dlt">' + deltaBit + ' <span class="k">range</span></div>' : '') +
+      '</div>' +
+    '</div>' +
+    '<div class="bal-card-mid">' +
+      (venueBits || '<div class="bal-vrow muted">No exchange balance yet</div>') +
+    '</div>' +
+    '<div class="bal-card-bot">' +
+      '<span class="bal-pill ' + st.key + '">' + escHtml(st.label) + '</span>' +
+      '<span class="bal-card-when">' + (a.time ? escHtml(fmtIST(a.time)) : '—') + '</span>' +
+      stratBits +
+    '</div>' +
+  '</button>';
 }
 
 async function loadBalHistory() {
@@ -672,23 +812,38 @@ function paintBalDetail() {
   const board = balLastBoard || { accounts: [] };
   const live = (board.accounts || []).find(function (a) { return a.account === acct; }) || {};
   const histRow = ((balLastHist && balLastHist.accounts) || []).find(function (a) { return a.account === acct; }) || {};
-  const name = live.account_name && live.account_name !== acct ? live.account_name : (histRow.account_name || acct);
+  const name = balAcctName(Object.assign({}, histRow, live, { account: acct }));
+  const st = balStatus(live);
+  const ex = balPrimaryEx(live);
   box.style.display = 'block';
+  document.getElementById('balDetailKicker').textContent = ex
+    ? (balExLabel(ex) + ' subaccount')
+    : 'Subaccount';
   document.getElementById('balDetailTitle').textContent = name;
   const dlt = balDelta(histRow.points);
   document.getElementById('balDetailSub').innerHTML =
-    escHtml(acct !== name ? acct : '') +
-    (live.total != null ? (acct !== name ? ' · ' : '') + balMoney(live.total) : '') +
+    (live.total != null ? balMoney(live.total) : '—') +
     (dlt == null ? '' : ' · <span class="bal-delta ' + (dlt >= 0 ? 'up' : 'dn') + '">' +
       (typeof rptSigned === 'function' ? rptSigned(dlt) : balMoney(dlt)) + '</span> in range');
+  const meta = document.getElementById('balDetailMeta');
+  if (meta) {
+    const bits = [];
+    bits.push('<span class="bal-meta"><span class="k">UID</span> ' + escHtml(acct) + '</span>');
+    bits.push('<span class="bal-pill ' + st.key + '">' + escHtml(st.label) + '</span>');
+    if (live.time) bits.push('<span class="bal-meta">' + escHtml(fmtIST(live.time)) + '</span>');
+    (live.strategies || []).forEach(function (s) {
+      if (s) bits.push('<span class="bal-strat">' + escHtml(s) + '</span>');
+    });
+    meta.innerHTML = bits.join('');
+  }
   const venues = live.venues || {};
   const errs = live.venue_errors || {};
-  const keys = Object.keys(venues);
-  document.getElementById('balDetailVenues').innerHTML = keys.length ? keys.map(function (ex) {
-    const err = errs[ex];
-    const v = venues[ex];
-    return '<div class="rpt-exchip"><div class="el rpnl-venue ' + rpnlVenueClass(ex) + '">' +
-      escHtml(balExLabel(ex)) + '</div><div class="ev">' +
+  const keys = balVenueKeys(live);
+  document.getElementById('balDetailVenues').innerHTML = keys.length ? keys.map(function (exch) {
+    const err = errs[exch];
+    const v = venues[exch];
+    return '<div class="rpt-exchip"><div class="el rpnl-venue ' + rpnlVenueClass(exch) + '">' +
+      escHtml(balExLabel(exch)) + '</div><div class="ev">' +
       (err ? '<span class="bal-err">' + escHtml(err) + '</span>' : (v == null ? '—' : balMoney(v))) +
       '</div></div>';
   }).join('') : '<div class="hint">No venue balances on this wallet yet.</div>';
