@@ -33,6 +33,14 @@ def _bool_env(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _usdinr_from_env() -> float:
+    """USD→INR. Bare 87 (the old default) migrates to 85."""
+    raw = float(os.getenv("USDINR_RATE", "85") or 85)
+    if abs(raw - 87.0) < 1e-9:
+        return 85.0
+    return raw
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str
@@ -51,7 +59,7 @@ class Settings:
         load_env_file()
         return cls(
             database_url=os.getenv("DATABASE_URL", ""),
-            usdinr_rate=float(os.getenv("USDINR_RATE", "87")),
+            usdinr_rate=_usdinr_from_env(),
             delta_rest_url=os.getenv("DELTA_REST_URL", "https://api.india.delta.exchange"),
             binance_rest_url=os.getenv("BINANCE_REST_URL", "https://fapi.binance.com"),
             kucoin_rest_url=os.getenv("KUCOIN_REST_URL", "https://api-futures.kucoin.com"),

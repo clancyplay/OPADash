@@ -194,7 +194,58 @@ def _infra_env(venue: str, template: dict[str, str]) -> dict[str, str]:
         val = _pick_infra(name, template)
         if val:
             out[name] = val
+    # Always stamp the dash rate so a stale template copy of USDINR_RATE=87
+    # cannot leak onto new bots.
+    out["USDINR_RATE"] = (os.getenv("USDINR_RATE") or "85").strip() or "85"
     return out
+
+
+def sync_usdinr_rate(rate: float = 85.0, *, redeploy: bool = True) -> dict:
+    """Set USDINR_RATE on every listed OPA6 bot service.
+
+    With redeploy=True the replica restarts so the live process picks it up.
+    """
+    if not ready():
+        return {"ok": False, "error": "railway not configured", "rate": rate, "updated": [], "skipped": [], "failed": []}
+    want = str(float(rate))
+    # Normalize 85.0 → prefer clean "85" when whole number
+    if float(want) == int(float(want)):
+        want = str(int(float(want)))
+    updated: list[str] = []
+    skipped: list[str] = []
+    failed: list[dict] = []
+    try:
+        bots = _list_bots()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "rate": float(want), "updated": [], "skipped": [], "failed": []}
+    for bot in bots:
+        sid = str(bot.get("id") or "").strip()
+        name = str(bot.get("service") or sid)
+        if not sid or bot.get("template"):
+            continue
+        try:
+            env = _variables(sid)
+            cur = str(env.get("USDINR_RATE") or "").strip()
+            if cur == want:
+                skipped.append(name)
+                continue
+            _upsert_vars(sid, {"USDINR_RATE": want}, skip_deploys=not redeploy)
+            if redeploy:
+                try:
+                    _deploy(sid)
+                except RuntimeError:
+                    pass
+            updated.append(name)
+        except Exception as exc:
+            failed.append({"service": name, "error": str(exc)[:160]})
+    return {
+        "ok": not failed,
+        "rate": float(want),
+        "updated": updated,
+        "skipped": skipped,
+        "failed": failed,
+        "redeploy": bool(redeploy),
+    }
 
 
 def _fill_arb_other_leg(env: dict[str, str], copied: dict[str, str] | None = None, quote_sym: str = "") -> dict[str, str]:

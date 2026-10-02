@@ -623,7 +623,7 @@ function ohlcLastPx() {
 
 function liveUsdInr(s) {
   const rate = Number(s && s.usdinr);
-  return isFinite(rate) && rate > 0 ? rate : 87;
+  return isFinite(rate) && rate > 0 ? rate : 85;
 }
 
 function liveVenueCv(s, venue) {

@@ -675,7 +675,7 @@ async def account_live_snaps(venue: str = "delta") -> dict[str, dict]:
     ]
     if not indexed:
         return {}
-    rate = float(os.getenv("USDINR_RATE", "87") or 87)
+    rate = float(os.getenv("USDINR_RATE", "85") or 85)
     timeout = httpx.Timeout(12.0, connect=6.0)
     out: dict[str, dict] = {}
     accts = [a for _, a in indexed]
@@ -783,7 +783,7 @@ def enrich_accounts(
                 inr = wallets_inr.get(str(aka or "").strip())
                 if inr is not None:
                     break
-        rate = _num(snap.get("usdinr") or os.getenv("USDINR_RATE") or 87) or 87.0
+        rate = _num(snap.get("usdinr") or os.getenv("USDINR_RATE") or 85) or 85.0
         row["usdinr"] = rate
         if inr is None and row["balance"] is not None:
             inr = row["balance"] * rate
@@ -1050,7 +1050,7 @@ async def delta_wallet_rows() -> list[dict]:
     accts = [a for a in load_wallet_accounts() if a.get("exchange") == "delta"]
     if not accts:
         return []
-    rate = float(os.getenv("USDINR_RATE", "87") or 87)
+    rate = float(os.getenv("USDINR_RATE", "85") or 85)
     timeout = httpx.Timeout(12.0, connect=6.0)
     from webapp.wallets import _delta_wallet
     async with httpx.AsyncClient(timeout=timeout, verify=False) as client:

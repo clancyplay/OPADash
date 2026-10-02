@@ -73,12 +73,36 @@ async def lifespan(app: FastAPI):
     else:
         _db_error = "DATABASE_URL env var not set"
         logger.warning("webapp: %s", _db_error)
+    # Push USDINR onto Railway bots that still have a different rate (redeploys only those).
+    if (os.getenv("USDINR_SYNC_BOTS") or "1").strip().lower() not in ("0", "false", "no", "off"):
+        asyncio.create_task(_boot_usdinr_sync())
     yield
     if log_task:
         log_task.cancel()
     if _db:
         await _db.close()
         logger.info("webapp: database closed")
+
+
+async def _boot_usdinr_sync() -> None:
+    await asyncio.sleep(6)
+    try:
+        from webapp import railway as rw
+        if not rw.ready():
+            return
+        rate = float(settings.usdinr_rate or 85)
+        result = await asyncio.to_thread(rw.sync_usdinr_rate, rate, True)
+        logger.info(
+            "webapp: USDINR sync rate=%s updated=%s skipped=%s failed=%s",
+            result.get("rate"),
+            len(result.get("updated") or []),
+            len(result.get("skipped") or []),
+            len(result.get("failed") or []),
+        )
+        if result.get("failed"):
+            logger.warning("webapp: USDINR sync failures %s", result["failed"][:5])
+    except Exception as e:
+        logger.warning("webapp: USDINR sync failed — %s", e)
 
 
 # Cookie login (iPhone Safari does not keep HTTP Basic). Basic still works for curl.
@@ -3105,6 +3129,31 @@ async def ops_transfer(req: TransferRequest) -> dict:
     return rec
 
 
+class UsdInrSyncRequest(BaseModel):
+    rate: float = 85.0
+    redeploy: bool = True
+
+
+@app.post("/api/ops/usdinr")
+async def ops_usdinr_sync(req: UsdInrSyncRequest) -> dict:
+    """Stamp USDINR_RATE onto every Railway bot. Redeploy so running processes pick it up."""
+    rate = float(req.rate or 85)
+    if rate <= 0 or rate > 500:
+        raise HTTPException(status_code=400, detail="rate out of range")
+    from webapp import railway as rw
+    if not rw.ready():
+        raise HTTPException(status_code=400, detail="Railway not configured on this OPADash")
+    result = await asyncio.to_thread(rw.sync_usdinr_rate, rate, bool(req.redeploy))
+    logger.info(
+        "webapp: USDINR manual sync rate=%s updated=%s skipped=%s failed=%s",
+        result.get("rate"),
+        len(result.get("updated") or []),
+        len(result.get("skipped") or []),
+        len(result.get("failed") or []),
+    )
+    return result
+
+
 class DepositWithdrawalRequest(BaseModel):
     amount: float   # positive = deposit, negative = withdrawal
     note: str = ""
@@ -3291,7 +3340,7 @@ def _finish_account(acct: dict) -> dict:
 def _live_report_positions(setups, live_keys, usdinr: float) -> list[dict]:
     """Open size/mark/uPnL from live bot_setup. net_upnl is USD (assemble × INR)."""
     out: list[dict] = []
-    rate = float(usdinr or 87) or 87.0
+    rate = float(usdinr or 85) or 85.0
     for key, setup in (setups or {}).items():
         if not isinstance(setup, dict) or not isinstance(key, tuple) or len(key) != 3:
             continue
@@ -3344,7 +3393,7 @@ def _live_report_positions(setups, live_keys, usdinr: float) -> list[dict]:
 
 
 def _assemble_reports_overview(
-    raw: dict, usdinr: float = 87.0, live_keys: set | None = None,
+    raw: dict, usdinr: float = 85.0, live_keys: set | None = None,
 ) -> dict:
     accounts: dict[str, dict] = {}
     orphans: list[dict] = []
@@ -4529,7 +4578,7 @@ async def db_table(
         "sort":    sort_col,
         "dir":     sort_dir,
         "stats":   stats,
-        "usdinr":  float(_db.usdinr_rate or 87),
+        "usdinr":  float(_db.usdinr_rate or 85),
         "rows":    [[_jsonable(r[c]) for c in col_names] for r in rows],
     }
 

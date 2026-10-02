@@ -330,7 +330,7 @@ function opsMoney(a, preferAvail) {
   let usd = Number(preferAvail && a.available != null ? a.available : a.balance);
   let inr = Number(a.balance_inr);
   const rate = Number(a.usdinr);
-  const fx = isFinite(rate) && rate > 0 ? rate : 87;
+  const fx = isFinite(rate) && rate > 0 ? rate : 85;
   if (preferAvail && a.available != null && isFinite(usd)) inr = usd * fx;
   if ((!isFinite(inr) || a.balance_inr == null) && isFinite(usd) && (a.balance != null || a.available != null)) inr = usd * fx;
   if ((!isFinite(usd) || a.balance == null) && isFinite(inr) && a.balance_inr != null) usd = inr / fx;

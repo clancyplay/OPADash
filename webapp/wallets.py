@@ -843,7 +843,7 @@ def _acct_tags(acct: dict) -> set[str]:
 
 async def fetch_idle_wallets(
     skip_ids: set[str] | None = None,
-    usdinr_rate: float = 87.0,
+    usdinr_rate: float = 85.0,
     min_age_sec: float = 900.0,
 ) -> list[dict]:
     """REST wallet GET for configured keys that are not running a bot.
@@ -871,7 +871,7 @@ async def fetch_idle_wallets(
         timeout = httpx.Timeout(12.0, connect=6.0)
         async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
             fetched = await asyncio.gather(
-                *[_fetch_one(client, a, float(usdinr_rate or 87)) for a in accts]
+                *[_fetch_one(client, a, float(usdinr_rate or 85)) for a in accts]
             )
         rows = []
         for rec in fetched:
@@ -996,7 +996,7 @@ def filter_balances_scope(board: dict, strategy: str = "", scope: str = "all") -
     return out
 
 
-async def live_balances_board(usdinr_rate: float = 87.0, strategy: str = "", scope: str = "all") -> dict:
+async def live_balances_board(usdinr_rate: float = 85.0, strategy: str = "", scope: str = "all") -> dict:
     """Fetch every configured subaccount in parallel. Values are INR."""
     accts = load_wallet_accounts()
     if not accts:
@@ -1008,7 +1008,7 @@ async def live_balances_board(usdinr_rate: float = 87.0, strategy: str = "", sco
         return out
     timeout = httpx.Timeout(12.0, connect=6.0)
     async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
-        fetched = await asyncio.gather(*[_fetch_one(client, a, float(usdinr_rate or 87)) for a in accts])
+        fetched = await asyncio.gather(*[_fetch_one(client, a, float(usdinr_rate or 85)) for a in accts])
 
     now = int(time.time())
     by_acct: dict[str, dict] = {}

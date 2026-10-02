@@ -385,7 +385,7 @@ function setBalXferMsg(text, err) {
 
 let balXferAccts = [];
 let balXferUnit = 'usd';
-let balXferRate = 87;
+let balXferRate = 85;
 let balXferVenue = 'delta';
 let balXferHasParent = false;
 
@@ -441,7 +441,7 @@ function onBalXferVenueChange() {
 
 function balXferFx() {
   const n = Number(balXferRate);
-  return isFinite(n) && n > 0 ? n : 87;
+  return isFinite(n) && n > 0 ? n : 85;
 }
 
 function setBalXferUnit(unit) {

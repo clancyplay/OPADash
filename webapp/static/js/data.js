@@ -148,7 +148,7 @@ let dbtName = null, dbtLastOther = null, dbtOffset = 0, dbtTotal = 0;
 let dbtSort = '', dbtDir = 'desc';
 let dbtColumns = [];
 let dbtTypes = {};
-let dbtUsdInr = 87;
+let dbtUsdInr = 85;
 let dbtPageRows = [];
 let dbtPeekIdx = -1;
 let dbtSel = new Set();
@@ -805,7 +805,7 @@ function dbtRpnlHtml(v, row) {
 }
 function dbtSplitCcy(v, row) {
   const n = Number(v);
-  const rate = dbtUsdInr > 0 ? dbtUsdInr : 87;
+  const rate = dbtUsdInr > 0 ? dbtUsdInr : 85;
   const exch = String((row && row.exchange) || '').toLowerCase();
   if (!isFinite(n)) return { inr: 0, usd: 0, ok: false };
   if (exch === 'coindcx') return { inr: n, usd: n / rate, ok: true };

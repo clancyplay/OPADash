@@ -89,7 +89,7 @@ def delta_cfg():
         "api_secret": secret,
         "rest_url": rest.rstrip("/"),
         "database_url": db_url,
-        "usdinr": env_float("USDINR_RATE", 87.0),
+        "usdinr": env_float("USDINR_RATE", 85.0),
         "from_env_keys": not _clean(API_KEY),
     }
 
