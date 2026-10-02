@@ -483,6 +483,7 @@ def public_accounts(venue: str = "") -> list[dict]:
             "label": _LABELS.get(exch, exch.title()),
             "id": acct.get("id") or "",
             "name": acct.get("name") or aid,
+            "aliases": list(acct.get("aliases") or []),
             "asset": acct.get("asset") or "",
             "parent": bool(acct.get("parent")),
         })
@@ -490,14 +491,37 @@ def public_accounts(venue: str = "") -> list[dict]:
 
 
 def account_names() -> dict[str, str]:
-    """Delta user id → short configured name (ARB, MAIN, …)."""
+    """Stable account id / old alias → current display name."""
     out: dict[str, str] = {}
     for acct in load_wallet_accounts():
         aid = str(acct.get("id") or "").strip()
         name = str(acct.get("name") or "").strip()
-        if aid and name:
+        if not name:
+            continue
+        if aid:
             out[aid] = name
+        out[name] = name
+        for aka in acct.get("aliases") or []:
+            text = str(aka or "").strip()
+            if text:
+                out[text] = name
     return out
+
+
+def account_tags(acct: dict | None = None, *extra: str) -> set[str]:
+    """Every label that means this wallet: id, current name, and old aliases."""
+    tags: set[str] = set()
+    for raw in extra:
+        text = str(raw or "").strip()
+        if text:
+            tags.add(text)
+    if not acct:
+        return tags
+    for raw in (acct.get("id"), acct.get("name"), *(acct.get("aliases") or [])):
+        text = str(raw or "").strip()
+        if text:
+            tags.add(text)
+    return tags
 
 
 def _norm_margin_mode(raw) -> str:
@@ -520,7 +544,11 @@ def _mode_from_wallet(snap: dict) -> str:
 
 
 async def _delta_subaccount_modes(client: httpx.AsyncClient) -> dict[str, str]:
-    """Parent key → margin_mode for every sub. Empty if no parent key."""
+    """Parent key → margin_mode keyed by stable Delta user id.
+
+    Display names are ignored — rename the local label anytime. Also stores
+    `__parent__` / `__parent_id__` for the is_sub_account=false row.
+    """
     key, secret = parent_delta_keys()
     if not key or not secret:
         return {}
@@ -544,10 +572,25 @@ async def _delta_subaccount_modes(client: httpx.AsyncClient) -> dict[str, str]:
         aid = str(rec.get("id") or "").strip()
         if aid:
             out[aid] = mode
-        name = str(rec.get("account_name") or "").strip()
-        if name:
-            out[name] = mode
+        if rec.get("is_sub_account") is False:
+            out["__parent__"] = mode
+            if aid:
+                out["__parent_id__"] = aid
     return out
+
+
+def _margin_mode_for(modes: dict[str, str], item: dict) -> str:
+    """Resolve margin mode by stable id only. Name renames never matter."""
+    for key in (item.get("id"), item.get("cfg_id")):
+        text = str(key or "").strip()
+        if text and modes.get(text):
+            return modes[text]
+    parent_id = str(modes.get("__parent_id__") or "").strip()
+    if parent_id and parent_id in (str(item.get("id") or ""), str(item.get("cfg_id") or "")):
+        return modes.get("__parent__") or ""
+    if item.get("parent") and modes.get("__parent__"):
+        return modes["__parent__"]
+    return _norm_margin_mode(item.get("margin_mode"))
 
 
 async def _delta_position_mode(client: httpx.AsyncClient, acct: dict) -> str:
@@ -580,7 +623,10 @@ async def _delta_position_mode(client: httpx.AsyncClient, acct: dict) -> str:
 async def _delta_acct_snap(client: httpx.AsyncClient, acct: dict, rate: float) -> dict:
     item = {
         "id": acct.get("id") or "",
+        "cfg_id": str(acct.get("id") or "").strip(),
         "name": acct.get("name") or acct.get("id") or "",
+        "aliases": list(acct.get("aliases") or []),
+        "parent": bool(acct.get("parent")),
         "margin_mode": "",
         "balance": None,
         "available": None,
@@ -592,6 +638,7 @@ async def _delta_acct_snap(client: httpx.AsyncClient, acct: dict, rate: float) -
             _delta_wallet(client, acct, rate),
             _delta_position_mode(client, acct),
         )
+        # Wallet uid is the stable identity — keep it even if the display name changes.
         item["id"] = str(snap.get("uid") or item["id"])
         item["available"] = _num(snap.get("available"))
         item["balance"] = _num(snap.get("native"))
@@ -605,7 +652,7 @@ async def _delta_acct_snap(client: httpx.AsyncClient, acct: dict, rate: float) -
 
 
 async def account_live_snaps(venue: str = "delta") -> dict[str, dict]:
-    """id/name → {margin_mode, balance, available, asset} for the New-contract picker."""
+    """id/name/alias → live snap for the New-contract picker. Identity is always the id."""
     venue = str(venue or "delta").strip().lower()
     accts = [a for a in load_wallet_accounts() if a.get("exchange") == venue]
     if not accts:
@@ -621,11 +668,9 @@ async def account_live_snaps(venue: str = "delta") -> dict[str, dict]:
         )
     out: dict[str, dict] = {}
     for item in rows:
-        mode = parent_modes.get(str(item.get("id") or "")) or parent_modes.get(str(item.get("name") or "")) or item.get("margin_mode") or ""
-        item["margin_mode"] = _norm_margin_mode(mode)
-        for key in (item.get("id"), item.get("name")):
-            if key:
-                out[str(key)] = item
+        item["margin_mode"] = _margin_mode_for(parent_modes, item)
+        for key in account_tags(item, item.get("cfg_id"), item.get("name")):
+            out[str(key)] = item
     return out
 
 
@@ -700,8 +745,7 @@ def find_account(venue: str, account: str) -> dict | None:
     for acct in load_wallet_accounts():
         if acct.get("exchange") != venue:
             continue
-        tags = {acct.get("id") or "", acct.get("name") or ""}
-        if want in tags:
+        if want in account_tags(acct):
             return acct
     return None
 
@@ -1041,9 +1085,7 @@ def find_wallet(venue: str, *tags: str) -> dict | None:
     for acct in load_wallet_accounts():
         if str(acct.get("exchange") or "").lower() != venue:
             continue
-        names = {str(acct.get("id") or "").strip(), str(acct.get("name") or "").strip()}
-        names.discard("")
-        if names & aliases:
+        if account_tags(acct) & aliases:
             return acct
     return None
 

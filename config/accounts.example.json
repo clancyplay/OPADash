@@ -10,7 +10,8 @@
   {
     "exchange": "delta",
     "id": "PARENT_USER_ID",
-    "name": "Delta main",
+    "name": "MA",
+    "aliases": ["MainAccount"],
     "api_key": "REPLACE",
     "api_secret": "REPLACE",
     "parent": true

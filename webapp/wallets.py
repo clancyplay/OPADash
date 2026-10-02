@@ -85,10 +85,20 @@ def load_wallet_accounts() -> list[dict]:
         seen.add(fp)
         role = _clean(item.get("role")).lower()
         parent = item.get("parent") is True or role == "parent" or str(item.get("parent") or "").lower() in ("1", "true", "yes", "on")
+        aliases: list[str] = []
+        raw_aliases = item.get("aliases") or item.get("aka") or item.get("old_names")
+        if isinstance(raw_aliases, str):
+            raw_aliases = [p.strip() for p in raw_aliases.split(",")]
+        if isinstance(raw_aliases, (list, tuple)):
+            for bit in raw_aliases:
+                text = _clean(bit)
+                if text and text not in aliases:
+                    aliases.append(text)
         rows.append({
             "exchange": exch,
             "id": _clean(item.get("id") or item.get("account") or item.get("uid")),
             "name": _clean(item.get("name") or item.get("account_name") or item.get("label")),
+            "aliases": aliases,
             "api_key": key,
             "api_secret": secret,
             "passphrase": _clean(item.get("passphrase") or item.get("api_passphrase")),
@@ -139,6 +149,7 @@ def load_wallet_accounts() -> list[dict]:
             "exchange": exch,
             "id": os.getenv(p + "ID") or os.getenv(p + "ACCOUNT") or os.getenv(p + "UID"),
             "name": os.getenv(p + "NAME") or os.getenv(p + "LABEL"),
+            "aliases": os.getenv(p + "ALIASES") or os.getenv(p + "AKA"),
             "api_key": key,
             "api_secret": secret,
             "passphrase": os.getenv(p + "PASSPHRASE") or os.getenv(p + "API_PASSPHRASE"),

@@ -826,10 +826,12 @@ def _account_aliases(account: str, account_name: str = "") -> list[str]:
         if text and text not in tags:
             tags.append(text)
     try:
-        from webapp.ops import account_names
+        from webapp.ops import account_names, account_tags, load_wallet_accounts
         named = account_names()
     except Exception:
         named = {}
+        load_wallet_accounts = None  # type: ignore
+        account_tags = None  # type: ignore
     for tag in list(tags):
         mapped = named.get(tag)
         if mapped and mapped not in tags:
@@ -840,6 +842,13 @@ def _account_aliases(account: str, account_name: str = "") -> list[str]:
                 tags.append(aid)
             if nm and nm not in tags:
                 tags.append(nm)
+    if load_wallet_accounts and account_tags:
+        for acct in load_wallet_accounts():
+            bits = account_tags(acct)
+            if bits & set(tags):
+                for bit in bits:
+                    if bit and bit not in tags:
+                        tags.append(bit)
     return tags
 
 

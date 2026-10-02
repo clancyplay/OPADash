@@ -1108,13 +1108,9 @@ def _account_aliases(*tags: str) -> set[str]:
                 aliases.add(nm)
     try:
         for acct in dash_ops.load_wallet_accounts():
-            aid = str(acct.get("id") or "").strip()
-            nm = str(acct.get("name") or "").strip()
-            if aliases.intersection({aid, nm}):
-                if aid:
-                    aliases.add(aid)
-                if nm:
-                    aliases.add(nm)
+            bits = dash_ops.account_tags(acct)
+            if aliases.intersection(bits):
+                aliases |= {b for b in bits if b}
     except Exception:
         pass
     return aliases
