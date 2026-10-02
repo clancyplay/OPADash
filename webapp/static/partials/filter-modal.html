@@ -19,6 +19,13 @@
         </span>
         <input type="checkbox" id="fmLiveOnly" onchange="filterModalLiveOnlyChange(this.checked)" />
       </label>
+      <label class="fm-live" id="fmHideStoppedWrap" hidden title="Hide live bots that are stopped">
+        <span>
+          <b>Hide stopped</b>
+          <small>Hide live bots that are stopped. Off by default.</small>
+        </span>
+        <input type="checkbox" id="fmHideStopped" onchange="filterModalHideStoppedChange(this.checked)" />
+      </label>
       <div class="fm-sec">
         <span>Exchanges &amp; accounts</span>
         <button type="button" class="pf-clear" onclick="filterModalClear()">Clear all</button>

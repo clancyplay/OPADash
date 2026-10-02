@@ -627,6 +627,10 @@ function openFilterModal(ctx) {
   const liveEl = document.getElementById('fmLiveOnly');
   if (liveWrap) liveWrap.hidden = !ctx.showLiveOnly;
   if (liveEl && ctx.showLiveOnly) liveEl.checked = !!ctx.liveOnly;
+  const hideWrap = document.getElementById('fmHideStoppedWrap');
+  const hideEl = document.getElementById('fmHideStopped');
+  if (hideWrap) hideWrap.hidden = !ctx.showHideStopped;
+  if (hideEl && ctx.showHideStopped) hideEl.checked = !!ctx.hideStopped;
   if (typeof ctx.refresh === 'function') ctx.refresh();
   scopeRender(document.getElementById('fmScopeTree'), ctx.scope);
   filterModalCount();
@@ -637,6 +641,11 @@ function filterModalLiveOnlyChange(on) {
   if (!activeFilterCtx || !activeFilterCtx.showLiveOnly) return;
   activeFilterCtx.liveOnly = !!on;
   if (typeof activeFilterCtx.onLiveOnly === 'function') activeFilterCtx.onLiveOnly(!!on);
+}
+function filterModalHideStoppedChange(on) {
+  if (!activeFilterCtx || !activeFilterCtx.showHideStopped) return;
+  activeFilterCtx.hideStopped = !!on;
+  if (typeof activeFilterCtx.onHideStopped === 'function') activeFilterCtx.onHideStopped(!!on);
 }
 function closeFilterModal() {
   const modal = document.getElementById('filterModal');

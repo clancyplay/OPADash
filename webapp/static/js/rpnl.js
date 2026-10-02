@@ -1,7 +1,9 @@
 // rPnL symbol list — fetched from DB fills table
 const rpnlScope = { selected: loadScopeSet('rpnl'), expanded: new Set(), groups: [] };
 const LS_RPNL_LIVE_ONLY = 'opadash.rpnlLiveOnly';
+const LS_RPNL_HIDE_STOPPED = 'opadash.rpnlHideStopped';
 let rpnlLiveOnly = (typeof lsGet === 'function' ? lsGet(LS_RPNL_LIVE_ONLY, '1') : '1') !== '0';
+let rpnlHideStopped = (typeof lsGet === 'function' ? lsGet(LS_RPNL_HIDE_STOPPED, '0') : '0') === '1';
 
 function rpnlIsLiveRow(r) {
   return !!(r && (r.live || rpnlIsBooting(r)));
@@ -11,10 +13,28 @@ function rpnlScopeMatch(row) {
     .map(v => String(v || '').toLowerCase()).filter(Boolean);
   return scopeMatch(rpnlScope, venues, row.account);
 }
+function rpnlIsStoppedRunning(r) {
+  if (!r || !r.live || rpnlIsPairHedge(r)) return false;
+  return rpnlDashStatus(r.settings).key === 'stopped';
+}
+function rpnlWithoutStopped(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!rpnlHideStopped) return list;
+  return list.filter(r => !rpnlIsStoppedRunning(r));
+}
 function rpnlApplyFilter(rows) {
   let out = (Array.isArray(rows) ? rows : []).filter(rpnlScopeMatch);
   if (rpnlLiveOnly) out = out.filter(rpnlIsLiveRow);
+  if (rpnlHideStopped) out = out.filter(r => !rpnlIsStoppedRunning(r));
   return out;
+}
+function rpnlEmptyFilterMsg() {
+  if (rpnlHideStopped && rpnlLiveOnly) {
+    return 'No running bots left in this window. Turn off Hide stopped or Live only in Filters.';
+  }
+  if (rpnlHideStopped) return 'Stopped bots are hidden. Turn off Hide stopped in Filters to see them.';
+  if (rpnlLiveOnly) return 'No live bots in this window. Turn off Live only in Filters to see the rest.';
+  return 'No live bots or fills in this window.';
 }
 // Build exchange→accounts tree from the unfiltered symbol rows.
 function rpnlScopeGroups(rows) {
@@ -42,7 +62,8 @@ function rpnlSyncFilterUI() {
   // Live-only is the default view — only badge when the user turns it off
   // (showing historical too) or when strategy/accounts are narrowed.
   const liveN = rpnlLiveOnly ? 0 : 1;
-  setFilterBadge('rpnlFilterBtn', stratN + liveN + rpnlScope.selected.size);
+  const hideN = rpnlHideStopped ? 1 : 0;
+  setFilterBadge('rpnlFilterBtn', stratN + liveN + hideN + rpnlScope.selected.size);
 }
 // Account/exchange is a client-side filter, so just re-render from cached rows.
 function rpnlScopeApply() {
@@ -58,6 +79,13 @@ function setRpnlLiveOnly(on) {
   rpnlRenderSymbolOptions();
   if (rpnlReady && typeof loadRpnlFresh === 'function') loadRpnlFresh();
 }
+function setRpnlHideStopped(on) {
+  rpnlHideStopped = !!on;
+  if (typeof lsSet === 'function') lsSet(LS_RPNL_HIDE_STOPPED, rpnlHideStopped ? '1' : '0');
+  rpnlSyncFilterUI();
+  rpnlRenderSymbolOptions();
+  if (rpnlReady && typeof loadRpnlFresh === 'function') loadRpnlFresh();
+}
 function openRpnlFilters() {
   closeOhlcTools();
   openFilterModal({
@@ -68,6 +96,9 @@ function openRpnlFilters() {
     showLiveOnly: true,
     liveOnly: rpnlLiveOnly,
     onLiveOnly: setRpnlLiveOnly,
+    showHideStopped: true,
+    hideStopped: rpnlHideStopped,
+    onHideStopped: setRpnlHideStopped,
   });
 }
 let rpnlSymbolRows = [];
@@ -1767,9 +1798,7 @@ function renderRpnlSummary(rows, hours) {
   rpnlMarkPairHedges(rows);
   if (!rows.length) {
     wrap.dataset.keys = '';
-    wrap.innerHTML = '<div class="rpnl-empty">' +
-      (rpnlLiveOnly ? 'No live bots in this window. Turn off Live only in Filters to see the rest.' : 'No live bots or fills in this window.') +
-      '</div>';
+    wrap.innerHTML = '<div class="rpnl-empty">' + rpnlEmptyFilterMsg() + '</div>';
     rpnlSummaryCache = [];
     renderRpnlInspect(null);
     applyOhlcOrderLines([]);
@@ -3848,9 +3877,15 @@ async function loadRpnl(keepRange) {
   if (seq !== rpnlLoadSeq) return;
   if (rows) {
     const prevKey = (document.getElementById('rpnlSymbol') || {}).value || '';
-    const key = syncRpnlSymbolSelect(rows);
+    const shown = rpnlWithoutStopped(rows);
+    const key = syncRpnlSymbolSelect(shown);
     renderRpnlSummary(rows, hoursArg);
     if (!key) {
+      if (rows.length) {
+        setOhlcEmpty(true, 'Stopped bots are hidden');
+        clearRpnlCharts();
+        return;
+      }
       toast('No contracts with fills in this window. Try a longer Window.');
       setOhlcEmpty(true, 'No price candles for this window');
       clearRpnlCharts();
