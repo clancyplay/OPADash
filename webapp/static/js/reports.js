@@ -140,7 +140,38 @@ function rptMoney(n) {
   return '₹' + Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 function rptCol(n) { return (Number(n) || 0) >= 0 ? 'var(--green)' : 'var(--red)'; }
-function rptAcctKey(a, i) { return encodeURIComponent(a.account || ('x' + i)); }
+function rptAcctKey(a, i) {
+  return encodeURIComponent(a.account || ('x' + i)) + (a._hedge ? '~' + encodeURIComponent(a._venue || '') : '');
+}
+// One tile per exchange; the primary (Delta) tile keeps balance/positions/UID.
+function rptSplitByExchange(accts) {
+  const out = [];
+  accts.forEach(function (a) {
+    const exs = a.exchanges || [];
+    if (exs.length < 2) { out.push(a); return; }
+    const primary = exs.some(function (e) { return e.exchange === 'delta'; }) ? 'delta' : exs[0].exchange;
+    exs.slice().sort(function (x, y) {
+      return (y.exchange === primary) - (x.exchange === primary);
+    }).forEach(function (e) {
+      const main = e.exchange === primary;
+      const contracts = [];
+      (a.contracts || []).forEach(function (c) {
+        const v = (c.venues || []).filter(function (x) { return x.exchange === e.exchange; });
+        if (v.length) contracts.push(Object.assign({}, c, { venues: v, net: v[0].rpnl, fills: v[0].fills }));
+      });
+      out.push(Object.assign({}, a, {
+        _venue: e.exchange, _hedge: !main,
+        exchanges: [e], contracts: contracts,
+        rpnl: e.rpnl, fees: e.fees, fills: e.fills,
+        strategies: Array.from(new Set(contracts.map(function (c) { return c.strategy; }).filter(Boolean))),
+        balance: main ? a.balance : null,
+        positions: main ? a.positions : [],
+        upnl: main ? a.upnl : 0,
+      }));
+    });
+  });
+  return out;
+}
 function rptAcctName(a) {
   if (a.account_name && a.account_name !== a.account) return a.account_name;
   return a.account || 'unattributed';
@@ -193,7 +224,7 @@ async function loadReports() {
     empty.style.display = 'none';
     shell.style.display = 'block';
     if (!rptOpenAccts.size && accts.length <= 8) {
-      accts.forEach((a, i) => rptOpenAccts.add(rptAcctKey(a, i)));
+      rptSplitByExchange(accts).forEach((a, i) => rptOpenAccts.add(rptAcctKey(a, i)));
     }
     renderReportHero(d);
     renderReportExchanges(d.by_exchange || []);
@@ -333,11 +364,11 @@ function filterReportAccts() {
 
 function renderReportAccounts(accts, snapshot) {
   const snapHtml = snapshot ? '<div class="rpt-sec">Strategy balance snapshot</div>' + fmtBalanceCards(snapshot) : '';
-  document.getElementById('rptAccts').innerHTML = snapHtml + accts.map(function (a, i) {
+  document.getElementById('rptAccts').innerHTML = snapHtml + rptSplitByExchange(accts).map(function (a, i) {
     const key = rptAcctKey(a, i);
     const open = rptOpenAccts.has(key) ? ' open' : '';
-    const name = escHtml(rptAcctName(a));
-    const idBit = a.account_name && a.account_name !== a.account
+    const name = escHtml(rptAcctName(a)) + (a._hedge ? ' <span class="rpnl-strat">hedge</span>' : '');
+    const idBit = a.account_name && a.account_name !== a.account && !a._hedge
       ? '<div class="aid">#' + escHtml(a.account) + '</div>' : '';
     const hay = [a.account, a.account_name].concat(
       a.strategies || [],
