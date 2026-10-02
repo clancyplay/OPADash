@@ -172,13 +172,23 @@ async function openOppLaunch(spec, note) {
       strat.value = spec.strategy;
     }
     onOpsStrategyChange();
-    if (spec.edge_venue) {
+    const other = String(spec.edge_venue || spec.arb_venue || '').trim().toLowerCase();
+    if (other) {
+      // Arb Exchange B is opsVenueB — not the hidden ARB_VENUE param (defaults to coinbase).
+      const venueB = document.getElementById('opsVenueB');
+      if (spec.strategy === 'arb' && venueB && [...venueB.options].some(o => o.value === other)) {
+        venueB.value = other;
+        await onOpsVenueBChange();
+      }
       const ev = document.getElementById('opsP_EDGE_VENUE') || document.getElementById('opsP_ARB_VENUE');
-      if (ev && [...ev.options].some(o => o.value === spec.edge_venue)) ev.value = spec.edge_venue;
+      if (ev && [...ev.options].some(o => o.value === other)) ev.value = other;
     }
     if (spec.arb_symbol) {
+      const symB = document.getElementById('opsContractB');
+      if (symB) symB.value = String(spec.arb_symbol);
       const sym = document.getElementById('opsP_ARB_SYMBOL');
-      if (sym) sym.value = spec.arb_symbol;
+      if (sym) sym.value = String(spec.arb_symbol);
+      if (typeof onOpsContractBMeta === 'function') onOpsContractBMeta();
     }
     if (spec.max_usd) {
       const maxEl = document.getElementById('opsP_MAX_POSITION');
