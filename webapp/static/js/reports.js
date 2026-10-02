@@ -356,20 +356,21 @@ function renderReportAccounts(accts, snapshot) {
         '<td class="num">' + rptMoney(e.fees) + '</td><td class="num">' + (e.fills || 0) + '</td></tr>';
     }).join('');
     const conRows = (a.contracts || []).map(function (c) {
-      const venueBits = (c.venues || []).map(function (v) {
-        return '<span class="rpnl-venue ' + rpnlVenueClass(v.exchange) + '">' + escHtml(v.label) + '</span> ' +
-          '<span style="color:' + rptCol(v.rpnl) + '">' + rptSigned(v.rpnl) + '</span>';
-      }).join(' · ');
-      return '<tr class="rpt-click" data-contract="' + escHtml(c.contract || c.quote_symbol || '') +
-        '" data-account="' + escHtml(a.account || '') +
-        '" data-strategy="' + escHtml(c.strategy || '') +
-        '" onclick="goToRpnlChart(this.dataset.contract, this.dataset.account, this.dataset.strategy)" title="Open rPnL chart">' +
-        '<td>' + escHtml(c.quote_symbol || c.contract) +
-        (c.strategy ? ' <span class="rpnl-strat">' + escHtml(c.strategy) + '</span>' : '') +
-        (venueBits ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + venueBits + '</div>' : '') +
-        '</td>' +
-        '<td class="num" style="color:' + rptCol(c.net) + '">' + rptSigned(c.net) + '</td>' +
-        '<td class="num">' + (c.fills || 0) + '</td></tr>';
+      const venues = (c.venues && c.venues.length)
+        ? c.venues
+        : [{ exchange: '', label: '', rpnl: c.net, fills: c.fills }];
+      return venues.map(function (v) {
+        return '<tr class="rpt-click" data-contract="' + escHtml(c.contract || c.quote_symbol || '') +
+          '" data-account="' + escHtml(a.account || '') +
+          '" data-strategy="' + escHtml(c.strategy || '') +
+          '" onclick="goToRpnlChart(this.dataset.contract, this.dataset.account, this.dataset.strategy)" title="Open rPnL chart">' +
+          '<td>' + escHtml(c.quote_symbol || c.contract) +
+          (c.strategy ? ' <span class="rpnl-strat">' + escHtml(c.strategy) + '</span>' : '') +
+          (v.exchange ? ' <span class="rpnl-venue ' + rpnlVenueClass(v.exchange) + '">' + escHtml(v.label || v.exchange) + '</span>' : '') +
+          '</td>' +
+          '<td class="num" style="color:' + rptCol(v.rpnl) + '">' + rptSigned(v.rpnl) + '</td>' +
+          '<td class="num">' + (v.fills || 0) + '</td></tr>';
+      }).join('');
     }).join('');
     const stratBits = (a.strategies || []).map(function (s) {
       return '<span class="rpnl-strat">' + escHtml(s) + '</span>';

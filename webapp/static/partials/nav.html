@@ -9,6 +9,14 @@
     <button id="navData" onclick="showPage('data')">Data</button>
   </div>
   <span class="db-badge pend" id="dbBadge">DB checking...</span>
+  <button id="installBtn" class="nav-install" type="button" hidden onclick="opaInstall()" title="Install app" aria-label="Install app">
+    <svg class="nav-install-ic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 3v12" />
+      <polyline points="7 10 12 15 17 10" />
+      <path d="M5 21h14" />
+    </svg>
+    <span class="nav-install-txt">Install</span>
+  </button>
   <a class="nav-logout" href="/logout" title="Log out" aria-label="Log out">
     <svg class="nav-logout-ic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />

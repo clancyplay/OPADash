@@ -19,5 +19,45 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
 }
 </script>
+<script>
+// PWA install — surface a visible button since browsers hide the default prompt.
+let _opaDeferredInstall = null;
+function _opaInstallBtn() { return document.getElementById('installBtn'); }
+function opaIsStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function opaIsIOS() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+}
+function opaShowInstall(show) {
+  const b = _opaInstallBtn();
+  if (b) b.hidden = !show;
+}
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  _opaDeferredInstall = e;
+  if (!opaIsStandalone()) opaShowInstall(true);
+});
+window.addEventListener('appinstalled', () => {
+  _opaDeferredInstall = null;
+  opaShowInstall(false);
+});
+async function opaInstall() {
+  if (_opaDeferredInstall) {
+    _opaDeferredInstall.prompt();
+    try { await _opaDeferredInstall.userChoice; } catch (e) {}
+    _opaDeferredInstall = null;
+    opaShowInstall(false);
+    return;
+  }
+  if (opaIsIOS()) {
+    if (typeof toast === 'function') toast('Install: tap Share, then "Add to Home Screen".');
+    return;
+  }
+  if (typeof toast === 'function') toast('Already installed, or install not offered by this browser.');
+}
+// iOS Safari never fires beforeinstallprompt — show the button for manual A2HS.
+if (opaIsIOS() && !opaIsStandalone()) opaShowInstall(true);
+</script>
 </body>
 </html>

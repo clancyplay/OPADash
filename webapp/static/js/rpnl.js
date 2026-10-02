@@ -3077,6 +3077,7 @@ function tryRpnlFit() {
   rpnlNeedsFit = false;
   if (!rpnlRangePinned) rpnlSyncRangeFromView();
   rpnlPaintBrush();
+  equalizeRpnlAxisWidth();
   return true;
 }
 
@@ -3586,6 +3587,21 @@ function applyRpnlChartSize() {
   } catch (e) { return false; }
   return true;
 }
+// Both panes share total width, so the only horizontal offset between candles
+// and the rPnL line is the right price-axis width (price labels vs ₹ labels
+// differ in length). Pin both axes to the wider of the two so plots align.
+function equalizeRpnlAxisWidth(_again) {
+  if (!ohlcChart || !rpnlChart) return;
+  let wo = 0, wr = 0;
+  try { wo = ohlcChart.priceScale('right').width() || 0; } catch (e) {}
+  try { wr = rpnlChart.priceScale('right').width() || 0; } catch (e) {}
+  if (wo < 8 || wr < 8) return;
+  if (Math.abs(wo - wr) <= 1) return;
+  const want = Math.ceil(Math.max(wo, wr));
+  try { ohlcChart.applyOptions({ rightPriceScale: { minimumWidth: want } }); } catch (e) {}
+  try { rpnlChart.applyOptions({ rightPriceScale: { minimumWidth: want } }); } catch (e) {}
+  if (!_again) requestAnimationFrame(() => equalizeRpnlAxisWidth(true));
+}
 function resizeRpnlCharts() {
   if (!rpnlPageVisible()) return;
   const next = rpnlMeasureChartSize();
@@ -3625,6 +3641,7 @@ function resizeRpnlCharts() {
     }
     rpnlPaintBrush();
     applyOhlcOrderLines(quotesForCurrentRpnl());
+    equalizeRpnlAxisWidth();
   });
 }
 let _vpResizeTimer;
@@ -3995,6 +4012,7 @@ async function loadRpnl(keepRange) {
 
     if (!rpnlRangePinned) rpnlSyncRangeFromView();
     rpnlPaintBrush();
+    equalizeRpnlAxisWidth();
     if (!keepRange && rpnlNeedsFit) scheduleRpnlFit();
     if (rpnlLogsOpen() && !keepRange) rpnlKindReload();
   } catch(e) {

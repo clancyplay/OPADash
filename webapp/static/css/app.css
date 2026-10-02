@@ -112,12 +112,23 @@
     background: var(--red);
     border-color: var(--red);
   }
-
-  /* Pages */
-  .page { display: none; min-width: 0; }
-  .page.visible { display: block; }
-
-  /* Home */
+nav .nav-install {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: 8px; font-size: 12px; font-weight: 650;
+  color: var(--accent); cursor: pointer;
+  flex-shrink: 0; white-space: nowrap;
+  padding: 5px 10px; border-radius: 8px;
+  border: 1px solid rgba(41, 98, 255, .4);
+  background: rgba(41, 98, 255, .12);
+  transition: background .15s, border-color .15s, color .15s;
+}
+nav .nav-install[hidden] { display: none; }
+nav .nav-install-ic { flex-shrink: 0; }
+nav .nav-install:hover {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
   #home { padding: 48px 32px 56px; max-width: 980px; margin: 0 auto; }
   #home h1 { font-size: 32px; margin: 0 0 10px; font-weight: 750; letter-spacing: -.4px; }
   #home p.sub { color: var(--muted); font-size: 15px; margin: 0 0 36px; line-height: 1.6; max-width: 56ch; }
@@ -1142,6 +1153,8 @@
     nav .db-badge { display: none; }
     nav .nav-logout { margin-left: 6px; padding: 5px 8px; }
     nav .nav-logout-txt { display: none; }
+    nav .nav-install { margin-left: 6px; padding: 5px 8px; }
+    nav .nav-install-txt { display: none; }
 
     #home { padding: 24px 16px 36px; }
     #home h1 { font-size: 26px; }
