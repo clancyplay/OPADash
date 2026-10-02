@@ -56,44 +56,76 @@ def _clean_env(val: object) -> str:
     return s
 
 
-def venue_key_env(venue: str) -> dict[str, str]:
-    """API keys for a venue from this process, then Balances wallets.
+def venue_key_env(venue: str, account: str = "") -> dict[str, str]:
+    """API keys for a venue from Balances wallets, then this process.
 
-    Arb's other leg does not use the selected quote subaccount.
+    When ``account`` is set (arb Subaccount B), that wallet's keys win.
+    Otherwise process env is preferred, then the first wallet for the venue.
     """
     load_env_file()
     v = str(venue or "").strip().lower()
     spec = VENUE_ENV.get(v)
     if not spec:
         return {}
+    want = str(account or "").strip()
+    need = [k for k in (spec[0], spec[1], spec[3] if len(spec) > 3 else "") if k]
     out: dict[str, str] = {}
-    for key in spec:
-        if not key:
-            continue
-        got = _clean_env(os.getenv(key) or "")
-        if got:
-            out[key] = got
-    need = [spec[0], spec[1]] + ([spec[3]] if spec[3] else [])
-    if all(out.get(k) for k in need if k):
-        return out
+
+    def _from_proc() -> dict[str, str]:
+        got: dict[str, str] = {}
+        for key in spec:
+            if not key:
+                continue
+            val = _clean_env(os.getenv(key) or "")
+            if val:
+                got[key] = val
+        return got
+
+    def _from_acct(acct: dict) -> dict[str, str]:
+        got: dict[str, str] = {}
+        key = _clean_env(acct.get("api_key") or "")
+        secret = _clean_env(acct.get("api_secret") or "")
+        phrase = _clean_env(acct.get("passphrase") or "")
+        if key:
+            got[spec[0]] = key
+        if secret:
+            got[spec[1]] = secret
+        if spec[3] and phrase:
+            got[spec[3]] = phrase
+        return got
+
     try:
         from webapp.wallets import load_wallet_accounts
-        for acct in load_wallet_accounts():
-            if str(acct.get("exchange") or "").strip().lower() != v:
-                continue
-            key = _clean_env(acct.get("api_key") or "")
-            secret = _clean_env(acct.get("api_secret") or "")
-            phrase = _clean_env(acct.get("passphrase") or "")
-            if key and spec[0] not in out:
-                out[spec[0]] = key
-            if secret and spec[1] not in out:
-                out[spec[1]] = secret
-            if spec[3] and phrase and spec[3] not in out:
-                out[spec[3]] = phrase
-            if all(out.get(k) for k in need if k):
+        try:
+            from webapp.ops import account_tags
+        except Exception:
+            def account_tags(acct, *extra):  # type: ignore
+                return {str(x or "").strip() for x in (acct.get("id"), acct.get("name"), *extra) if str(x or "").strip()}
+
+        wallets = [
+            a for a in load_wallet_accounts()
+            if str(a.get("exchange") or "").strip().lower() == v
+        ]
+        if want:
+            for acct in wallets:
+                if want in account_tags(acct):
+                    out.update(_from_acct(acct))
+                    break
+            # Explicit subaccount: do not silently substitute another wallet or
+            # process env keys — apply_arb_other_keys raises if keys are missing.
+            return {k: val for k, val in out.items() if val}
+
+        out.update(_from_proc())
+        if all(out.get(k) for k in need):
+            return {k: val for k, val in out.items() if val}
+        for acct in wallets:
+            for key, val in _from_acct(acct).items():
+                out.setdefault(key, val)
+            if all(out.get(k) for k in need):
                 break
     except Exception:
-        pass
+        if not out and not want:
+            out.update(_from_proc())
     return {k: val for k, val in out.items() if val}
 
 
@@ -136,7 +168,7 @@ def apply_arb_other_keys(env: dict[str, str], quote_venue: str = "", quote_sym: 
     spec = VENUE_ENV.get(other)
     if not spec:
         raise ValueError(f"unknown ARB_VENUE '{other}'")
-    extra = venue_key_env(other)
+    extra = venue_key_env(other, env.get("ARB_ACCOUNT") or "")
     for key, val in extra.items():
         if val:
             env[key] = val
@@ -153,9 +185,15 @@ def apply_arb_other_keys(env: dict[str, str], quote_venue: str = "", quote_sym: 
     need = [spec[0], spec[1]] + ([spec[3]] if spec[3] else [])
     missing = [k for k in need if k and not str(env.get(k) or "").strip()]
     if missing:
+        acct = str(env.get("ARB_ACCOUNT") or "").strip()
+        if acct:
+            raise ValueError(
+                f"{other} keys missing for subaccount '{acct}' ({missing[0]}). "
+                f"Pick a {other} wallet with API keys under Subaccount B."
+            )
         raise ValueError(
-            f"{other} key missing ({missing[0]}). Set {spec[0]} / {spec[1]} on this OPADash "
-            f"service (or a {other} wallet on Balances). The other leg does not use the selected subaccount."
+            f"{other} key missing ({missing[0]}). Pick a {other} subaccount for exchange B, "
+            f"or set {spec[0]} / {spec[1]} on this OPADash service."
         )
     return env
 

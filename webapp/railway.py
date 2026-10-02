@@ -713,7 +713,7 @@ def _ensure_arb_other_keys(service_id: str, svc_name: str) -> tuple[dict[str, st
             need = [spec[0], spec[1]] + ([spec[3]] if spec[3] else [])
             missing = [k for k in need if k and not str(env.get(k) or "").strip()]
             if missing:
-                extra = venue_key_env(other)
+                extra = venue_key_env(other, env.get("ARB_ACCOUNT") or "")
                 for key in need:
                     if key and not str(env.get(key) or "").strip() and extra.get(key):
                         patch[key] = extra[key]

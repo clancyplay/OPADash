@@ -1292,6 +1292,7 @@ body.ops-open { overflow: hidden; }
 /* Arb-only two-leg fields: shown only when the Arb strategy is picked. */
 .ops-arb-only { display: none; }
 .rp-ops-panel.arb .ops-arb-only { display: flex; }
+.rp-ops-panel.arb .rp-ops-acct-wrap.ops-arb-only { display: block; }
 .rp-ops-panel:not(.arb) .ops-arb-only { display: none !important; }
 .rp-ops-edit-meta {
   margin: 0 0 12px;

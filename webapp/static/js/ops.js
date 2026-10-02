@@ -1,5 +1,6 @@
 let opsCatalog = null;
 let opsAccounts = [];
+let opsAccountsB = [];
 let opsProducts = [];
 let opsProductsB = [];
 let opsBots = [];
@@ -308,6 +309,10 @@ function onOpsAccountChange() {
   loadOpsSavedKnobs();
 }
 
+function onOpsAccountBChange() {
+  renderOpsAccountSnapB();
+}
+
 function opsMoney(a, preferAvail) {
   if (!a) return '';
   const asset = String(a.asset || 'USD').toUpperCase();
@@ -352,6 +357,7 @@ function opsAcctCardHtml(a, opts) {
   const bal = opsMoney(a, !!opts.avail);
   const parent = !!a.parent;
   return '<button type="button" class="rp-ops-acct' + (on ? ' on' : '') + (parent ? ' parent' : '') + '" data-ops-acct="' + escHtml(id) + '"' +
+    (opts.leg ? ' data-ops-acct-leg="' + escHtml(opts.leg) + '"' : '') +
     (opts.role ? ' data-xfer-role="' + escHtml(opts.role) + '"' : '') + '>' +
     '<div class="rp-ops-acct-h">' +
       '<b>' + escHtml(name) + '</b>' +
@@ -374,8 +380,62 @@ function renderOpsAccountSnap() {
   const cur = (document.getElementById('opsAccount') || {}).value || '';
   box.innerHTML = opsAccounts.map(a => {
     const id = a.id || a.name || '';
-    return opsAcctCardHtml(a, { on: id === cur || a.name === cur });
+    return opsAcctCardHtml(a, { on: id === cur || a.name === cur, leg: 'a' });
   }).join('');
+}
+
+async function loadOpsAccountsB(venue) {
+  const sel = document.getElementById('opsAccountB');
+  if (!sel) return;
+  const keep = sel.value;
+  const v = String(venue || '').trim().toLowerCase();
+  if (!v) {
+    opsAccountsB = [];
+    sel.innerHTML = '<option value="">Pick exchange B</option>';
+    renderOpsAccountSnapB();
+    return;
+  }
+  const r = await fetch('/api/ops/accounts?venue=' + encodeURIComponent(v));
+  const d = r.ok ? await r.json() : { accounts: [] };
+  opsAccountsB = d.accounts || [];
+  if (!opsAccountsB.length) {
+    sel.innerHTML = '<option value="">No keys for ' + escHtml(v) + '</option>';
+    renderOpsAccountSnapB();
+    return;
+  }
+  sel.innerHTML = opsAccountsB.map(a => {
+    const id = a.id || a.name || '';
+    const lab = a.name || a.id || '';
+    return '<option value="' + escHtml(id) + '">' + escHtml(lab) + '</option>';
+  }).join('');
+  if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
+  renderOpsAccountSnapB();
+}
+
+function renderOpsAccountSnapB() {
+  const box = document.getElementById('opsAccountSnapB');
+  if (!box) return;
+  const venue = opsVenueB();
+  if (!opsAccountsB.length) {
+    box.innerHTML = '<div class="rp-ops-empty">No keys for ' + escHtml(venue || 'exchange B') + '</div>';
+    return;
+  }
+  const cur = (document.getElementById('opsAccountB') || {}).value || '';
+  box.innerHTML = opsAccountsB.map(a => {
+    const id = a.id || a.name || '';
+    return opsAcctCardHtml(a, { on: id === cur || a.name === cur, leg: 'b' });
+  }).join('');
+}
+
+function syncOpsAccountLabels() {
+  const isArb = opsStrategyId() === 'arb';
+  const aLab = document.getElementById('opsAccountLabel');
+  const bLab = document.getElementById('opsAccountBLabel');
+  if (aLab) aLab.textContent = isArb ? 'Subaccount A' : 'Subaccount';
+  if (bLab) {
+    const vb = opsVenueB();
+    bLab.textContent = vb ? ('Subaccount B · ' + vb) : 'Subaccount B';
+  }
 }
 
 async function loadOpsProducts(venue) {
@@ -430,7 +490,8 @@ async function loadOpsProductsB(venue) {
 }
 
 async function onOpsVenueBChange() {
-  await loadOpsProductsB(opsVenueB());
+  await Promise.all([loadOpsProductsB(opsVenueB()), loadOpsAccountsB(opsVenueB())]);
+  syncOpsAccountLabels();
 }
 
 function onOpsContractBMeta() {
@@ -508,10 +569,14 @@ function onOpsStrategyChange() {
   const cLab = document.getElementById('opsContractLabel');
   if (vLab) vLab.childNodes[0].nodeValue = isArb ? 'Exchange A' : 'Exchange';
   if (cLab) cLab.childNodes[0].nodeValue = isArb ? 'Contract A' : 'Contract';
+  syncOpsAccountLabels();
   if (isArb && !opsEdit) {
     const selB = document.getElementById('opsVenueB');
     if (selB && !selB.options.length) fillOpsVenues();
     onOpsVenueBChange();
+  } else if (!isArb) {
+    opsAccountsB = [];
+    renderOpsAccountSnapB();
   }
   const lock = (id === 'pair' || id === 'wing' || id === 'harvest') ? 'delta' : '';
   const venue = document.getElementById('opsVenue');
@@ -1209,7 +1274,7 @@ const OPS_GLOSS = {
   EDGE_PCT: 'How far inside the reference book the first quote sits.',
   STEP_AUTO: 'Fit the step from the live spread. Off uses Step % as typed.',
   STEP_PCT: 'Gap between rungs when Fit step is off.',
-  ARB_VENUE: 'Second venue. Restart to change it. Uses that venue’s key from this OPADash service or Balances, not this subaccount.',
+  ARB_VENUE: 'Second venue. Restart to change it. Uses Subaccount B’s keys for that exchange.',
   ARB_SYMBOL: 'Symbol on the other venue. Blank maps the coin (Coinbase → ROOT-PERP-INTX). Restart to change it.',
   ARB_MIN_PCT: 'Fire when the gap, after the fee haircut, is at least this percent.',
   ARB_FEE_PCT: 'Taker haircut taken off the gross gap. 0.10 is both legs.',
@@ -1939,7 +2004,9 @@ async function submitOpsLaunch() {
   if (strategy === 'arb') {
     const vb = opsVenueB();
     const cb = ((document.getElementById('opsContractB') || {}).value || '').trim();
+    const acctB = (document.getElementById('opsAccountB') || {}).value || '';
     if (!vb) return setOpsMsg('opsLaunchMsg', 'Pick exchange B', true);
+    if (!acctB) return setOpsMsg('opsLaunchMsg', 'Pick a subaccount for exchange B', true);
     if (vb === venue && (!cb || cb.toUpperCase() === contract.toUpperCase())) {
       return setOpsMsg('opsLaunchMsg', 'Exchange B must differ from A, or give B a different contract', true);
     }
@@ -1951,7 +2018,7 @@ async function submitOpsLaunch() {
       const bad = [unknownA ? (venue + ':' + contract) : '', unknownB ? (vb + ':' + cb) : ''].filter(Boolean).join(' and ');
       if (!confirm(bad + ' is not in the futures product list — likely spot or a typo. Arb only trades perps/futures and will refuse spot. Start anyway?')) return;
     }
-    arbExtra = { ARB_VENUE: vb, ARB_SYMBOL: cb };
+    arbExtra = { ARB_VENUE: vb, ARB_SYMBOL: cb, ARB_ACCOUNT: acctB };
   }
   const sum = ((document.getElementById('opsGeomSum') || {}).textContent || '').trim();
   const line = strategy + ' · ' + venue + ':' + contract +
@@ -2301,10 +2368,12 @@ document.addEventListener('click', ev => {
       pickBalXfer(role, id);
       return;
     }
-    const sel = document.getElementById('opsAccount');
+    const leg = pick.getAttribute('data-ops-acct-leg') || 'a';
+    const sel = document.getElementById(leg === 'b' ? 'opsAccountB' : 'opsAccount');
     if (sel && id && [...sel.options].some(o => o.value === id)) {
       sel.value = id;
-      onOpsAccountChange();
+      if (leg === 'b') onOpsAccountBChange();
+      else onOpsAccountChange();
     }
     return;
   }

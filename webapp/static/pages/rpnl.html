@@ -190,9 +190,14 @@
           </label>
         </div>
         <select id="opsAccount" class="ops-launch-only" hidden onchange="onOpsAccountChange()"></select>
+        <select id="opsAccountB" class="ops-launch-only" hidden onchange="onOpsAccountBChange()"></select>
         <div class="rp-ops-acct-wrap ops-launch-only">
-          <div class="rp-ops-sub">Subaccount</div>
+          <div class="rp-ops-sub" id="opsAccountLabel">Subaccount</div>
           <div id="opsAccountSnap" class="rp-ops-acct-list"></div>
+        </div>
+        <div class="rp-ops-acct-wrap ops-launch-only ops-arb-only" id="opsAccountWrapB">
+          <div class="rp-ops-sub" id="opsAccountBLabel">Subaccount B</div>
+          <div id="opsAccountSnapB" class="rp-ops-acct-list"></div>
         </div>
         <div id="opsParams"></div>
         <div class="rp-ops-group" id="opsClock">
