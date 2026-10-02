@@ -1,6 +1,7 @@
 let opsCatalog = null;
 let opsAccounts = [];
 let opsProducts = [];
+let opsProductsB = [];
 let opsBots = [];
 let opsReady = false;
 let opsEdit = null;
@@ -23,6 +24,7 @@ function applyOpsMode() {
   const btn = document.getElementById('opsLaunchBtn');
   const edit = !!opsEdit;
   if (panel) panel.classList.toggle('edit', edit);
+  if (edit && panel) panel.classList.remove('arb');
   if (title) title.textContent = edit ? ('Edit ' + (opsEdit.qsym || opsEdit.contract || '')) : 'New contract';
   if (btn) btn.textContent = edit ? 'Apply' : 'Start';
   const kill = document.getElementById('opsRemoveBtn');
@@ -240,6 +242,11 @@ function fillOpsVenues() {
   const venues = opsCatalog.venues || [];
   const labels = { delta: 'Delta', binance: 'Binance', bybit: 'Bybit', kucoin: 'KuCoin', coinbase: 'Coinbase', aster: 'Aster' };
   sel.innerHTML = venues.map(v => '<option value="' + escHtml(v) + '">' + escHtml(labels[v] || v) + '</option>').join('');
+  const selB = document.getElementById('opsVenueB');
+  if (selB) {
+    selB.innerHTML = venues.map(v => '<option value="' + escHtml(v) + '">' + escHtml(labels[v] || v) + '</option>').join('');
+    if ([...selB.options].some(o => o.value === 'coinbase')) selB.value = 'coinbase';
+  }
 }
 
 function fillOpsStrategies() {
@@ -384,6 +391,71 @@ async function loadOpsProducts(venue) {
   onOpsContractMeta();
 }
 
+function opsVenueB() {
+  return (document.getElementById('opsVenueB') || {}).value || 'coinbase';
+}
+
+// Arb leg B: load the second exchange's products into its own datalist.
+async function loadOpsProductsB(venue) {
+  const list = document.getElementById('opsContractBList');
+  if (!list) return;
+  list.innerHTML = '';
+  try {
+    const r = await fetch('/api/ops/products?venue=' + encodeURIComponent(venue));
+    const d = r.ok ? await r.json() : { products: [] };
+    const seen = {};
+    opsProductsB = (d.products || []).filter(p => {
+      const s = String(p.symbol || '').toUpperCase();
+      if (!s || seen[s]) return false;
+      seen[s] = true;
+      return true;
+    });
+    list.innerHTML = opsProductsB.slice(0, 400).map(p =>
+      '<option value="' + escHtml(p.symbol) + '">' + escHtml(p.name && p.name !== p.symbol ? p.name : '') + '</option>'
+    ).join('');
+  } catch (e) {
+    opsProductsB = [];
+  }
+  onOpsContractBMeta();
+}
+
+async function onOpsVenueBChange() {
+  await loadOpsProductsB(opsVenueB());
+}
+
+function onOpsContractBMeta() {
+  const el = document.getElementById('opsContractBMeta');
+  if (!el) return;
+  const sy = ((document.getElementById('opsContractB') || {}).value || '').trim().toUpperCase();
+  const p = (opsProductsB || []).find(x => String(x.symbol || '').toUpperCase() === sy);
+  if (!p) { el.textContent = sy ? '' : 'Blank maps the same coin to this exchange'; return; }
+  const bits = [];
+  if (p.tick != null && Number(p.tick) > 0) bits.push('tick ' + p.tick);
+  if (p.cv != null && Number(p.cv) > 0) bits.push('cv ' + p.cv);
+  el.textContent = bits.join(' · ');
+}
+
+// Plain-language strategy explanation under the Strategy picker.
+function renderOpsStratBlurb() {
+  const el = document.getElementById('opsStratBlurb');
+  if (!el) return;
+  const blurb = (opsStrategySpec() || {}).blurb || '';
+  el.textContent = blurb;
+  el.hidden = !blurb;
+}
+
+// Is this symbol a known futures product on its venue? Blank or an unloaded
+// list = pass (don't block). Coinbase perps are listed as ROOT-PERP-INTX, so
+// strip -INTX before comparing a typed ROOT-PERP.
+function opsProductKnown(list, sym) {
+  const s = String(sym || '').trim().toUpperCase();
+  if (!s) return true;
+  if (!list || !list.length) return true;
+  const norm = (x) => String(x || '').toUpperCase().replace(/-INTX$/, '');
+  const want = norm(s);
+  return list.some(p => norm(p.symbol) === want || String(p.symbol || '').toUpperCase() === s);
+}
+
 function onOpsContractMeta() {
   const el = document.getElementById('opsContractMeta');
   const id = opsStrategyId();
@@ -416,7 +488,21 @@ function opsIsPair() {
 
 function onOpsStrategyChange() {
   renderOpsParams();
+  renderOpsStratBlurb();
   const id = opsStrategyId();
+  const panel = document.querySelector('#rpOps .rp-ops-panel');
+  const isArb = id === 'arb';
+  if (panel) panel.classList.toggle('arb', isArb);
+  // Arb trades two exchanges at once — relabel leg A and reveal/load leg B.
+  const vLab = document.getElementById('opsVenueLabel');
+  const cLab = document.getElementById('opsContractLabel');
+  if (vLab) vLab.childNodes[0].nodeValue = isArb ? 'Exchange A' : 'Exchange';
+  if (cLab) cLab.childNodes[0].nodeValue = isArb ? 'Contract A' : 'Contract';
+  if (isArb && !opsEdit) {
+    const selB = document.getElementById('opsVenueB');
+    if (selB && !selB.options.length) fillOpsVenues();
+    onOpsVenueBChange();
+  }
   const lock = (id === 'pair' || id === 'wing' || id === 'harvest') ? 'delta' : '';
   const venue = document.getElementById('opsVenue');
   if (venue && !opsEdit) {
@@ -1840,17 +1926,39 @@ async function submitOpsLaunch() {
     const ref = ((document.getElementById('opsP_EDGE_VENUE') || {}).value || '').toLowerCase();
     if (ref && ref === venue) return setOpsMsg('opsLaunchMsg', 'Ref venue must differ from the quoting exchange', true);
   }
+  let arbExtra = null;
+  if (strategy === 'arb') {
+    const vb = opsVenueB();
+    const cb = ((document.getElementById('opsContractB') || {}).value || '').trim();
+    if (!vb) return setOpsMsg('opsLaunchMsg', 'Pick exchange B', true);
+    if (vb === venue && (!cb || cb.toUpperCase() === contract.toUpperCase())) {
+      return setOpsMsg('opsLaunchMsg', 'Exchange B must differ from A, or give B a different contract', true);
+    }
+    // Arb trades perps/futures only — flag a spot/typo symbol before it launches
+    // and silently sits in "waiting" (the bot rejects it too).
+    const unknownA = !opsProductKnown(opsProducts, contract);
+    const unknownB = cb && !opsProductKnown(opsProductsB, cb);
+    if (unknownA || unknownB) {
+      const bad = [unknownA ? (venue + ':' + contract) : '', unknownB ? (vb + ':' + cb) : ''].filter(Boolean).join(' and ');
+      if (!confirm(bad + ' is not in the futures product list — likely spot or a typo. Arb only trades perps/futures and will refuse spot. Start anyway?')) return;
+    }
+    arbExtra = { ARB_VENUE: vb, ARB_SYMBOL: cb };
+  }
   const sum = ((document.getElementById('opsGeomSum') || {}).textContent || '').trim();
-  const line = strategy + ' · ' + venue + ':' + contract + (sum ? '\n' + sum : '');
+  const line = strategy + ' · ' + venue + ':' + contract +
+    (arbExtra ? '  ×  ' + arbExtra.ARB_VENUE + ':' + (arbExtra.ARB_SYMBOL || '(auto)') : '') +
+    (sum ? '\n' + sum : '');
   if (!confirm('Start ' + line + '?')) return;
   const btn = document.getElementById('opsLaunchBtn');
   if (btn) btn.disabled = true;
   setOpsMsg('opsLaunchMsg', 'Starting…', false);
   try {
+    const params = Object.assign(collectOpsParams(), collectOpsClock(), collectOpsReport());
+    if (arbExtra) Object.assign(params, arbExtra);
     const r = await fetch('/api/ops/launch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ venue, account, contract, strategy, params: Object.assign(collectOpsParams(), collectOpsClock(), collectOpsReport()) }),
+      body: JSON.stringify({ venue, account, contract, strategy, params }),
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {

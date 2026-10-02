@@ -165,25 +165,34 @@
         <p class="rp-ops-lead ops-launch-only" id="opsLaunchLead">Start an OPA6 process with this subaccount’s keys. Same contract + account + strategy cannot run twice.</p>
         <p class="rp-ops-lead ops-edit-only">Change knobs on this process. Writes this contract’s env so a restart keeps the same values.</p>
         <div class="rp-ops-edit-meta ops-edit-only" id="opsEditMeta"></div>
-        <div class="rp-ops-grid ops-launch-only">
-          <label>Exchange
+        <div class="rp-ops-strat ops-launch-only">
+          <label>Strategy
+            <select id="opsStrategy" onchange="onOpsStrategyChange()"></select>
+          </label>
+        </div>
+        <p class="rp-ops-lead rp-ops-blurb ops-launch-only" id="opsStratBlurb"></p>
+        <div class="rp-ops-grid ops-launch-only" id="opsLegGrid">
+          <label id="opsVenueLabel">Exchange
             <select id="opsVenue" onchange="onOpsVenueChange()"></select>
           </label>
-          <label>Contract
+          <label class="ops-arb-only" id="opsVenueBLabel">Exchange B
+            <select id="opsVenueB" onchange="onOpsVenueBChange()"></select>
+          </label>
+          <label id="opsContractLabel">Contract
             <input id="opsContract" type="text" list="opsContractList" autocomplete="off" placeholder="EVAAUSD" oninput="onOpsContractMeta()" />
             <datalist id="opsContractList"></datalist>
             <span class="rp-ops-meta" id="opsContractMeta"></span>
+          </label>
+          <label class="ops-arb-only" id="opsContractBLabel">Contract B
+            <input id="opsContractB" type="text" list="opsContractBList" autocomplete="off" placeholder="FARTCOIN-PERP" oninput="onOpsContractBMeta()" />
+            <datalist id="opsContractBList"></datalist>
+            <span class="rp-ops-meta" id="opsContractBMeta"></span>
           </label>
         </div>
         <select id="opsAccount" class="ops-launch-only" hidden onchange="onOpsAccountChange()"></select>
         <div class="rp-ops-acct-wrap ops-launch-only">
           <div class="rp-ops-sub">Subaccount</div>
           <div id="opsAccountSnap" class="rp-ops-acct-list"></div>
-        </div>
-        <div class="rp-ops-strat ops-launch-only">
-          <label>Strategy
-            <select id="opsStrategy" onchange="onOpsStrategyChange()"></select>
-          </label>
         </div>
         <div id="opsParams"></div>
         <div class="rp-ops-group" id="opsClock">
