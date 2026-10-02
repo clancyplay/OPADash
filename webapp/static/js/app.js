@@ -22,6 +22,92 @@
   }, { passive: false });
 })();
 
+// Keep the installed phone PWA in portrait. Android honors Screen Orientation
+// Lock. iOS ignores it, so we counter-rotate with measured viewport size
+// (not 100vh/100vw — those are wrong on iOS and broke the last attempt).
+(function lockPortrait() {
+  const root = document.documentElement;
+
+  function isPhone() {
+    return window.matchMedia('(hover: none) and (pointer: coarse)').matches
+      || Math.min(screen.width || 0, window.innerWidth || 0) <= 820;
+  }
+
+  function isPwa() {
+    return window.matchMedia('(display-mode: standalone)').matches
+      || window.matchMedia('(display-mode: fullscreen)').matches
+      || window.navigator.standalone === true;
+  }
+
+  function type() {
+    const o = screen.orientation;
+    const t = String((o && o.type) || '').toLowerCase();
+    if (t.indexOf('landscape') >= 0) return t;
+    if (t.indexOf('portrait') >= 0) return t;
+    const ang = Number((o && o.angle) || window.orientation || 0);
+    if (ang === 90 || ang === -90 || ang === 270) {
+      return ang === -90 || ang === 270 ? 'landscape-secondary' : 'landscape-primary';
+    }
+    return 'portrait';
+  }
+
+  function size() {
+    const vv = window.visualViewport;
+    const w = Math.round((vv && vv.width) || window.innerWidth || 0);
+    const h = Math.round((vv && vv.height) || window.innerHeight || 0);
+    return { w: w, h: h };
+  }
+
+  function nativeLock() {
+    const o = screen.orientation;
+    if (!o || typeof o.lock !== 'function') return;
+    const done = function () {};
+    try {
+      const p = o.lock('portrait');
+      if (p && typeof p.catch === 'function') p.catch(done);
+    } catch (e) {}
+  }
+
+  function apply() {
+    if (!(isPhone() && isPwa())) {
+      root.classList.remove('opa-lock');
+      root.style.removeProperty('--opa-lock-w');
+      root.style.removeProperty('--opa-lock-h');
+      return;
+    }
+    nativeLock();
+    const t = type();
+    const s = size();
+    if (t.indexOf('landscape') < 0) {
+      root.classList.remove('opa-lock');
+      root.style.removeProperty('--opa-lock-w');
+      root.style.removeProperty('--opa-lock-h');
+      return;
+    }
+    // After rotate(-90deg), CSS width/height swap: use the current (landscape)
+    // innerHeight as the portrait width, innerWidth as the portrait height.
+    const pw = Math.max(s.h, 1);
+    const ph = Math.max(s.w, 1);
+    root.style.setProperty('--opa-lock-w', pw + 'px');
+    root.style.setProperty('--opa-lock-h', ph + 'px');
+    root.classList.toggle('opa-lock-left', t.indexOf('secondary') >= 0);
+    root.classList.add('opa-lock');
+  }
+
+  nativeLock();
+  apply();
+  window.addEventListener('orientationchange', function () {
+    nativeLock();
+    requestAnimationFrame(apply);
+  });
+  window.addEventListener('resize', apply);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', apply);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) { nativeLock(); apply(); }
+  });
+  document.addEventListener('pointerdown', nativeLock, { passive: true });
+})();
+
 // Mobile nested panes: page (parent) owns vertical scroll first. The table
 // only keeps Y when the page cannot move that way and the rows actually overflow.
 (function nestedPaneScroll() {

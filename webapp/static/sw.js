@@ -1,5 +1,5 @@
 /* OPADash PWA — install shell only. Live API/WS stay network-first. */
-const CACHE = "opadash-shell-v4";
+const CACHE = "opadash-shell-v5";
 const PRECACHE = [
   "/",
   "/manifest.webmanifest",
