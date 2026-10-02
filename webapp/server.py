@@ -90,7 +90,8 @@ async def _boot_usdinr_sync() -> None:
         from webapp import railway as rw
         if not rw.ready():
             return
-        rate = float(settings.usdinr_rate or 85)
+        # Bot default is 85 — do not push the dash live FX quote (e.g. 98.52).
+        rate = 85.0
         result = await asyncio.to_thread(rw.sync_usdinr_rate, rate, True)
         logger.info(
             "webapp: USDINR sync rate=%s updated=%s skipped=%s failed=%s",

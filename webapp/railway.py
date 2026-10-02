@@ -194,15 +194,16 @@ def _infra_env(venue: str, template: dict[str, str]) -> dict[str, str]:
         val = _pick_infra(name, template)
         if val:
             out[name] = val
-    # Always stamp the dash rate so a stale template copy of USDINR_RATE=87
-    # cannot leak onto new bots.
-    out["USDINR_RATE"] = (os.getenv("USDINR_RATE") or "85").strip() or "85"
+    # Always stamp the bot default so a stale template copy of USDINR_RATE=87
+    # (or the dash live FX quote) cannot leak onto new bots.
+    out["USDINR_RATE"] = "85"
     return out
 
 
 def sync_usdinr_rate(rate: float = 85.0, *, redeploy: bool = True) -> dict:
-    """Set USDINR_RATE on every listed OPA6 bot service.
+    """Migrate shared USDINR_RATE on OPA6 bots from the old defaults (87/83) to `rate`.
 
+    Custom rates (anything other than empty / 87 / 83) are left alone.
     With redeploy=True the replica restarts so the live process picks it up.
     """
     if not ready():
@@ -211,6 +212,7 @@ def sync_usdinr_rate(rate: float = 85.0, *, redeploy: bool = True) -> dict:
     # Normalize 85.0 → prefer clean "85" when whole number
     if float(want) == int(float(want)):
         want = str(int(float(want)))
+    old_defaults = {87.0, 83.0}
     updated: list[str] = []
     skipped: list[str] = []
     failed: list[dict] = []
@@ -227,6 +229,17 @@ def sync_usdinr_rate(rate: float = 85.0, *, redeploy: bool = True) -> dict:
             env = _variables(sid)
             cur = str(env.get("USDINR_RATE") or "").strip()
             if cur == want:
+                skipped.append(name)
+                continue
+            migrate = not cur
+            if not migrate:
+                try:
+                    migrate = abs(float(cur) - float(want)) > 1e-9 and any(
+                        abs(float(cur) - old) < 1e-9 for old in old_defaults
+                    )
+                except ValueError:
+                    migrate = False
+            if not migrate:
                 skipped.append(name)
                 continue
             _upsert_vars(sid, {"USDINR_RATE": want}, skip_deploys=not redeploy)
