@@ -1150,6 +1150,9 @@ def launch(
         apply_arb_other_keys(env, venue, contract)
     if acct_id:
         env["DASH_ACCOUNT"] = acct_id
+    acct_name = str(account.get("name") or "").strip()
+    if acct_name:
+        env["ACCOUNT"] = acct_name
     if strategy == "pair":
         env["PAIR_SYMBOL"] = ",".join(t for t in argv_tail if t[:2] in ("C-", "P-")) or env.get("PAIR_SYMBOL", "")
     try:

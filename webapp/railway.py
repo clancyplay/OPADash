@@ -564,6 +564,9 @@ def _bot_env(venue: str, contract: str, strategy: str, account: dict, knobs: dic
     acct_id = str(account.get("id") or account.get("name") or "").strip()
     if acct_id:
         env["DASH_ACCOUNT"] = acct_id
+    acct_name = str(account.get("name") or "").strip()
+    if acct_name:
+        env["ACCOUNT"] = acct_name
     return env
 
 

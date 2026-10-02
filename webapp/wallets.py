@@ -169,6 +169,21 @@ def load_wallet_accounts() -> list[dict]:
             if exch == "kucoin":
                 rec["passphrase"] = os.getenv("KUCOIN_API_PASSPHRASE")
             add(rec)
+
+    # Bybit/Coinbase wallet fetchers echo back the configured id as their uid
+    # (no real exchange uid available) — same id on two exchanges silently
+    # merges two unrelated accounts into one Balances row.
+    by_id: dict[str, set[str]] = {}
+    for r in rows:
+        if r["id"]:
+            by_id.setdefault(r["id"], set()).add(r["exchange"])
+    for aid, exs in by_id.items():
+        if len(exs) > 1:
+            logger.warning(
+                "wallets: id %r reused across exchanges %s — their balances will merge "
+                "into one Balances row; give each real account its own BAL_n_ID",
+                aid, sorted(exs),
+            )
     return rows
 
 
