@@ -366,32 +366,135 @@ async def _kucoin_wallet(client: httpx.AsyncClient, acct: dict, rate: float) -> 
     }
 
 
-async def _bybit_wallet(client: httpx.AsyncClient, acct: dict, rate: float) -> dict:
+async def _bybit_signed_get(
+    client: httpx.AsyncClient,
+    acct: dict,
+    path: str,
+    params: dict,
+) -> dict:
     base = os.getenv("BYBIT_REST_URL", "https://api.bybit.com").rstrip("/")
+    qs = urlencode(sorted((k, v) for k, v in params.items() if v is not None and v != ""))
+    ts = str(int(time.time() * 1000))
+    recv = "5000"
+    sign = hmac.new(
+        acct["api_secret"].encode(),
+        f"{ts}{acct['api_key']}{recv}{qs}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    r = await client.get(
+        f"{base}{path}" + (f"?{qs}" if qs else ""),
+        headers={
+            "X-BAPI-API-KEY": acct["api_key"],
+            "X-BAPI-SIGN": sign,
+            "X-BAPI-TIMESTAMP": ts,
+            "X-BAPI-RECV-WINDOW": recv,
+            "Content-Type": "application/json",
+        },
+    )
+    rec = r.json() if r.content else {}
+    if not isinstance(rec, dict):
+        raise RuntimeError(r.text[:180] or f"HTTP {r.status_code}")
+    return rec
+
+
+def _bybit_pick_num(*vals, default: float = 0.0) -> float:
+    """First present numeric field — keeps real zeros (unlike `a or b`)."""
+    for v in vals:
+        if v is None or v == "":
+            continue
+        return _num(v, default)
+    return default
+
+
+async def _bybit_key_info(client: httpx.AsyncClient, acct: dict) -> dict:
+    """Who this API key belongs to (master vs sub, UID)."""
+    rec = await _bybit_signed_get(client, acct, "/v5/user/query-api", {})
+    ret = rec.get("retCode")
+    if ret not in (None, 0, "0"):
+        raise RuntimeError(rec.get("retMsg") or rec.get("msg") or f"retCode {ret}")
+    result = rec.get("result") if isinstance(rec.get("result"), dict) else {}
+    return result or {}
+
+
+async def _bybit_member_coin(
+    client: httpx.AsyncClient,
+    acct: dict,
+    member_id: str,
+    coin: str,
+    account_type: str,
+) -> float | None:
+    """Master-key lookup of a sub UID balance. None = endpoint refused / missing."""
+    rec = await _bybit_signed_get(
+        client,
+        acct,
+        "/v5/asset/transfer/query-account-coin-balance",
+        {
+            "memberId": member_id,
+            "accountType": account_type,
+            "coin": coin,
+        },
+    )
+    ret = rec.get("retCode")
+    if ret not in (None, 0, "0"):
+        return None
+    result = rec.get("result") if isinstance(rec.get("result"), dict) else {}
+    bal = result.get("balance") if isinstance(result, dict) else None
+    if isinstance(bal, dict):
+        return _bybit_pick_num(bal.get("walletBalance"), bal.get("transferBalance"), bal.get("equity"))
+    if isinstance(bal, list):
+        for row in bal:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("coin") or "").upper() != coin:
+                continue
+            return _bybit_pick_num(row.get("walletBalance"), row.get("transferBalance"), row.get("equity"))
+    return None
+
+
+async def _bybit_wallet(client: httpx.AsyncClient, acct: dict, rate: float) -> dict:
     want = (acct.get("asset") or os.getenv("BYBIT_WALLET_ASSET", "USDT") or "USDT").upper()
     kind = (os.getenv("BYBIT_ACCOUNT_TYPE", "UNIFIED") or "UNIFIED").strip().upper() or "UNIFIED"
+    cfg_uid = _clean(acct.get("id"))
+    key_uid = ""
+    is_master = False
+    try:
+        info = await _bybit_key_info(client, acct)
+        key_uid = _clean(info.get("userID") or info.get("userId") or info.get("uid"))
+        is_master = info.get("isMaster") is True or str(info.get("isMaster") or "").lower() in ("1", "true")
+    except Exception as exc:
+        logger.debug("wallets: bybit query-api failed — %s", exc)
+
+    # Config id is the Bybit member UID. When this key is the master and the
+    # configured UID is a different subaccount, wallet-balance would wrongly
+    # return the master's equity — query the sub via memberId instead.
+    target = cfg_uid or key_uid
+    if is_master and cfg_uid and key_uid and cfg_uid != key_uid:
+        last_err = "no wallet"
+        for acct_type in (kind, "UNIFIED", "CONTRACT", "FUND"):
+            got = await _bybit_member_coin(client, acct, cfg_uid, want, acct_type)
+            if got is None:
+                last_err = f"member {cfg_uid} {acct_type} unavailable"
+                continue
+            return {
+                "balance": got * rate,
+                "native": got,
+                "asset": want,
+                "uid": cfg_uid,
+                "available": got,
+            }
+        raise RuntimeError(
+            f"Bybit sub {cfg_uid} balance failed ({last_err}). "
+            "Use a master key with SubMember transfer read, or BBSA1's own API key."
+        )
+
     last_err = "no wallet"
     for acct_type in (kind, "UNIFIED", "CONTRACT"):
-        params = {"accountType": acct_type, "coin": want}
-        qs = urlencode(sorted(params.items()))
-        ts = str(int(time.time() * 1000))
-        recv = "5000"
-        sign = hmac.new(
-            acct["api_secret"].encode(),
-            f"{ts}{acct['api_key']}{recv}{qs}".encode(),
-            hashlib.sha256,
-        ).hexdigest()
-        r = await client.get(
-            f"{base}/v5/account/wallet-balance?{qs}",
-            headers={
-                "X-BAPI-API-KEY": acct["api_key"],
-                "X-BAPI-SIGN": sign,
-                "X-BAPI-TIMESTAMP": ts,
-                "X-BAPI-RECV-WINDOW": recv,
-                "Content-Type": "application/json",
-            },
+        rec = await _bybit_signed_get(
+            client,
+            acct,
+            "/v5/account/wallet-balance",
+            {"accountType": acct_type, "coin": want},
         )
-        rec = r.json() if r.content else {}
         ret = rec.get("retCode")
         if ret not in (None, 0, "0"):
             last_err = rec.get("retMsg") or rec.get("msg") or f"retCode {ret}"
@@ -406,21 +509,30 @@ async def _bybit_wallet(client: httpx.AsyncClient, acct: dict, rate: float) -> d
             for coin in coins if isinstance(coins, list) else []:
                 if str((coin or {}).get("coin") or "").upper() != want:
                     continue
-                native = _num(coin.get("equity") or coin.get("walletBalance") or coin.get("usdValue") or total)
+                native = _bybit_pick_num(
+                    coin.get("equity"),
+                    coin.get("walletBalance"),
+                    coin.get("usdValue"),
+                    total,
+                )
                 return {
                     "balance": native * rate,
                     "native": native,
                     "asset": want,
-                    "uid": str(acct.get("id") or ""),
-                    "available": _num(coin.get("availableToWithdraw") or coin.get("walletBalance")),
+                    "uid": target or cfg_uid or key_uid,
+                    "available": _bybit_pick_num(
+                        coin.get("availableToWithdraw"),
+                        coin.get("walletBalance"),
+                        native,
+                    ),
                 }
             if total not in (None, ""):
-                native = _num(total)
+                native = _bybit_pick_num(total)
                 return {
                     "balance": native * rate,
                     "native": native,
                     "asset": want,
-                    "uid": str(acct.get("id") or ""),
+                    "uid": target or cfg_uid or key_uid,
                     "available": native,
                 }
     raise RuntimeError(last_err)

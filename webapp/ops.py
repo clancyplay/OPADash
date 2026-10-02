@@ -657,23 +657,56 @@ async def _delta_acct_snap(client: httpx.AsyncClient, acct: dict, rate: float) -
 async def account_live_snaps(venue: str = "delta") -> dict[str, dict]:
     """id/name/alias → live snap for the New-contract picker. Identity is always the id."""
     venue = str(venue or "delta").strip().lower()
-    accts = [a for a in load_wallet_accounts() if a.get("exchange") == venue]
-    if not accts:
-        return {}
-    if venue != "delta":
+    indexed = [
+        (i, a) for i, a in enumerate(load_wallet_accounts())
+        if a.get("exchange") == venue
+    ]
+    if not indexed:
         return {}
     rate = float(os.getenv("USDINR_RATE", "87") or 87)
     timeout = httpx.Timeout(12.0, connect=6.0)
-    async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
-        parent_modes, rows = await asyncio.gather(
-            _delta_subaccount_modes(client),
-            asyncio.gather(*[_delta_acct_snap(client, a, rate) for a in accts]),
-        )
     out: dict[str, dict] = {}
-    for item in rows:
-        item["margin_mode"] = _margin_mode_for(parent_modes, item)
-        for key in account_tags(item, item.get("cfg_id"), item.get("name")):
-            out[str(key)] = item
+    accts = [a for _, a in indexed]
+
+    if venue == "delta":
+        async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
+            parent_modes, rows = await asyncio.gather(
+                _delta_subaccount_modes(client),
+                asyncio.gather(*[_delta_acct_snap(client, a, rate) for a in accts]),
+            )
+        for item in rows:
+            item["margin_mode"] = _margin_mode_for(parent_modes, item)
+            for key in account_tags(item, item.get("cfg_id"), item.get("name")):
+                out[str(key)] = item
+        return out
+
+    # Bybit / Binance / Coinbase / … — reuse Balances wallet fetchers so arb
+    # Subaccount B shows the same ₹/$ as the Balances page.
+    from webapp.wallets import _fetch_one
+
+    async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
+        fetched = await asyncio.gather(*[_fetch_one(client, a, rate) for a in accts])
+    for (i, acct), rec in zip(indexed, fetched):
+        ok = bool(rec.get("ok"))
+        # Same fallback id/name public_accounts() uses so enrich can join.
+        synth = str(acct.get("id") or acct.get("name") or f"{venue}-{i + 1}").strip()
+        item = {
+            "id": str(rec.get("uid") or acct.get("id") or synth).strip(),
+            "cfg_id": str(acct.get("id") or "").strip(),
+            "name": str(acct.get("name") or synth).strip(),
+            "aliases": list(acct.get("aliases") or []),
+            "parent": bool(acct.get("parent")),
+            "margin_mode": "",
+            "balance": _num(rec.get("native")) if ok else None,
+            "available": _num(rec.get("available")) if ok else None,
+            "asset": str(rec.get("asset") or acct.get("asset") or ""),
+            "balance_inr": _num(rec.get("balance")) if ok else None,
+            "usdinr": rate,
+            "error": "" if ok else str(rec.get("error") or "fetch failed")[:160],
+        }
+        for key in account_tags(item, item.get("cfg_id"), synth, acct.get("name"), acct.get("id")):
+            if key:
+                out[str(key)] = item
     return out
 
 
@@ -712,7 +745,16 @@ def enrich_accounts(
         if name and name != aid:
             by_acct.setdefault(name, []).append(item)
     for row in rows:
-        snap = snaps.get(row["id"]) or snaps.get(row["name"]) or {}
+        rid = str(row.get("id") or "").strip()
+        rname = str(row.get("name") or "").strip()
+        snap = (snaps.get(rid) if rid else None) or (snaps.get(rname) if rname else None) or {}
+        if not snap:
+            for aka in row.get("aliases") or []:
+                text = str(aka or "").strip()
+                if text:
+                    snap = snaps.get(text) or {}
+                    if snap:
+                        break
         row["margin_mode"] = snap.get("margin_mode") or ""
         bal = snap.get("balance")
         row["balance"] = None if bal is None else _num(bal)
@@ -720,10 +762,15 @@ def enrich_accounts(
         row["available"] = None if avail is None else _num(avail)
         row["asset"] = snap.get("asset") or row.get("asset") or ""
         inr = snap.get("balance_inr")
+        if inr is None and rid:
+            inr = wallets_inr.get(rid)
+        if inr is None and rname:
+            inr = wallets_inr.get(rname)
         if inr is None:
-            inr = wallets_inr.get(row["id"])
-        if inr is None:
-            inr = wallets_inr.get(row["name"])
+            for aka in row.get("aliases") or []:
+                inr = wallets_inr.get(str(aka or "").strip())
+                if inr is not None:
+                    break
         rate = _num(snap.get("usdinr") or os.getenv("USDINR_RATE") or 87) or 87.0
         row["usdinr"] = rate
         if inr is None and row["balance"] is not None:
@@ -732,9 +779,10 @@ def enrich_accounts(
         if row["balance"] is None and row["balance_inr"] is not None and rate:
             row["balance"] = round(row["balance_inr"] / rate, 4)
         row["error"] = snap.get("error") or ""
-        row["running"] = _dedupe_running(
-            (by_acct.get(row["id"]) or []) + (by_acct.get(row["name"]) or [])
-        )
+        run = list(by_acct.get(rid) or []) + list(by_acct.get(rname) or [])
+        for aka in row.get("aliases") or []:
+            run.extend(by_acct.get(str(aka or "").strip()) or [])
+        row["running"] = _dedupe_running(run)
     return rows
 
 
