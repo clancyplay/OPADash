@@ -1303,32 +1303,6 @@
     }
   }
 
-  /* iOS PWA ignores manifest orientation — keep UI portrait when the phone is landscape. */
-  @media screen and (orientation: landscape) and (hover: none) and (pointer: coarse) {
-    html.opa-portrait {
-      position: fixed;
-      top: 100%;
-      left: 0;
-      width: 100vh;
-      height: 100vw;
-      max-width: 100vh;
-      max-height: 100vw;
-      overflow: hidden;
-      transform: rotate(-90deg);
-      transform-origin: left top;
-      overscroll-behavior: none;
-    }
-    html.opa-portrait body {
-      width: 100%;
-      height: 100%;
-      min-height: 0;
-      max-height: 100%;
-      overflow: auto;
-      overscroll-behavior: none;
-      -webkit-overflow-scrolling: touch;
-    }
-  }
-
   @media (min-width: 721px) {
     .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }

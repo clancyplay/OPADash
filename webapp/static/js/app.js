@@ -22,53 +22,6 @@
   }, { passive: false });
 })();
 
-// Installed PWA / phone: keep the app in portrait (Android API + iOS CSS fallback).
-(function lockPortrait() {
-  const html = document.documentElement;
-
-  function isPhone() {
-    return window.matchMedia('(hover: none) and (pointer: coarse)').matches
-      || Math.min(screen.width || 0, screen.height || 0) <= 820;
-  }
-
-  function isInstalled() {
-    return window.matchMedia('(display-mode: standalone)').matches
-      || window.matchMedia('(display-mode: fullscreen)').matches
-      || window.navigator.standalone === true;
-  }
-
-  function tryLock() {
-    const force = isPhone() && isInstalled();
-    html.classList.toggle('opa-portrait', force);
-    const o = screen.orientation;
-    if (!o || typeof o.lock !== 'function') return;
-    const done = function () {};
-    try {
-      const p = o.lock('portrait-primary');
-      if (p && typeof p.then === 'function') {
-        p.then(done, function () {
-          const q = o.lock('portrait');
-          if (q && typeof q.catch === 'function') q.catch(done);
-        });
-      }
-    } catch (err) {
-      try {
-        const q = o.lock('portrait');
-        if (q && typeof q.catch === 'function') q.catch(done);
-      } catch (e2) {}
-    }
-  }
-
-  tryLock();
-  window.addEventListener('orientationchange', tryLock);
-  window.addEventListener('resize', tryLock);
-  document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) tryLock();
-  });
-  // Some browsers only allow lock after a gesture.
-  document.addEventListener('pointerdown', tryLock, { passive: true });
-})();
-
 // Mobile nested panes: page (parent) owns vertical scroll first. The table
 // only keeps Y when the page cannot move that way and the rows actually overflow.
 (function nestedPaneScroll() {
