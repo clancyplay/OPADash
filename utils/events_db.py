@@ -2694,7 +2694,8 @@ class EventsDB:
         try:
             params: list = []
             sql = """
-                SELECT COALESCE(account::text, '') AS account,
+                SELECT COALESCE(NULLIF(details->>'venue_account', ''), account::text, '') AS account,
+                       COALESCE(account::text, '') AS pill_account,
                        COALESCE(MAX(details->>'account_name'), '') AS account_name,
                        contract,
                        LOWER(exchange) AS exchange,
@@ -2707,7 +2708,7 @@ class EventsDB:
                 FROM fills
             """
             sql += self._fills_range_sql(strategy, since, until, params)
-            sql += " GROUP BY 1, 3, 4, 5"
+            sql += " GROUP BY 1, 2, 4, 5, 6"
             async with self.pool.acquire() as conn:
                 fill_rows = await conn.fetch(sql, *params)
                 bal_cols = await self._table_columns(conn, "balances")
@@ -2719,6 +2720,7 @@ class EventsDB:
                 exch = (r["exchange"] or "delta").lower()
                 rows.append({
                     "account": r["account"] or "",
+                    "pill_account": r["pill_account"] or "",
                     "account_name": r["account_name"] or "",
                     "contract": canon_contract(r["contract"]),
                     "exchange": exch,

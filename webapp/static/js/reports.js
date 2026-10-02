@@ -392,7 +392,7 @@ function renderReportAccounts(accts, snapshot) {
         : [{ exchange: '', label: '', rpnl: c.net, fills: c.fills }];
       return venues.map(function (v) {
         return '<tr class="rpt-click" data-contract="' + escHtml(c.contract || c.quote_symbol || '') +
-          '" data-account="' + escHtml(a.account || '') +
+          '" data-account="' + escHtml(c.pill_account || a.account || '') +
           '" data-strategy="' + escHtml(c.strategy || '') +
           '" onclick="goToRpnlChart(this.dataset.contract, this.dataset.account, this.dataset.strategy)" title="Open rPnL chart">' +
           '<td>' + escHtml(c.quote_symbol || c.contract) +

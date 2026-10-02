@@ -3277,6 +3277,7 @@ def _add_fill_row(acct: dict, row: dict) -> None:
     con = acct["contracts"].setdefault(con_key, {
         "contract": row["contract"],
         "strategy": strat,
+        "pill_account": row.get("pill_account") or "",
         "venue_fills": {},
         "venue_rpnl": {},
         "fills": 0,
@@ -3316,6 +3317,7 @@ def _finish_account(acct: dict) -> dict:
         contracts.append({
             "contract": con["contract"],
             "strategy": con.get("strategy") or "",
+            "pill_account": con.get("pill_account") or "",
             "quote_venue": meta["quote_venue"],
             "quote_label": meta["quote_label"],
             "quote_symbol": meta["quote_symbol"],
@@ -3481,7 +3483,7 @@ def _assemble_reports_overview(
         if (not cur or cur == aid) and names.get(aid):
             acct["account_name"] = names[aid]
         acct["live"] = any(
-            ping_is_live(c["contract"], aid, live_keys, c.get("strategy"))
+            ping_is_live(c["contract"], c.get("pill_account") or aid, live_keys, c.get("strategy"))
             for c in acct["contracts"]
         )
         acct.setdefault("positions", [])
