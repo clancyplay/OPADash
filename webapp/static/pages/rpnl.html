@@ -160,6 +160,14 @@
       <h3 id="rpOpsTitle">New contract</h3>
       <button type="button" class="btn" onclick="closeRpOps()">Close</button>
     </div>
+    <div class="rp-ops-loading" id="opsLoading" role="status" aria-live="polite" hidden>
+      <div class="rp-ops-loading-card">
+        <span class="rp-ops-loading-ring" aria-hidden="true"></span>
+        <div class="rp-ops-loading-title" id="opsLoadingText">Loading…</div>
+        <div class="rp-ops-loading-sub">Fetching accounts, contracts and saved settings</div>
+        <div class="rp-ops-loading-bar" aria-hidden="true"><i></i></div>
+      </div>
+    </div>
     <div class="rp-ops-body">
       <section id="rpOpsLaunch" class="rp-ops-pane">
         <p class="rp-ops-lead ops-launch-only" id="opsLaunchLead">Start an OPA6 process with this subaccount’s keys. Same contract + account + strategy cannot run twice.</p>

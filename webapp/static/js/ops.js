@@ -12,6 +12,31 @@ let opsSavedSeq = 0;
 let opsAcctSeq = 0;
 let opsAcctBSeq = 0;
 let opsProdBSeq = 0;
+let opsLoadGen = 0;
+let opsLoadN = 0;
+
+// Popup loading veil: counts in-flight loads; visible while any is pending.
+function opsLoadPaint() {
+  const el = document.getElementById('opsLoading');
+  if (el) el.hidden = opsLoadN <= 0;
+}
+function opsLoadBegin(text) {
+  opsLoadN += 1;
+  const lab = document.getElementById('opsLoadingText');
+  if (lab && text) lab.textContent = text;
+  opsLoadPaint();
+  return opsLoadGen;
+}
+function opsLoadEnd(tok) {
+  if (tok !== opsLoadGen) return;
+  opsLoadN = Math.max(0, opsLoadN - 1);
+  opsLoadPaint();
+}
+function opsLoadReset() {
+  opsLoadGen += 1;
+  opsLoadN = 0;
+  opsLoadPaint();
+}
 
 function opsErr(d, status) {
   const det = d && d.detail;
@@ -58,6 +83,7 @@ function openRpOps() {
   applyOpsMode();
   box.hidden = false;
   document.body.classList.add('ops-open');
+  const tok = opsLoadBegin('Loading contract setup…');
   bootRpOps().then(() => {
     fillOpsStrategies();
     applyOpsLaunchLead();
@@ -65,7 +91,7 @@ function openRpOps() {
     onOpsStrategyChange();
     fillOpsReport({});
     setOpsMsg('opsLaunchMsg', '', false);
-  });
+  }).finally(() => opsLoadEnd(tok));
 }
 
 function openRpOpsEdit(row) {
@@ -88,6 +114,7 @@ function openRpOpsEdit(row) {
   applyOpsMode();
   box.hidden = false;
   document.body.classList.add('ops-open');
+  const tok = opsLoadBegin('Loading ' + (opsEdit.qsym || 'contract') + ' settings…');
   bootRpOps().then(() => {
     const sel = document.getElementById('opsStrategy');
     if (sel && opsEdit.strategy) {
@@ -99,7 +126,7 @@ function openRpOpsEdit(row) {
     renderOpsParams();
     fillOpsFromSetup(opsEdit.settings);
     setOpsMsg('opsLaunchMsg', '', false);
-  });
+  }).finally(() => opsLoadEnd(tok));
 }
 
 function pickOpsAccount(account, accountName) {
@@ -127,29 +154,34 @@ async function openRpRestart(row) {
   applyOpsMode();
   box.hidden = false;
   document.body.classList.add('ops-open');
+  const tok = opsLoadBegin('Loading ' + (name || 'contract') + '…');
   try {
-    await bootRpOps();
-    const venueEl = document.getElementById('opsVenue');
-    if (venueEl && [...venueEl.options].some(o => o.value === venue)) {
-      venueEl.disabled = false;
-      venueEl.value = venue;
+    try {
+      await bootRpOps();
+      const venueEl = document.getElementById('opsVenue');
+      if (venueEl && [...venueEl.options].some(o => o.value === venue)) {
+        venueEl.disabled = false;
+        venueEl.value = venue;
+      }
+      await onOpsVenueChange();
+      pickOpsAccount(row.account, row.account_name);
+      const inp = document.getElementById('opsContract');
+      if (inp) inp.value = contract;
+      const strat = document.getElementById('opsStrategy');
+      if (strat && strategy && [...strat.options].some(o => o.value === strategy)) strat.value = strategy;
+      onOpsStrategyChange();
+      if (row.settings) fillOpsFromSetup(row.settings);
+    } finally {
+      opsSkipSaved = false;
     }
-    await onOpsVenueChange();
-    pickOpsAccount(row.account, row.account_name);
-    const inp = document.getElementById('opsContract');
-    if (inp) inp.value = contract;
-    const strat = document.getElementById('opsStrategy');
-    if (strat && strategy && [...strat.options].some(o => o.value === strategy)) strat.value = strategy;
-    onOpsStrategyChange();
-    if (row.settings) fillOpsFromSetup(row.settings);
+    onOpsContractMeta();
+    applyOpsLaunchLead();
+    const title = document.getElementById('rpOpsTitle');
+    if (title) title.textContent = 'Restart ' + name;
+    setOpsMsg('opsLaunchMsg', 'Same contract, account, and last saved settings. Press Start to run it again.', false);
   } finally {
-    opsSkipSaved = false;
+    opsLoadEnd(tok);
   }
-  onOpsContractMeta();
-  applyOpsLaunchLead();
-  const title = document.getElementById('rpOpsTitle');
-  if (title) title.textContent = 'Restart ' + name;
-  setOpsMsg('opsLaunchMsg', 'Same contract, account, and last saved settings. Press Start to run it again.', false);
 }
 
 async function openOppLaunch(spec, note) {
@@ -162,56 +194,62 @@ async function openOppLaunch(spec, note) {
   applyOpsMode();
   box.hidden = false;
   document.body.classList.add('ops-open');
+  const tok = opsLoadBegin('Loading ' + spec.contract + '…');
   try {
-    await bootRpOps();
-    const venue = document.getElementById('opsVenue');
-    if (venue && [...venue.options].some(o => o.value === spec.venue)) {
-      venue.disabled = false;
-      venue.value = spec.venue;
-    }
-    await onOpsVenueChange();
-    const inp = document.getElementById('opsContract');
-    if (inp) inp.value = spec.contract;
-    const strat = document.getElementById('opsStrategy');
-    if (strat && spec.strategy && [...strat.options].some(o => o.value === spec.strategy)) {
-      strat.value = spec.strategy;
-    }
-    onOpsStrategyChange();
-    const other = String(spec.edge_venue || spec.arb_venue || '').trim().toLowerCase();
-    if (other) {
-      // Arb Exchange B is opsVenueB — not the hidden ARB_VENUE param (defaults to coinbase).
-      const venueB = document.getElementById('opsVenueB');
-      if (spec.strategy === 'arb' && venueB && [...venueB.options].some(o => o.value === other)) {
-        venueB.value = other;
-        await onOpsVenueBChange();
+    try {
+      await bootRpOps();
+      const venue = document.getElementById('opsVenue');
+      if (venue && [...venue.options].some(o => o.value === spec.venue)) {
+        venue.disabled = false;
+        venue.value = spec.venue;
       }
-      const ev = document.getElementById('opsP_EDGE_VENUE') || document.getElementById('opsP_ARB_VENUE');
-      if (ev && [...ev.options].some(o => o.value === other)) ev.value = other;
+      await onOpsVenueChange();
+      const inp = document.getElementById('opsContract');
+      if (inp) inp.value = spec.contract;
+      const strat = document.getElementById('opsStrategy');
+      if (strat && spec.strategy && [...strat.options].some(o => o.value === spec.strategy)) {
+        strat.value = spec.strategy;
+      }
+      onOpsStrategyChange();
+      const other = String(spec.edge_venue || spec.arb_venue || '').trim().toLowerCase();
+      if (other) {
+        // Arb Exchange B is opsVenueB — not the hidden ARB_VENUE param (defaults to coinbase).
+        const venueB = document.getElementById('opsVenueB');
+        if (spec.strategy === 'arb' && venueB && [...venueB.options].some(o => o.value === other)) {
+          venueB.value = other;
+          await onOpsVenueBChange();
+        }
+        const ev = document.getElementById('opsP_EDGE_VENUE') || document.getElementById('opsP_ARB_VENUE');
+        if (ev && [...ev.options].some(o => o.value === other)) ev.value = other;
+      }
+      if (spec.arb_symbol) {
+        const symB = document.getElementById('opsContractB');
+        if (symB) symB.value = String(spec.arb_symbol);
+        const sym = document.getElementById('opsP_ARB_SYMBOL');
+        if (sym) sym.value = String(spec.arb_symbol);
+        if (typeof onOpsContractBMeta === 'function') onOpsContractBMeta();
+      }
+      if (spec.max_usd) {
+        const maxEl = document.getElementById('opsP_MAX_POSITION');
+        if (maxEl) maxEl.value = String(Math.round(Number(spec.max_usd)));
+        if (typeof setOpsMaxUnit === 'function') setOpsMaxUnit('usd');
+      }
+    } finally {
+      opsSkipSaved = false;
     }
-    if (spec.arb_symbol) {
-      const symB = document.getElementById('opsContractB');
-      if (symB) symB.value = String(spec.arb_symbol);
-      const sym = document.getElementById('opsP_ARB_SYMBOL');
-      if (sym) sym.value = String(spec.arb_symbol);
-      if (typeof onOpsContractBMeta === 'function') onOpsContractBMeta();
-    }
-    if (spec.max_usd) {
-      const maxEl = document.getElementById('opsP_MAX_POSITION');
-      if (maxEl) maxEl.value = String(Math.round(Number(spec.max_usd)));
-      if (typeof setOpsMaxUnit === 'function') setOpsMaxUnit('usd');
-    }
+    onOpsContractMeta();
+    applyOpsLaunchLead();
+    setOpsMsg('opsLaunchMsg', note || '', false);
   } finally {
-    opsSkipSaved = false;
+    opsLoadEnd(tok);
   }
-  onOpsContractMeta();
-  applyOpsLaunchLead();
-  setOpsMsg('opsLaunchMsg', note || '', false);
 }
 
 function closeRpOps() {
   const box = document.getElementById('rpOps');
   if (box) box.hidden = true;
   document.body.classList.remove('ops-open');
+  opsLoadReset();
   opsEdit = null;
   opsSkipSaved = false;
   applyOpsMode();
@@ -282,7 +320,12 @@ function opsVenue() {
 
 async function onOpsVenueChange() {
   const venue = opsVenue();
-  await Promise.all([loadOpsAccounts(venue), loadOpsProducts(venue)]);
+  const tok = opsLoadBegin('Loading accounts & contracts…');
+  try {
+    await Promise.all([loadOpsAccounts(venue), loadOpsProducts(venue)]);
+  } finally {
+    opsLoadEnd(tok);
+  }
   onOpsContractMeta();
 }
 
@@ -521,7 +564,12 @@ async function loadOpsProductsB(venue) {
 }
 
 async function onOpsVenueBChange() {
-  await Promise.all([loadOpsProductsB(opsVenueB()), loadOpsAccountsB(opsVenueB())]);
+  const tok = opsLoadBegin('Loading exchange B…');
+  try {
+    await Promise.all([loadOpsProductsB(opsVenueB()), loadOpsAccountsB(opsVenueB())]);
+  } finally {
+    opsLoadEnd(tok);
+  }
   syncOpsAccountLabels();
 }
 
@@ -636,8 +684,19 @@ function onOpsStrategyChange() {
 
 function loadOpsSavedKnobs() {
   if (opsEdit || opsSkipSaved) return;
+  if (loadOpsSavedKnobs._tok == null || loadOpsSavedKnobs._tok !== opsLoadGen) {
+    loadOpsSavedKnobs._tok = opsLoadBegin('Loading saved settings…');
+  }
   clearTimeout(loadOpsSavedKnobs._t);
-  loadOpsSavedKnobs._t = setTimeout(_loadOpsSavedKnobs, 280);
+  loadOpsSavedKnobs._t = setTimeout(async () => {
+    const tok = loadOpsSavedKnobs._tok;
+    loadOpsSavedKnobs._tok = null;
+    try {
+      await _loadOpsSavedKnobs();
+    } finally {
+      opsLoadEnd(tok);
+    }
+  }, 280);
 }
 
 async function _loadOpsSavedKnobs() {

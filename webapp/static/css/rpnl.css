@@ -1265,10 +1265,12 @@ body.ops-open { overflow: hidden; }
 .rp-ops {
   position: fixed; inset: 0; z-index: 80;
   background: rgba(0, 0, 0, .58);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
   display: flex; align-items: flex-end; justify-content: center;
 }
 .rp-ops[hidden] { display: none !important; }
 .rp-ops-panel {
+  position: relative;
   width: min(560px, 100%);
   max-height: min(92svh, 860px);
   overflow: hidden;
@@ -1279,6 +1281,8 @@ body.ops-open { overflow: hidden; }
   box-shadow: 0 -12px 40px rgba(0, 0, 0, .45);
 }
 .rp-ops-h {
+  position: relative; z-index: 3;
+  background: #141824;
   display: flex; align-items: center; justify-content: space-between;
   gap: 8px; flex: 0 0 auto;
   padding: 7px 12px 6px;
@@ -1286,6 +1290,44 @@ body.ops-open { overflow: hidden; }
 }
 .rp-ops-h h3 {
   margin: 0; font-size: 13px; font-weight: 700; color: #fff;
+}
+/* Loading veil: covers the form (Close stays clickable) until every fetch is done. */
+.rp-ops-loading {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(20, 24, 36, .86);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  animation: rp-ops-fade .2s ease .12s both;
+}
+.rp-ops-loading[hidden] { display: none !important; }
+.rp-ops-loading-card {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 20px 26px; text-align: center; max-width: 280px;
+}
+.rp-ops-loading-ring {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 3px solid rgba(41, 98, 255, .22);
+  border-top-color: var(--accent);
+  animation: rp-ops-spin .8s linear infinite;
+  margin-bottom: 6px;
+}
+.rp-ops-loading-title { font-size: 14px; font-weight: 650; color: #fff; }
+.rp-ops-loading-sub { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.rp-ops-loading-bar {
+  width: 160px; height: 3px; margin-top: 10px; border-radius: 3px;
+  background: rgba(255, 255, 255, .08); overflow: hidden;
+}
+.rp-ops-loading-bar i {
+  display: block; height: 100%; width: 40%; border-radius: 3px;
+  background: var(--accent);
+  animation: rp-ops-slide 1.1s ease-in-out infinite;
+}
+@keyframes rp-ops-spin { to { transform: rotate(360deg); } }
+@keyframes rp-ops-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rp-ops-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) {
+  .rp-ops-loading-ring { animation-duration: 2s; }
+  .rp-ops-loading-bar i { animation: none; width: 100%; opacity: .5; }
 }
 .rp-ops-panel.edit .ops-launch-only,
 .rp-ops-panel:not(.edit) .ops-edit-only { display: none !important; }
