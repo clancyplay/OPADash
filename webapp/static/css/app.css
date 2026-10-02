@@ -629,7 +629,7 @@
   .rpt-xtable tr.rpt-click { cursor: pointer; }
   .rpt-xtable tr.rpt-click:hover td { background: rgba(41,98,255,.08); }
   table.rpt-matrix .an { font-weight: 700; color: #fff; }
-  table.rpt-matrix .aid { font-size: 11px; color: var(--muted); font-weight: 400; }
+  table.rpt-matrix .aid { font-size: 11px; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; margin-top: 1px; }
   table.rpt-matrix tfoot td { font-weight: 700; border-top: 1px solid var(--border2); background: #151926; }
   .rpt-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
   .rpt-tools input[type=search] {
@@ -648,7 +648,7 @@
   }
   .rpt-acct-h:hover { background: rgba(255,255,255,.02); }
   .rpt-acct .aname { font-size: 15px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
-  .rpt-acct .aid { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .rpt-acct .aid { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 2px; letter-spacing: .2px; }
   .rpt-acct .anet { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
   .rpt-acct .ameta { font-size: 11px; color: var(--muted); text-align: right; }
   .rpt-vchips { display: flex; flex-wrap: wrap; gap: 6px; }

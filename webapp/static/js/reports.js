@@ -277,7 +277,7 @@ function renderReportMatrix(accts, exchanges) {
     }).join('');
     return '<tr class="rpt-click" data-acct-key="' + escHtml(key) + '" onclick="jumpReportAcct(\'' + key + '\')">' +
       '<td><div class="an">' + (a.live ? '<span class="rpt-live" title="live"></span> ' : '') + escHtml(rptAcctName(a)) + '</div>' +
-        (a.account && a.account !== a.account_name ? '<div class="aid">' + escHtml(a.account) + '</div>' : '') +
+        (a.account_name && a.account_name !== a.account ? '<div class="aid">#' + escHtml(a.account) + '</div>' : '') +
       '</td>' + cells +
       '<td style="color:' + rptCol(a.rpnl) + '">' + rptSigned(a.rpnl) + '</td>' +
       '<td>' + (a.fills || 0) + '</td>' +
@@ -337,8 +337,8 @@ function renderReportAccounts(accts, snapshot) {
     const key = rptAcctKey(a, i);
     const open = rptOpenAccts.has(key) ? ' open' : '';
     const name = escHtml(rptAcctName(a));
-    const idBit = a.account && a.account !== a.account_name
-      ? '<div class="aid">' + escHtml(a.account) + '</div>' : '';
+    const idBit = a.account_name && a.account_name !== a.account
+      ? '<div class="aid">#' + escHtml(a.account) + '</div>' : '';
     const hay = [a.account, a.account_name].concat(
       a.strategies || [],
       (a.contracts || []).map(function (c) { return (c.quote_symbol || c.contract) + ' ' + (c.strategy || ''); }),

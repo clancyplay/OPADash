@@ -3474,8 +3474,12 @@ def _assemble_reports_overview(
 
     live_keys = live_keys or set()
     finished = [_finish_account(a) for a in accounts.values()]
+    names = dash_ops.account_names()
     for acct in finished:
         aid = acct.get("account") or ""
+        cur = str(acct.get("account_name") or "").strip()
+        if (not cur or cur == aid) and names.get(aid):
+            acct["account_name"] = names[aid]
         acct["live"] = any(
             ping_is_live(c["contract"], aid, live_keys, c.get("strategy"))
             for c in acct["contracts"]
