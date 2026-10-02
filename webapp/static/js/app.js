@@ -588,9 +588,15 @@ function initFilterModal() {
   });
 }
 
-// Escape closes the Filters modal.
+// Escape closes the Filters modal or the Balances transfer popup.
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') closeFilterModal();
+  if (event.key !== 'Escape') return;
+  const xfer = document.getElementById('balXfer');
+  if (xfer && !xfer.hidden && typeof toggleBalXfer === 'function') {
+    toggleBalXfer(false);
+    return;
+  }
+  closeFilterModal();
 });
 
 

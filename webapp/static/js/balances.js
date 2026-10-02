@@ -386,6 +386,34 @@ function setBalXferMsg(text, err) {
 let balXferAccts = [];
 let balXferUnit = 'usd';
 let balXferRate = 87;
+let balXferVenue = 'delta';
+let balXferHasParent = false;
+
+const BAL_XFER_VENUES = [
+  { id: 'delta', label: 'Delta' },
+  { id: 'binance', label: 'Binance' },
+  { id: 'bybit', label: 'Bybit' },
+  { id: 'kucoin', label: 'KuCoin' },
+  { id: 'coinbase', label: 'Coinbase' },
+  { id: 'aster', label: 'Aster' },
+];
+
+function balXferVenueLabel(v) {
+  const row = BAL_XFER_VENUES.find(function (x) { return x.id === v; });
+  return (row && row.label) || v || 'exchange';
+}
+
+function fillBalXferVenues() {
+  const sel = document.getElementById('balXferVenue');
+  if (!sel) return;
+  const keep = sel.value || balXferVenue || 'delta';
+  sel.innerHTML = BAL_XFER_VENUES.map(function (v) {
+    return '<option value="' + escHtml(v.id) + '">' + escHtml(v.label) + '</option>';
+  }).join('');
+  if ([...sel.options].some(function (o) { return o.value === keep; })) sel.value = keep;
+  else sel.value = 'delta';
+  balXferVenue = sel.value || 'delta';
+}
 
 function toggleBalXfer(force) {
   const box = document.getElementById('balXfer');
@@ -394,7 +422,21 @@ function toggleBalXfer(force) {
   const open = force === true ? true : force === false ? false : box.hidden;
   box.hidden = !open;
   if (btn) btn.classList.toggle('on', open);
-  if (open) loadBalXfer();
+  document.body.classList.toggle('modal-open', open);
+  if (open) {
+    fillBalXferVenues();
+    loadBalXfer();
+  }
+}
+
+function onBalXferVenueChange() {
+  const sel = document.getElementById('balXferVenue');
+  balXferVenue = ((sel && sel.value) || 'delta').toLowerCase();
+  const from = document.getElementById('balXferFrom');
+  const to = document.getElementById('balXferTo');
+  if (from) from.value = '';
+  if (to) to.value = '';
+  loadBalXfer();
 }
 
 function balXferFx() {
@@ -415,6 +457,11 @@ function paintBalXferEq() {
   if (!el) return;
   const amt = Number((document.getElementById('balXferAmt') || {}).value);
   const fx = balXferFx();
+  const venue = balXferVenue || 'delta';
+  if (venue !== 'delta') {
+    el.textContent = balXferVenueLabel(venue) + ' transfers are not wired yet — pick Delta to move funds.';
+    return;
+  }
   if (!(amt > 0)) {
     el.textContent = 'Delta moves USD. INR uses USDINR ' + fx.toLocaleString('en-IN');
     return;
@@ -448,9 +495,12 @@ function paintBalXferLists() {
   const toId = (document.getElementById('balXferTo') || {}).value || '';
   const fromBox = document.getElementById('balXferFromList');
   const toBox = document.getElementById('balXferToList');
-  const html = (onId, role) => {
-    if (!balXferAccts.length) return '<div class="rp-ops-empty">No Delta subs</div>';
-    return balXferAccts.map(a => {
+  const lab = balXferVenueLabel(balXferVenue);
+  const html = function (onId, role) {
+    if (!balXferAccts.length) {
+      return '<div class="rp-ops-empty">No ' + escHtml(lab) + ' subaccounts with keys</div>';
+    }
+    return balXferAccts.map(function (a) {
       const id = a.id || a.name || '';
       return (typeof opsAcctCardHtml === 'function' ? opsAcctCardHtml : function () { return ''; })
         (a, { on: id === onId || a.name === onId, role: role, avail: true });
@@ -460,23 +510,53 @@ function paintBalXferLists() {
   if (toBox) toBox.innerHTML = html(toId, 'to');
 }
 
+function syncBalXferHint(d) {
+  const hint = document.getElementById('balXferHint');
+  const venue = balXferVenue || 'delta';
+  const lab = balXferVenueLabel(venue);
+  if (hint) {
+    if (venue === 'delta') {
+      hint.textContent = 'Move unlocked USD between Delta subaccounts. Amount can be INR or USD — Delta settles USD. Uses the parent / main API key.';
+    } else {
+      hint.textContent = lab + ' wallets loaded below. In-app transfer currently supports Delta only.';
+    }
+  }
+  balXferHasParent = !!(d && d.has_parent);
+  if (venue !== 'delta') {
+    setBalXferMsg(lab + ' transfer is not available yet. Switch exchange to Delta to move funds.', true);
+  } else if (d && !d.has_parent) {
+    setBalXferMsg(d.hint || (
+      'Delta will not transfer with a subaccount trading key. Create an API key on the main/parent Delta login (wallet permission), then set PROFIT_SWEEP_API_KEY and PROFIT_SWEEP_API_SECRET in OPADash/.env — or add that account to config/accounts.json with parent: true.'
+    ), true);
+  } else {
+    setBalXferMsg('', false);
+  }
+}
+
 async function loadBalXfer() {
   const go = document.getElementById('balXferGo');
-  setBalXferMsg('', false);
+  const sel = document.getElementById('balXferVenue');
+  if (sel && sel.value) balXferVenue = String(sel.value || 'delta').toLowerCase();
+  const venue = balXferVenue || 'delta';
+  setBalXferMsg('Loading ' + balXferVenueLabel(venue) + '…', false);
   if (go) go.disabled = true;
+  paintBalXferLists();
   try {
-    const r = await fetch('/api/ops/accounts?venue=delta');
+    const r = await fetch('/api/ops/accounts?venue=' + encodeURIComponent(venue));
     const d = r.ok ? await r.json() : { accounts: [], has_parent: false };
+    if ((document.getElementById('balXferVenue') || {}).value &&
+        String((document.getElementById('balXferVenue') || {}).value).toLowerCase() !== venue) {
+      return;
+    }
     balXferAccts = d.accounts || [];
     const rate = Number((balXferAccts[0] || {}).usdinr);
     if (isFinite(rate) && rate > 0) balXferRate = rate;
-    if (!d.has_parent) {
-      setBalXferMsg(d.hint || (
-        'Delta will not transfer with a subaccount trading key. Create an API key on the main/parent Delta login (wallet permission), then set PROFIT_SWEEP_API_KEY and PROFIT_SWEEP_API_SECRET in OPADash/.env — or add that account to config/accounts.json with parent: true.'
-      ), true);
-    }
+    syncBalXferHint(d);
     const from = document.getElementById('balXferFrom');
     const to = document.getElementById('balXferTo');
+    const ids = balXferAccts.map(function (a) { return a.id || a.name || ''; });
+    if (from && from.value && ids.indexOf(from.value) < 0) from.value = '';
+    if (to && to.value && ids.indexOf(to.value) < 0) to.value = '';
     if (from && !from.value && balXferAccts[0]) from.value = balXferAccts[0].id || balXferAccts[0].name || '';
     if (to && !to.value && balXferAccts[1]) to.value = balXferAccts[1].id || balXferAccts[1].name || '';
     if (from && to && from.value && from.value === to.value && balXferAccts.length > 1) {
@@ -484,13 +564,17 @@ async function loadBalXfer() {
     }
     paintBalXferLists();
     paintBalXferEq();
-    if (go) go.disabled = !d.has_parent;
+    if (go) go.disabled = !(venue === 'delta' && balXferHasParent);
   } catch (e) {
     setBalXferMsg(String(e), true);
   }
 }
 
 async function submitBalXfer() {
+  const venue = balXferVenue || 'delta';
+  if (venue !== 'delta') {
+    return setBalXferMsg('Only Delta transfers are supported right now', true);
+  }
   const src = (document.getElementById('balXferFrom') || {}).value || '';
   const dest = (document.getElementById('balXferTo') || {}).value || '';
   const raw = Number((document.getElementById('balXferAmt') || {}).value);
@@ -518,7 +602,7 @@ async function submitBalXfer() {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
       setBalXferMsg((typeof opsErr === 'function' ? opsErr(d, r.status) : (d.detail || 'failed')), true);
-      if (btn) btn.disabled = false;
+      if (btn) btn.disabled = !(venue === 'delta' && balXferHasParent);
       return;
     }
     setBalXferMsg('Moved ' + d.amount + ' ' + d.asset, false);
@@ -527,7 +611,7 @@ async function submitBalXfer() {
     if (typeof loadBalances === 'function') loadBalances();
   } catch (e) {
     setBalXferMsg(String(e), true);
-    if (btn) btn.disabled = false;
+    if (btn) btn.disabled = !(venue === 'delta' && balXferHasParent);
   }
 }
 
