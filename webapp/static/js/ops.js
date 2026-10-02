@@ -1,6 +1,7 @@
 let opsCatalog = null;
 let opsAccounts = [];
 let opsAccountsB = [];
+let opsAccountsBVenue = '';
 let opsProducts = [];
 let opsProductsB = [];
 let opsBots = [];
@@ -8,6 +9,9 @@ let opsReady = false;
 let opsEdit = null;
 let opsSkipSaved = false;
 let opsSavedSeq = 0;
+let opsAcctSeq = 0;
+let opsAcctBSeq = 0;
+let opsProdBSeq = 0;
 
 function opsErr(d, status) {
   const det = d && d.detail;
@@ -252,11 +256,15 @@ function fillOpsVenues() {
   if (!sel) return;
   const venues = opsCatalog.venues || [];
   const labels = { delta: 'Delta', binance: 'Binance', bybit: 'Bybit', kucoin: 'KuCoin', coinbase: 'Coinbase', aster: 'Aster' };
+  const keepA = sel.value;
   sel.innerHTML = venues.map(v => '<option value="' + escHtml(v) + '">' + escHtml(labels[v] || v) + '</option>').join('');
+  if (keepA && [...sel.options].some(o => o.value === keepA)) sel.value = keepA;
   const selB = document.getElementById('opsVenueB');
   if (selB) {
+    const keepB = selB.value;
     selB.innerHTML = venues.map(v => '<option value="' + escHtml(v) + '">' + escHtml(labels[v] || v) + '</option>').join('');
-    if ([...selB.options].some(o => o.value === 'coinbase')) selB.value = 'coinbase';
+    if (keepB && [...selB.options].some(o => o.value === keepB)) selB.value = keepB;
+    else if ([...selB.options].some(o => o.value === 'coinbase')) selB.value = 'coinbase';
   }
 }
 
@@ -282,11 +290,14 @@ async function loadOpsAccounts(venue) {
   const sel = document.getElementById('opsAccount');
   if (!sel) return;
   const keep = sel.value;
-  const r = await fetch('/api/ops/accounts?venue=' + encodeURIComponent(venue));
+  const v = String(venue || '').trim().toLowerCase();
+  const seq = ++opsAcctSeq;
+  const r = await fetch('/api/ops/accounts?venue=' + encodeURIComponent(v));
+  if (seq !== opsAcctSeq) return;
   const d = r.ok ? await r.json() : { accounts: [] };
   opsAccounts = d.accounts || [];
   if (!opsAccounts.length) {
-    sel.innerHTML = '<option value="">No keys for ' + escHtml(venue) + '</option>';
+    sel.innerHTML = '<option value="">No keys for ' + escHtml(v) + '</option>';
     renderOpsAccountSnap();
     return;
   }
@@ -389,15 +400,27 @@ async function loadOpsAccountsB(venue) {
   if (!sel) return;
   const keep = sel.value;
   const v = String(venue || '').trim().toLowerCase();
+  const seq = ++opsAcctBSeq;
   if (!v) {
     opsAccountsB = [];
+    opsAccountsBVenue = '';
     sel.innerHTML = '<option value="">Pick exchange B</option>';
     renderOpsAccountSnapB();
     return;
   }
+  // Show a loading placeholder so a slower prior venue can't leave
+  // the wrong wallet list on screen while this request is in flight.
+  if (opsAccountsBVenue && opsAccountsBVenue !== v) {
+    opsAccountsB = [];
+    opsAccountsBVenue = v;
+    sel.innerHTML = '<option value="">Loading ' + escHtml(v) + '…</option>';
+    renderOpsAccountSnapB();
+  }
   const r = await fetch('/api/ops/accounts?venue=' + encodeURIComponent(v));
+  if (seq !== opsAcctBSeq || opsVenueB() !== v) return;
   const d = r.ok ? await r.json() : { accounts: [] };
   opsAccountsB = d.accounts || [];
+  opsAccountsBVenue = v;
   if (!opsAccountsB.length) {
     sel.innerHTML = '<option value="">No keys for ' + escHtml(v) + '</option>';
     renderOpsAccountSnapB();
@@ -416,6 +439,10 @@ function renderOpsAccountSnapB() {
   const box = document.getElementById('opsAccountSnapB');
   if (!box) return;
   const venue = opsVenueB();
+  if (opsAccountsBVenue && opsAccountsBVenue !== venue) {
+    box.innerHTML = '<div class="rp-ops-empty">Loading ' + escHtml(venue || 'exchange B') + '…</div>';
+    return;
+  }
   if (!opsAccountsB.length) {
     box.innerHTML = '<div class="rp-ops-empty">No keys for ' + escHtml(venue || 'exchange B') + '</div>';
     return;
@@ -469,9 +496,12 @@ function opsVenueB() {
 async function loadOpsProductsB(venue) {
   const list = document.getElementById('opsContractBList');
   if (!list) return;
+  const v = String(venue || '').trim().toLowerCase();
+  const seq = ++opsProdBSeq;
   list.innerHTML = '';
   try {
-    const r = await fetch('/api/ops/products?venue=' + encodeURIComponent(venue));
+    const r = await fetch('/api/ops/products?venue=' + encodeURIComponent(v));
+    if (seq !== opsProdBSeq || opsVenueB() !== v) return;
     const d = r.ok ? await r.json() : { products: [] };
     const seen = {};
     opsProductsB = (d.products || []).filter(p => {
@@ -484,6 +514,7 @@ async function loadOpsProductsB(venue) {
       '<option value="' + escHtml(p.symbol) + '">' + escHtml(p.name && p.name !== p.symbol ? p.name : '') + '</option>'
     ).join('');
   } catch (e) {
+    if (seq !== opsProdBSeq) return;
     opsProductsB = [];
   }
   onOpsContractBMeta();
@@ -573,9 +604,13 @@ function onOpsStrategyChange() {
   if (isArb && !opsEdit) {
     const selB = document.getElementById('opsVenueB');
     if (selB && !selB.options.length) fillOpsVenues();
-    onOpsVenueBChange();
+    // Only reload B when the listed wallets are for a different venue
+    // (avoids a coinbase→bybit race every time the strategy picker re-fires).
+    if (opsAccountsBVenue !== opsVenueB()) onOpsVenueBChange();
+    else syncOpsAccountLabels();
   } else if (!isArb) {
     opsAccountsB = [];
+    opsAccountsBVenue = '';
     renderOpsAccountSnapB();
   }
   const lock = (id === 'pair' || id === 'wing' || id === 'harvest') ? 'delta' : '';
