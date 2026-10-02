@@ -2274,6 +2274,30 @@ function fitRpnlView() {
   syncOhlcGoLive();
 }
 
+// Double-click reset. Y-axis click restores that pane's price autoscale; a click
+// on the chart body refits both panes together (replaces the built-in reset,
+// which only refit one pane and left the two panes a wrong, mismatched size).
+function rpnlResetDblClick(ev) {
+  const el = ev && ev.currentTarget;
+  if (!el) return;
+  if (rpnlTouchOnYAxis(el, ev.clientX)) {
+    const chart = el.id === 'rpnlChart' ? rpnlChart : ohlcChart;
+    try { chart.priceScale('right').applyOptions({ autoScale: true }); } catch (e) {}
+    if (chart === rpnlChart && !rpnlAutoY) { rpnlAutoY = true; syncRpnlViewButtons(); }
+    return;
+  }
+  fitRpnlView();
+}
+
+function bindRpnlDblReset() {
+  ['ohlcChart', 'rpnlChart'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.dblReset) return;
+    el.dataset.dblReset = '1';
+    el.addEventListener('dblclick', rpnlResetDblClick);
+  });
+}
+
 function rpnlLogicalLooksUnfitted() {
   const n = Math.max(ohlcBarsCache.length, rpnlPtsCache.length);
   if (!n || !ohlcChart) return false;
@@ -3179,9 +3203,10 @@ function rpnlChartBase(timeScaleVisible) {
     },
     handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
     handleScale: {
-      // time:false so dragging the x-axis doesn't compress the chart; wheel + pinch still zoom.
-      axisPressedMouseMove: { time: false, price: true },
-      axisDoubleClickReset: true,
+      // Built-in reset only refits the one pane that was clicked, desyncing the
+      // two panes (wrong-size graph). Custom dblclick below refits both together.
+      axisPressedMouseMove: { time: true, price: true },
+      axisDoubleClickReset: false,
       mouseWheel: true,
       pinch: true,
     },
@@ -3460,6 +3485,7 @@ function initRpnl() {
   rpnlChart.subscribeCrosshairMove((param) => syncCrosshair('rpnl', param));
   bindRpnlSelectLayer();
   bindRpnlUserCamera();
+  bindRpnlDblReset();
 
   window.addEventListener('resize', resizeRpnlCharts);
   requestAnimationFrame(resizeRpnlCharts);
