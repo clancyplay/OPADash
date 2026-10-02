@@ -129,6 +129,10 @@ nav .nav-install:hover {
   background: var(--accent);
   border-color: var(--accent);
 }
+  /* Pages */
+  .page { display: none; min-width: 0; }
+  .page.visible { display: block; }
+
   #home { padding: 48px 32px 56px; max-width: 980px; margin: 0 auto; }
   #home h1 { font-size: 32px; margin: 0 0 10px; font-weight: 750; letter-spacing: -.4px; }
   #home p.sub { color: var(--muted); font-size: 15px; margin: 0 0 36px; line-height: 1.6; max-width: 56ch; }
