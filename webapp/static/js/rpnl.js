@@ -1769,19 +1769,19 @@ function rpnlHeldLines(s, sym, r) {
   const n = s && s.pos != null ? Number(s.pos) : NaN;
   const open = isFinite(n) && Math.abs(n) >= 1e-12;
   const cv = Number(s && s.cv);
-  const lots = isFinite(cv) && cv > 0 && Math.abs(cv - 1) > 1e-9;
+  const cvNum = isFinite(cv) && cv > 0 ? cv : 1;
+  const lots = Math.abs(cvNum - 1) > 1e-9;
   const lines = [];
   if (open) {
-    const base = lots ? Math.abs(n) * cv : Math.abs(n);
+    const base = lots ? Math.abs(n) * cvNum : Math.abs(n);
     let held = fmtG(base) + unitBit;
     if (s.entry != null && Number(s.entry) > 0) held += ' @ ' + fmtG(s.entry);
     lines.push({ cls: 'p-held', text: held });
   }
-  if (lots || rpnlWindowCoins(r) > 0) {
-    const lot = lots ? '1 lot = ' + fmtG(cv) + unitBit + ' ' : '';
-    lines.push({ cls: 'p-lot', text: lot + rpnlWindowFilledText(r, unitBit) });
-  }
-  if (!lines.length) return null;
+  lines.push({
+    cls: 'p-lot',
+    text: '1 lot = ' + fmtG(cvNum) + unitBit + ' ' + rpnlWindowFilledText(r, unitBit),
+  });
   return { side: open ? (n > 0 ? 'long' : 'short') : '', lines: lines };
 }
 
