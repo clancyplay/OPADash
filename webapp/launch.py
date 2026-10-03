@@ -655,7 +655,7 @@ def _scrub_params(raw: dict | None) -> dict[str, str]:
             text = str(val).strip()
         if len(text) > 200:
             continue
-        if not text and not name.startswith("CLOCK") and name != "REPORT_CHANNEL":
+        if not text and not name.startswith("CLOCK") and name not in ("REPORT_CHANNEL", "COLOR"):
             continue
         out[name] = text
     return out
@@ -766,6 +766,7 @@ _KNOB_SETUP = (
     ("REPORT_FILLS", "report_fills", "bool"),
     ("ALERT_RPNL_INR", "alert_rpnl", "float"),
     ("REPORT_CHANNEL", "report_channel", "str"),
+    ("COLOR", "color", "str"),
 )
 
 
@@ -815,7 +816,7 @@ def knobs_as_setup(knobs: dict[str, str] | None) -> dict:
             out[setup_key] = _bool(val)
         elif kind == "str":
             text = str(val or "").strip()
-            if text or setup_key == "clock_windows":
+            if text or setup_key in ("clock_windows", "color"):
                 out[setup_key] = text
         else:
             n = _num(val, kind)

@@ -15,6 +15,54 @@ let opsProdBSeq = 0;
 let opsLoadGen = 0;
 let opsLoadN = 0;
 
+const OPS_COLORS = [
+  { id: '', hex: '#161a25', label: 'Default', light: false },
+  { id: 'red', hex: '#c62828', label: 'Red', light: false },
+  { id: 'orange', hex: '#ef6c00', label: 'Orange', light: false },
+  { id: 'yellow', hex: '#f9a825', label: 'Yellow', light: true },
+  { id: 'green', hex: '#2e7d32', label: 'Green', light: false },
+  { id: 'blue', hex: '#1565c0', label: 'Blue', light: false },
+  { id: 'purple', hex: '#6a1b9a', label: 'Purple', light: false },
+  { id: 'white', hex: '#eceff1', label: 'White', light: true },
+  { id: 'brown', hex: '#6d4c41', label: 'Brown', light: false },
+  { id: 'black', hex: '#12141c', label: 'Black', light: false },
+];
+
+function renderOpsColors(selected) {
+  const box = document.getElementById('opsColors');
+  if (!box) return;
+  const want = String(selected || '').trim().toLowerCase();
+  const known = OPS_COLORS.some(c => c.id === want);
+  box.innerHTML = OPS_COLORS.map(c => {
+    const on = known ? c.id === want : c.id === '';
+    return '<button type="button" class="rp-color' + (on ? ' on' : '') + (c.light ? ' tone-ink' : '') +
+      '" data-color="' + c.id + '" style="background:' + c.hex + '" title="' + c.label +
+      '" aria-pressed="' + (on ? 'true' : 'false') + '"><i></i><span>' + c.label + '</span></button>';
+  }).join('');
+  if (!box.dataset.bound) {
+    box.dataset.bound = '1';
+    box.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('.rp-color');
+      if (!btn || !box.contains(btn)) return;
+      box.querySelectorAll('.rp-color').forEach(el => {
+        const hit = el === btn;
+        el.classList.toggle('on', hit);
+        el.setAttribute('aria-pressed', hit ? 'true' : 'false');
+      });
+    });
+  }
+}
+
+function collectOpsColor() {
+  const on = document.querySelector('#opsColors .rp-color.on');
+  return { COLOR: on ? (on.getAttribute('data-color') || '') : '' };
+}
+
+function opsColorHex(name) {
+  const hit = OPS_COLORS.find(c => c.id === String(name || '').trim().toLowerCase());
+  return hit && hit.id ? hit.hex : '';
+}
+
 // Popup loading veil: counts in-flight loads; visible while any is pending.
 function opsLoadPaint() {
   const el = document.getElementById('opsLoading');
@@ -56,6 +104,7 @@ function applyOpsMode() {
   if (panel) panel.classList.toggle('edit', edit);
   if (edit && panel) panel.classList.remove('arb');
   if (title) title.textContent = edit ? ('Edit ' + (opsEdit.qsym || opsEdit.contract || '')) : 'New contract';
+  if (!edit) renderOpsColors('');
   if (btn) btn.textContent = edit ? 'Apply' : 'Start';
   const kill = document.getElementById('opsRemoveBtn');
   if (kill) {
@@ -1737,6 +1786,7 @@ function fillOpsFromSetup(s) {
   setText('opsP_EXPIRY', s.expiry);
   fillOpsClock(s);
   fillOpsReport(s);
+  renderOpsColors(s.color);
   opsGeomLens().forEach(g => {
     const ticksKey = g.id === 'k' ? 'k_ticks' : (g.id === 'tail' ? 'step_ticks' : g.id + '_ticks');
     const pctKey = g.id === 'k' ? 'k' : (g.id === 'tail' ? 'step' : g.id);
@@ -2123,7 +2173,7 @@ async function submitOpsLaunch() {
   if (btn) btn.disabled = true;
   setOpsMsg('opsLaunchMsg', 'Starting…', false);
   try {
-    const params = Object.assign(collectOpsParams(), collectOpsClock(), collectOpsReport());
+    const params = Object.assign(collectOpsParams(), collectOpsClock(), collectOpsReport(), collectOpsColor());
     if (arbExtra) Object.assign(params, arbExtra);
     const r = await fetch('/api/ops/launch', {
       method: 'POST',
@@ -2228,6 +2278,17 @@ function opsRememberEdit(payload) {
   if (payload.EDGE_VENUE) s.edge_venue = String(payload.EDGE_VENUE);
   if (payload.ARB_VENUE) s.arb_venue = String(payload.ARB_VENUE);
   if (payload.ARB_SYMBOL) s.arb_symbol = String(payload.ARB_SYMBOL);
+  if ('COLOR' in payload) {
+    const name = String(payload.COLOR || '').trim().toLowerCase();
+    const hex = opsColorHex(name);
+    if (name && hex) {
+      s.color = name;
+      s.color_hex = hex;
+    } else {
+      delete s.color;
+      delete s.color_hex;
+    }
+  }
   num('ARB_MIN_PCT', 'min_edge');
   num('ARB_FEE_PCT', 'fee');
   num('ARB_COOL_SECS', 'cool');
@@ -2271,7 +2332,7 @@ async function submitOpsEdit() {
   if (geomErr) return setOpsMsg('opsLaunchMsg', geomErr, true);
   const payload = collectOpsParams();
   const clock = collectOpsClock();
-  Object.assign(payload, collectOpsReport());
+  Object.assign(payload, collectOpsReport(), collectOpsColor());
   const btn = document.getElementById('opsLaunchBtn');
   if (btn) btn.disabled = true;
   setOpsMsg('opsLaunchMsg', 'Applying…', false);

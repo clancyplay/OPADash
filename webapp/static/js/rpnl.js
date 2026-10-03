@@ -1725,6 +1725,45 @@ function rpnlPillSetupBtn(r, cur) {
     ' title="Setup" aria-label="Setup" aria-expanded="' + (mine ? 'true' : 'false') + '">i</button>';
 }
 
+const RPNL_COLORS = {
+  red: '#c62828', orange: '#ef6c00', yellow: '#f9a825', green: '#2e7d32',
+  blue: '#1565c0', purple: '#6a1b9a', white: '#eceff1', brown: '#6d4c41', black: '#12141c',
+};
+
+function rpnlHexLight(hex) {
+  const h = String(hex || '').replace('#', '');
+  if (h.length !== 6) return false;
+  const lin = (c) => {
+    const x = c / 255;
+    return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+  };
+  const r = lin(parseInt(h.slice(0, 2), 16));
+  const g = lin(parseInt(h.slice(2, 4), 16));
+  const b = lin(parseInt(h.slice(4, 6), 16));
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 0.45;
+}
+
+function rpnlPillColor(r) {
+  const s = (r && r.settings) || {};
+  const name = String(s.color || '').trim().toLowerCase();
+  const raw = String(s.color_hex || '');
+  const hex = /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : (RPNL_COLORS[name] || '');
+  if (!hex) return { hex: '', light: false };
+  return { hex, light: rpnlHexLight(hex) };
+}
+
+function rpnlPaintPillColor(el, r) {
+  if (!el) return;
+  const spec = rpnlPillColor(r);
+  if (spec.hex) {
+    el.style.background = spec.hex;
+    el.classList.toggle('tone-ink', spec.light);
+  } else {
+    el.style.background = '';
+    el.classList.remove('tone-ink');
+  }
+}
+
 function rpnlPillHtml(r, cur, nameCount) {
   const key = rpnlOptionValue(r);
   const active = key === cur ? ' active' : '';
@@ -1748,7 +1787,10 @@ function rpnlPillHtml(r, cur, nameCount) {
   const hedgeOf = rpnlHedgeOf(r);
   const via = r.settings && r.settings.hedge_via;
   const shownMode = hedgeBit ? '' : mode;
-  return '<div class="rpnl-pill' + active + liveCls + statusCls + (hedgeBit ? ' hedge' : '') + '" role="button" tabindex="0" data-rpnl-key="' + escHtml(key) + '">' +
+  const tint = rpnlPillColor(r);
+  return '<div class="rpnl-pill' + active + liveCls + statusCls + (hedgeBit ? ' hedge' : '') + (tint.light ? ' tone-ink' : '') + '"' +
+    (tint.hex ? ' style="background:' + tint.hex + '"' : '') +
+    ' role="button" tabindex="0" data-rpnl-key="' + escHtml(key) + '">' +
     '<div class="p-name">' + rpnlLiveDot(r) +
       '<span class="p-sym">' + escHtml(qsym || '') + '</span>' +
       (acct ? '<span class="rpnl-acct">' + escHtml(acct) + '</span>' : '') +
@@ -1830,6 +1872,7 @@ function renderRpnlSummary(rows, hours) {
       const st = rpnlDashStatus(r.settings);
       el.classList.toggle('stopped', !rpnlIsPairHedge(r) && st.key === 'stopped');
       el.classList.toggle('flattening', !rpnlIsPairHedge(r) && st.key === 'flattening');
+      rpnlPaintPillColor(el, r);
       const val = el.querySelector('.p-val');
       const main = rpnlPillMain(r);
       if (val) {

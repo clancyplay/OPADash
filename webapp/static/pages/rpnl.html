@@ -93,6 +93,7 @@
       <button type="button" class="rp-go-live" id="ohlcGoLive" hidden onclick="rpnlGoLive()" title="Scroll to the latest candle">Live</button>
       <div class="rp-pane-lab" id="ohlcPaneLabel" hidden>Price · vol · fills</div>
       <div id="ohlcChart"></div>
+      <div id="ohlcYHit" class="rp-y-hit" aria-hidden="true"></div>
       <div class="chart-empty" id="ohlcEmpty">No price candles for this window</div>
       <div class="chart-legend" id="ohlcLegend"></div>
       <div id="ohlcBrush" class="rpnl-brush" hidden></div>
@@ -208,6 +209,11 @@
           <div id="opsAccountSnapB" class="rp-ops-acct-list"></div>
         </div>
         <div id="opsParams"></div>
+        <div class="rp-ops-group" id="opsColor">
+          <div class="rp-ops-sub">Color</div>
+          <p class="rp-ops-hint">rPnL pill background. Default keeps the current dark pill. The same color is the icon at the start of this bot’s Telegram report.</p>
+          <div class="rp-ops-colors" id="opsColors" role="radiogroup" aria-label="Color"></div>
+        </div>
         <div class="rp-ops-group" id="opsClock">
           <div class="rp-ops-sub">Clock</div>
           <p class="rp-ops-hint" id="opsClockStatus">Off until you turn it on. With the clock off, the bot quotes the whole day.</p>

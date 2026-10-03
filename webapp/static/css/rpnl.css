@@ -227,6 +227,27 @@ body:has(#rpnl.visible) {
 .rpnl-pill:focus { outline: none; }
 .rpnl-pill:focus-visible { border-color: var(--accent); }
 .rpnl-pill.active { border-color: var(--accent); background: rgba(41, 98, 255, .12); }
+.rpnl-pill.tone-ink { color: #161a25; }
+.rpnl-pill.tone-ink .rpnl-strat { color: #2a3142; background: rgba(0, 0, 0, .08); }
+.rpnl-pill.tone-ink .rpnl-acct { color: #5d4300; background: rgba(0, 0, 0, .08); }
+.rpnl-pill.tone-ink .p-max,
+.rpnl-pill.tone-ink .p-bal,
+.rpnl-pill.tone-ink .p-geom { color: #3e4658; }
+.rp-ops-colors { display: flex; flex-wrap: wrap; gap: 8px; }
+.rp-color {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border2); border-radius: 999px;
+  padding: 4px 10px 4px 4px; color: #fff;
+  font: inherit; font-size: 11px; font-weight: 650;
+  cursor: pointer; background: #161a25;
+}
+.rp-color i {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: inherit; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .28);
+}
+.rp-color.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+.rp-color.tone-ink { color: #161a25; }
+.rp-color.tone-ink i { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .18); }
 .rpnl-pill .p-live {
   width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
   background: var(--green); box-shadow: 0 0 6px var(--green);
@@ -695,6 +716,18 @@ body:has(#rpnl.visible) {
   touch-action: none;
 }
 #ohlcChart canvas, #rpnlChart canvas { touch-action: none; }
+.rp-y-hit { display: none; }
+@media (max-width: 720px), ((hover: none) and (pointer: coarse)) {
+  .rp-y-hit {
+    display: block;
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 74px;
+    z-index: 6;
+    touch-action: none;
+    background: transparent;
+  }
+}
 .rp-pane.y-scale::after {
   content: '';
   position: absolute;
