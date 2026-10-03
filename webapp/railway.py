@@ -313,7 +313,10 @@ def _slim_knobs(knobs: dict[str, str]) -> dict[str, str]:
             out.pop(pct, None)
         else:
             out.pop(ticks, None)
-    return {k: v for k, v in out.items() if v is not None and str(v) != ""}
+    return {
+        k: v for k, v in out.items()
+        if v is not None and (str(v) != "" or k == "COLOR")
+    }
 
 
 def _template_service(proj: dict) -> dict | None:
@@ -643,7 +646,7 @@ def launch(
     params: dict | None = None,
 ) -> dict:
     from webapp.launch import (
-        BOTS, _alias_knobs, _bot_argv, _launch_contract, _pin_geom, _scrub_params,
+        BOTS, _alias_knobs, _bot_argv, _launch_contract, _pin_geom, _save_root_color, _scrub_params,
     )
 
     if strategy not in BOTS:
@@ -661,6 +664,7 @@ def launch(
         raise RuntimeError("RAILWAY_ENVIRONMENT_ID is missing on this service")
 
     knobs = _alias_knobs(strategy, _pin_geom(_scrub_params(params)))
+    _save_root_color(knobs)
     if strategy == "pair":
         if knobs.get("MAX_POSITION"):
             knobs.setdefault("PAIR_MAX", knobs["MAX_POSITION"])

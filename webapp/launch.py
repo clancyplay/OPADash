@@ -1028,6 +1028,55 @@ def _merge_rec_params(bot_id: str, knobs: dict[str, str]) -> None:
         _save(rows)
 
 
+_COLOR_NAMES = frozenset({
+    "", "red", "orange", "yellow", "green", "blue", "purple", "white", "brown", "black",
+})
+
+
+def _upsert_dotenv_key(path: Path, key: str, value: str) -> None:
+    """Replace or append one KEY="value" line. Other lines stay."""
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    line = f'{key}="{value}"'
+    out: list[str] = []
+    found = False
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            cur = stripped.split("=", 1)[0].strip()
+            if cur == key:
+                out.append(line)
+                found = True
+                continue
+        out.append(raw)
+    if not found:
+        if out and out[-1].strip():
+            out.append("")
+        out.append("# rPnL pill + telegram icon. empty = default dark pill.")
+        out.append(line)
+    body = "\n".join(out) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(body, encoding="utf-8")
+    tmp.replace(path)
+
+
+def _save_root_color(knobs: dict | None) -> None:
+    """Write COLOR into OPA6/.env so the next local start keeps the pick."""
+    if not isinstance(knobs, dict) or "COLOR" not in knobs:
+        return
+    name = str(knobs.get("COLOR") or "").strip().lower()
+    if name not in _COLOR_NAMES:
+        return
+    try:
+        path = opa6_root() / ".env"
+    except Exception:
+        return
+    try:
+        _upsert_dotenv_key(path, "COLOR", name)
+    except Exception:
+        pass
+
+
 def persist_knobs(
     *,
     venue: str = "",
@@ -1065,6 +1114,7 @@ def persist_knobs(
         return {"ok": False, "error": "no knobs to save"}
     existing, prev = _read_overlay(strategy, venue, contract, account, account_name) if merge else ({}, "")
     knobs = {**existing, **incoming} if merge else incoming
+    _save_root_color(knobs)
     files = _write_overlays(strategy, venue, contract, account or account_name, knobs)
     if rec and str(rec.get("kind") or "") != "railway":
         _merge_rec_params(str(rec.get("id") or ""), knobs)
@@ -1192,6 +1242,7 @@ def launch(
         phrase = account.get("passphrase") or env.get(extra_pw) or ""
         if phrase:
             env[extra_pw] = phrase
+    _save_root_color(knobs)
     for name, val in knobs.items():
         env[name] = val
     if strategy == "arb":
