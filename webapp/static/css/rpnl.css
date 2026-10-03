@@ -427,8 +427,6 @@ body:has(#rpnl.visible) {
   flex-wrap: nowrap;
   justify-content: flex-start;
   gap: 8px;
-  padding-top: 5px;
-  border-top: 1px solid rgba(255, 255, 255, .06);
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;

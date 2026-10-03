@@ -1561,8 +1561,6 @@ function renderRpnlInspect(row) {
     cfgSig, modeTxt, openOrdersSig(row),
   ].join('|');
   const pairHedge = rpnlIsPairHedge(row);
-  const hedgeOf = rpnlHedgeOf(row);
-  const via = s && s.hedge_via;
   const cfgHtml = (!pairHedge && s) ? rpnlCfgHtml(s, row.strategy) : '';
   box.className = 'rpnl-inspect open' + (pairHedge ? ' hedge' : '');
   box.dataset.contract = row.contract || '';
@@ -1572,34 +1570,19 @@ function renderRpnlInspect(row) {
   box.dataset.hedge = pairHedge ? '1' : '';
   if (box.dataset.sig === sig && box.innerHTML) return;
   box.dataset.sig = sig;
-  const infoEl = box.querySelector('.ri-info');
   const toolsEl = box.querySelector('.ri-tools');
-  const infoLeft = infoEl ? infoEl.scrollLeft : 0;
   const toolsLeft = toolsEl ? toolsEl.scrollLeft : 0;
   box.innerHTML =
     '<div class="ri-bar">' +
-      '<div class="ri-row ri-info">' +
-        '<div class="ri-stats">' +
-          '<span class="ri-sym">' + escHtml(qsym) + '</span>' +
-          (pairHedge ? '' : rpnlStatusChip(s)) +
-          (pairHedge
-            ? '<span class="ri-chip hedge">Hedge' + (hedgeOf ? ' of ' + escHtml(hedgeOf) : '') + '</span>'
-            : (via ? '<span class="ri-chip hedge">hedged by ' + escHtml(via) + '</span>' : '')) +
-        '</div>' +
-      '</div>' +
       '<div class="ri-row ri-tools">' + rpnlActsHtml(row) + '</div>' +
       (cfgHtml ? '<div class="ri-setup' + (riSetupOpen ? ' open' : '') + '"' + (riSetupOpen ? '' : ' hidden') + '>' + cfgHtml + '</div>' : '') +
       rpnlOrdersHtml(row) +
     '</div>';
-  const infoNow = box.querySelector('.ri-info');
   const toolsNow = box.querySelector('.ri-tools');
-  const keepScroll = function (el, left) {
-    if (!el || left <= 0) return;
-    el.scrollLeft = left;
-    requestAnimationFrame(function () { el.scrollLeft = left; });
-  };
-  keepScroll(infoNow, infoLeft);
-  keepScroll(toolsNow, toolsLeft);
+  if (toolsNow && toolsLeft > 0) {
+    toolsNow.scrollLeft = toolsLeft;
+    requestAnimationFrame(function () { toolsNow.scrollLeft = toolsLeft; });
+  }
   const page = document.getElementById('rpnl');
   if (page) page.classList.toggle('orders-open', riOrdersOpen);
   setRiSetupOpen(riSetupOpen);
@@ -1653,12 +1636,6 @@ function rpnlLiveDot(r) {
   const cls = 'p-live' + (st.key ? ' ' + st.key : '');
   const title = st.label || 'Live';
   return '<span class="' + cls + '" title="' + escHtml(title) + '"></span>';
-}
-
-function rpnlStatusChip(s) {
-  const st = rpnlDashStatus(s);
-  if (!st.label) return '';
-  return '<span class="ri-chip status ' + st.tone + '">' + escHtml(st.label) + '</span>';
 }
 
 function rpnlPillMode(r) {
