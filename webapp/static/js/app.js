@@ -22,14 +22,9 @@
   }, { passive: false });
 })();
 
-// iPhone rotates the installed-app window and ignores orientation lock.
-// One sheet (body only) is turned back so the layout stays portrait and
-// covers that window. html is not transformed, so there is no second layer.
+// Ask the installed app window to stay portrait. Do not counter-rotate the
+// page — that spins an inner layer against the window.
 (function lockPortrait() {
-  const root = document.documentElement;
-  let busy = false;
-  let lastSig = '';
-
   function isPhone() {
     return window.matchMedia('(hover: none) and (pointer: coarse)').matches;
   }
@@ -48,69 +43,12 @@
       if (p && typeof p.catch === 'function') p.catch(done);
     } catch (e) {}
   }
-  function box() {
-    const vv = window.visualViewport;
-    return {
-      w: Math.round((vv && vv.width) || window.innerWidth || 0),
-      h: Math.round((vv && vv.height) || window.innerHeight || 0),
-      x: Math.round((vv && vv.offsetLeft) || 0),
-      y: Math.round((vv && vv.offsetTop) || 0),
-    };
-  }
-  function turnedLeft() {
-    const o = screen.orientation;
-    const ang = Number((o && typeof o.angle === 'number') ? o.angle : (window.orientation || 0));
-    return ang === -90 || ang === 270;
-  }
-  function clearLock() {
-    const had = root.classList.contains('opa-portrait');
-    root.classList.remove('opa-portrait', 'opa-left');
-    ['--opa-pw', '--opa-ph', '--opa-top', '--opa-left'].forEach(function (k) {
-      root.style.removeProperty(k);
-    });
-    if (had) lastSig = '';
-  }
-  function apply() {
-    if (busy) return;
-    nativeLock();
-    if (!(isPhone() && isPwa())) {
-      clearLock();
-      return;
-    }
-    const s = box();
-    if (!(s.w > s.h + 40)) {
-      clearLock();
-      return;
-    }
-    const left = turnedLeft();
-    const sig = [left ? 1 : 0, s.w, s.h, s.x, s.y].join(',');
-    if (sig === lastSig) return;
-    lastSig = sig;
-    root.style.setProperty('--opa-pw', s.h + 'px');
-    root.style.setProperty('--opa-ph', s.w + 'px');
-    root.style.setProperty('--opa-top', (left ? s.y : s.y + s.h) + 'px');
-    root.style.setProperty('--opa-left', (left ? s.x + s.w : s.x) + 'px');
-    root.classList.toggle('opa-left', left);
-    root.classList.add('opa-portrait');
-    busy = true;
-    requestAnimationFrame(function () {
-      window.dispatchEvent(new Event('resize'));
-      busy = false;
-    });
-  }
   nativeLock();
-  apply();
-  window.addEventListener('orientationchange', function () {
-    nativeLock();
-    [50, 180, 400].forEach(function (ms) { setTimeout(apply, ms); });
-  });
-  window.addEventListener('resize', apply);
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', apply);
-  }
+  window.addEventListener('orientationchange', nativeLock);
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) apply();
+    if (!document.hidden) nativeLock();
   });
+  document.addEventListener('pointerdown', nativeLock, { passive: true });
 })();
 
 // Mobile nested panes: page (parent) owns vertical scroll first. The table

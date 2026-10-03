@@ -1072,7 +1072,7 @@ nav .nav-install:hover {
   }
 
   /* Desktop: chrome stays put, only the grid scrolls. */
-  @media (min-width: 721px) and (min-height: 521px) {
+  @media (min-width: 721px) {
     html:has(#data.visible),
     body:has(#data.visible) {
       overflow: hidden;
@@ -1145,7 +1145,7 @@ nav .nav-install:hover {
     }
   }
 
-  @media (max-width: 720px), (hover: none) and (pointer: coarse) and (max-height: 500px) {
+  @media (max-width: 720px) {
     :root { --nav-h: 44px; --pad: 12px; }
     nav {
       padding: var(--safe-t) max(8px, var(--safe-r)) 0 max(8px, var(--safe-l));
@@ -1320,36 +1320,6 @@ nav .nav-install:hover {
     }
   }
 
-  /* Phone held sideways: iOS has already turned the window. Keep the phone
-     layout, and paint one portrait sheet over that window (see .opa-portrait). */
-  @media (min-width: 721px) and (min-height: 521px) {
+  @media (min-width: 721px) {
     .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
-
-  html.opa-portrait {
-    overflow: hidden;
-    background: #0e1117;
-    height: 100%;
-  }
-  html.opa-portrait body {
-    position: fixed;
-    margin: 0;
-    min-height: 0;
-    width: var(--opa-pw);
-    height: var(--opa-ph);
-    max-width: var(--opa-pw);
-    max-height: var(--opa-ph);
-    top: var(--opa-top);
-    left: var(--opa-left);
-    right: auto;
-    bottom: auto;
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: none;
-    transform-origin: top left;
-    transform: rotate(-90deg);
-    background: #0e1117;
-  }
-  html.opa-portrait.opa-left body {
-    transform: rotate(90deg);
   }

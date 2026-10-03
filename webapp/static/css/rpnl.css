@@ -920,7 +920,7 @@ body:has(#rpnl.visible) {
 #rpnlLogs[data-kind="fills"] .rp-log-view,
 #rpnlLogs[data-kind="fills"] .rp-log-cols { display: none !important; }
 
-@media (max-width: 720px), (hover: none) and (pointer: coarse) and (max-height: 500px) {
+@media (max-width: 720px) {
   /* Freeze toolbar + pills + inspect. Only charts / dates / logs scroll. */
   html:has(#rpnl.visible),
   body:has(#rpnl.visible) {
@@ -1692,11 +1692,11 @@ body.ops-open { overflow: hidden; }
 }
 .rp-ops-origin.tmpl { background: rgba(255,224,130,.14); color: #ffe082; border-color: rgba(255,224,130,.3); }
 .rp-ops-wallets { margin-bottom: 8px; }
-@media (min-width: 721px) and (min-height: 521px) {
+@media (min-width: 721px) {
   .rp-ops { align-items: center; padding: 24px 16px; }
   .rp-ops-panel { border-radius: 14px; width: min(640px, calc(100% - 32px)); }
 }
-@media (max-width: 720px), (hover: none) and (pointer: coarse) and (max-height: 500px) {
+@media (max-width: 720px) {
   .rp-ops-grid, .rp-ops-params { grid-template-columns: 1fr; }
   .rp-ops-glossary dl > div { grid-template-columns: 1fr; gap: 2px; }
   .rp-ops-len.has-bound,
