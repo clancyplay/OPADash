@@ -484,7 +484,7 @@ _SETUP_STR_KEYS = {
     "clock_tz", "clock_phase", "clock_why", "clock_window", "clock_windows", "clock_next",
     "stockroom", "crop", "expiry",
     "clock_orders", "clock_pos", "clock_override", "clock_day_reset", "clock_suggest", "clock_suggest_why",
-    "report_channel",
+    "report_channel", "color", "color_hex",
 }
 _SETUP_FLOAT_KEYS = {"pos", "entry", "upnl", "upnl_usd", "mark", "usdinr", "cv", "wallet_inr", "alert_rpnl"}
 _SETUP_KEYS = (
@@ -524,6 +524,7 @@ _SETUP_KEYS = (
     "clock_hold", "clock_hold_left", "clock_suggest", "clock_suggest_why", "clock_suggest_n",
     "report_on", "report_secs", "report_setup", "report_errors", "report_position",
     "report_pnl", "report_fills", "alert_rpnl", "report_channel",
+    "color", "color_hex",
 )
 _SYMBOL_STRATS = {"opa3", "opa4"}
 
@@ -1455,6 +1456,88 @@ async def rpnl_chart(
     }
 
 
+_PILL_COLOR_HEX = {
+    "red": "#c62828",
+    "orange": "#ef6c00",
+    "yellow": "#f9a825",
+    "green": "#2e7d32",
+    "blue": "#1565c0",
+    "purple": "#6a1b9a",
+    "white": "#eceff1",
+    "brown": "#6d4c41",
+    "black": "#12141c",
+}
+
+
+def _saved_color_index() -> dict[tuple[str, str, str], str]:
+    """COLOR written by Apply, keyed (strategy, contract, account) slugs.
+
+    A process started before the color code never puts color on bot_setup.
+    The pill still reads the env file the edit saved.
+    """
+    from webapp.launch import _dash_slug, _overlay_dirs, _parse_env_file
+
+    out: dict[tuple[str, str, str], str] = {}
+    for folder in _overlay_dirs():
+        if not folder.is_dir():
+            continue
+        for path in folder.glob("*.env"):
+            try:
+                knobs = _parse_env_file(path)
+            except Exception:
+                continue
+            name = str(knobs.get("COLOR") or "").strip().lower()
+            if name not in _PILL_COLOR_HEX:
+                continue
+            parts = path.name[:-4].split(".")
+            if len(parts) >= 4:
+                sy, ct, ac = parts[0], parts[2], parts[3]
+            elif len(parts) == 3:
+                sy, ct, ac = parts[0], parts[2], ""
+            elif len(parts) == 2:
+                sy, ct, ac = parts[0], parts[1], ""
+            else:
+                continue
+            sy, ct, ac = _dash_slug(sy), _dash_slug(ct), _dash_slug(ac)
+            out[(sy, ct, ac)] = name
+            out.setdefault((sy, ct, ""), name)
+    return out
+
+
+def _stamp_saved_colors(rows: list[dict]) -> None:
+    """Paint a saved COLOR onto a pill the live bot has not reported yet."""
+    try:
+        colors = _saved_color_index()
+    except Exception:
+        return
+    if not colors:
+        return
+    from webapp.launch import _dash_slug
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        settings = row.get("settings")
+        if isinstance(settings, dict) and str(settings.get("color") or "").strip():
+            continue
+        sy = _dash_slug(str(row.get("strategy") or "").strip().lower())
+        ct = _dash_slug(str(row.get("quote_symbol") or row.get("contract") or "").strip().upper())
+        ac = _dash_slug(str(row.get("account") or "").strip())
+        ac_name = _dash_slug(str(row.get("account_name") or "").strip())
+        name = (
+            colors.get((sy, ct, ac))
+            or colors.get((sy, ct, ac_name))
+            or colors.get((sy, ct, ""))
+        )
+        if not name:
+            continue
+        if not isinstance(settings, dict):
+            settings = {"kind": "setup"}
+            row["settings"] = settings
+        settings["color"] = name
+        settings["color_hex"] = _PILL_COLOR_HEX[name]
+
+
 @app.get("/api/rpnl/summary")
 async def rpnl_summary(
     strategy: str = Query("all", description="strategy tag, or all"),
@@ -1544,6 +1627,7 @@ async def rpnl_summary(
         out.append(row)
         existing.add(key)
     await _stamp_deploys(out, strategy, since=since)
+    _stamp_saved_colors(out)
     return out
 
 
