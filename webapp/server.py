@@ -2420,7 +2420,7 @@ _SETUP_PAYLOAD_KEYS = frozenset({
     "EXIT_PCT", "OTM_PCT", "MAX_COIN",
     "FIELDS", "BASKET", "SILO", "FENCE", "FENCE_PCT", "FENCE_LOT", "FIELD_DUST",
     "REPORT_ON", "REPORT_SECS", "REPORT_SETUP", "REPORT_ERRORS", "REPORT_POSITION",
-    "REPORT_PNL", "REPORT_FILLS", "ALERT_RPNL_INR", "REPORT_CHANNEL",
+    "REPORT_PNL", "REPORT_FILLS", "ALERT_RPNL_INR", "REPORT_CHANNEL", "COLOR",
     "max_usd", "max_pos",
 })
 _SETUP_BOOL = frozenset({
@@ -2475,7 +2475,7 @@ def _setup_payload(payload: dict | None) -> dict:
         name = str(key or "").strip()
         if name not in _SETUP_PAYLOAD_KEYS or val is None:
             continue
-        if val == "" and name != "REPORT_CHANNEL":
+        if val == "" and name not in ("REPORT_CHANNEL", "COLOR"):
             continue
         if name in _SETUP_BOOL:
             if isinstance(val, bool):
@@ -2537,6 +2537,13 @@ def _setup_payload(payload: dict | None) -> dict:
             continue
         if name == "REPORT_CHANNEL":
             out[name] = str(val).strip()[:60]
+            continue
+        if name == "COLOR":
+            n = str(val or "").strip().lower()
+            if n and n not in _PILL_COLOR_HEX:
+                known = ", ".join(sorted(_PILL_COLOR_HEX))
+                raise HTTPException(status_code=400, detail=f"COLOR must be empty or one of {known}")
+            out[name] = n
             continue
     if not out:
         raise HTTPException(status_code=400, detail="setup payload required")
