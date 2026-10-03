@@ -244,13 +244,17 @@ body:has(#rpnl.visible) {
 .rpnl-pill.has-color .p-name { color: #f4f7fb; }
 .rpnl-pill.has-color .p-max,
 .rpnl-pill.has-color .p-bal,
-.rpnl-pill.has-color .p-geom { color: #c5cedf; }
+.rpnl-pill.has-color .p-geom,
+.rpnl-pill.has-color .p-pos,
+.rpnl-pill.has-color .p-pos .p-lot { color: #c5cedf; }
 .rpnl-pill.tone-ink { color: #161a25; }
 .rpnl-pill.tone-ink .rpnl-strat { color: #2a3142; background: rgba(0, 0, 0, .08); }
 .rpnl-pill.tone-ink .rpnl-acct { color: #5d4300; background: rgba(0, 0, 0, .08); }
 .rpnl-pill.tone-ink .p-max,
 .rpnl-pill.tone-ink .p-bal,
-.rpnl-pill.tone-ink .p-geom { color: #3e4658; }
+.rpnl-pill.tone-ink .p-geom,
+.rpnl-pill.tone-ink .p-pos,
+.rpnl-pill.tone-ink .p-pos .p-lot { color: #3e4658; }
 .rp-ops-colors { display: flex; flex-wrap: wrap; gap: 8px; }
 .rp-color {
   display: inline-flex; align-items: center; gap: 6px;
@@ -334,6 +338,19 @@ body:has(#rpnl.visible) {
 .rpnl-pill .p-usd {
   font-size: 12px; font-weight: 650; opacity: .78;
 }
+.rpnl-pill .p-upnl {
+  font-size: 11px; font-weight: 650; margin-top: 1px;
+  font-variant-numeric: tabular-nums;
+}
+.rpnl-pill .p-upnl.up { color: var(--green); }
+.rpnl-pill .p-upnl.dn { color: var(--red); }
+.rpnl-pill .p-pos {
+  margin-top: 3px; font-size: 10px; line-height: 1.35;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.rpnl-pill .p-pos.long .p-held { color: var(--green); }
+.rpnl-pill .p-pos.short .p-held { color: var(--red); }
+.rpnl-pill .p-pos .p-lot { color: var(--muted); }
 .rpnl-pill .p-max,
 .rpnl-pill .p-bal { font-size: 10px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .rpnl-pill .p-geom {
@@ -1038,6 +1055,7 @@ body:has(#rpnl.visible) {
   .rpnl-pills { padding: 6px max(8px, var(--safe-r)); gap: 6px; }
   .rpnl-pill { padding: 6px 8px; min-width: 108px; border-radius: 8px; }
   .rpnl-pill .p-val { font-size: 13px; margin-top: 1px; }
+  .rpnl-pill .p-upnl { font-size: 10px; }
   .rpnl-pill .p-setup-btn { width: 22px; height: 22px; font-size: 12px; }
 
   .rpnl-inspect {

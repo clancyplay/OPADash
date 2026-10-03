@@ -1583,8 +1583,6 @@ function renderRpnlInspect(row) {
       '<div class="ri-row ri-info">' +
         '<div class="ri-stats">' +
           '<span class="ri-sym">' + escHtml(qsym) + '</span>' +
-          rpnlPosHtml(s, 'ri-pos', row.quote_venue, qsym) +
-          rpnlArbHtml(s) +
           (pairHedge ? '' : rpnlStatusChip(s)) +
           (pairHedge
             ? '<span class="ri-chip hedge">Hedge' + (hedgeOf ? ' of ' + escHtml(hedgeOf) : '') + '</span>'
@@ -1753,6 +1751,74 @@ function rpnlPaintPillColor(el, r) {
   }
 }
 
+function rpnlHeldLines(s, sym) {
+  if (!s || s.pos == null) return null;
+  const n = Number(s.pos);
+  if (!isFinite(n) || Math.abs(n) < 1e-12) return null;
+  const unit = rpnlBaseUnit(sym);
+  const cv = Number(s.cv);
+  const lots = isFinite(cv) && cv > 0 && Math.abs(cv - 1) > 1e-9;
+  const base = lots ? Math.abs(n) * cv : Math.abs(n);
+  const unitBit = unit ? ' ' + unit : '';
+  const lines = [];
+  if (lots) {
+    lines.push('1 lot = ' + fmtG(cv) + unitBit + ' (' + fmtG(base) + unitBit + ' filled)');
+  }
+  let held = fmtG(base) + unitBit;
+  if (s.entry != null && Number(s.entry) > 0) held += ' @ ' + fmtG(s.entry);
+  lines.push(held);
+  return { side: n > 0 ? 'long' : 'short', lines: lines };
+}
+
+function rpnlPillUpnl(r) {
+  const s = r && r.settings;
+  if (!s) return null;
+  const inr = liveUpnlInr(s, r.quote_venue);
+  if (inr == null || !isFinite(inr)) return null;
+  const usd = liveUpnlUsd(s, r.quote_venue);
+  const d = Math.abs(inr) < 100 ? 2 : 0;
+  const usdBit = (usd != null && isFinite(usd)) ? ' (' + usdFmtDec(usd, 2) + ')' : '';
+  return { text: 'uPnL ' + inrFmtDec(inr, d) + usdBit, up: inr >= 0 };
+}
+
+function rpnlPillBookHtml(r) {
+  const s = r && r.settings;
+  if (!s || r.removed) return '';
+  const sym = r._pairGroup
+    ? (r._legLabel || r.quote_symbol || r.contract)
+    : (r.quote_symbol || r.contract);
+  const up = rpnlPillUpnl(r);
+  const pos = rpnlHeldLines(s, sym);
+  let html = '';
+  if (up) html += '<div class="p-upnl ' + (up.up ? 'up' : 'dn') + '">' + escHtml(up.text) + '</div>';
+  if (pos) {
+    html += '<div class="p-pos ' + pos.side + '">';
+    for (let i = 0; i < pos.lines.length; i++) {
+      const lot = pos.lines.length > 1 && i === 0;
+      html += '<div class="' + (lot ? 'p-lot' : 'p-held') + '">' + escHtml(pos.lines[i]) + '</div>';
+    }
+    html += '</div>';
+  }
+  return html;
+}
+
+function rpnlSyncPillBook(el, r) {
+  const html = rpnlPillBookHtml(r);
+  let book = el.querySelector('.p-book');
+  if (!html) {
+    if (book) book.remove();
+    return;
+  }
+  if (!book) {
+    book = document.createElement('div');
+    book.className = 'p-book';
+    const val = el.querySelector('.p-val');
+    if (val) val.insertAdjacentElement('afterend', book);
+    else el.appendChild(book);
+  }
+  book.innerHTML = html;
+}
+
 function rpnlPillHtml(r, cur, nameCount) {
   const key = rpnlOptionValue(r);
   const active = key === cur ? ' active' : '';
@@ -1777,6 +1843,7 @@ function rpnlPillHtml(r, cur, nameCount) {
   const via = r.settings && r.settings.hedge_via;
   const shownMode = hedgeBit ? '' : mode;
   const tint = rpnlPillColor(r);
+  const book = rpnlPillBookHtml(r);
   return '<div class="rpnl-pill' + active + liveCls + statusCls + (hedgeBit ? ' hedge' : '') + (tint.hex ? ' has-color' : '') + '"' +
     (tint.hex ? ' style="--pill:' + tint.hex + '"' : '') +
     ' role="button" tabindex="0" data-rpnl-key="' + escHtml(key) + '">' +
@@ -1789,6 +1856,7 @@ function rpnlPillHtml(r, cur, nameCount) {
       rpnlPillSetupBtn(r, cur) +
     '</div>' +
     '<div class="p-val" style="color:' + mainCol + '">' + rpnlPillValInner(r) + '</div>' +
+    (book ? '<div class="p-book">' + book + '</div>' : '') +
     (r._pairGroup ? '<div class="p-hedge" title="option vs hedge">opt ' + inrFmt(r._optRpnl || 0) + ' · hedge ' + inrFmt(r._hedgeRpnl || 0) + '</div>' : '') +
     (hedgeBit && hedgeOf ? '<div class="p-hedge" title="' + escHtml(hedgeOf) + '">of ' + escHtml(hedgeOf) + '</div>' : '') +
     (!hedgeBit && via ? '<div class="p-hedge via" title="' + escHtml(via) + '">hedged by ' + escHtml(via) + '</div>' : '') +
@@ -1870,6 +1938,7 @@ function renderRpnlSummary(rows, hours) {
           ? '#ffb74d'
           : (main >= 0 ? 'var(--green)' : 'var(--red)');
       }
+      rpnlSyncPillBook(el, r);
       const mode = rpnlPillMode(r);
       let modeEl = el.querySelector('.p-mode');
       if (mode) {
