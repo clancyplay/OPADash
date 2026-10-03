@@ -717,13 +717,13 @@ body:has(#rpnl.visible) {
 }
 #ohlcChart canvas, #rpnlChart canvas { touch-action: none; }
 .rp-y-hit { display: none; }
-@media (max-width: 720px), ((hover: none) and (pointer: coarse)) {
+@media (hover: none) and (pointer: coarse) {
   .rp-y-hit {
     display: block;
     position: absolute;
     top: 0; right: 0; bottom: 0;
-    width: 74px;
-    z-index: 6;
+    width: 84px;
+    z-index: 7;
     touch-action: none;
     background: transparent;
   }

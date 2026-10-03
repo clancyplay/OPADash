@@ -22,15 +22,15 @@
   }, { passive: false });
 })();
 
-// Keep the installed phone PWA in portrait. Android honors Screen Orientation
-// Lock. iOS ignores it, so we counter-rotate with measured viewport size
-// (not 100vh/100vw — those are wrong on iOS and broke the last attempt).
+// Installed phone PWA stays portrait. Android can lock the window. iOS cannot,
+// so the page is pinned back over the full window with pixel offsets. html
+// itself is never transformed — that left a second layer spinning above the app.
 (function lockPortrait() {
   const root = document.documentElement;
+  let settling = false;
 
   function isPhone() {
-    return window.matchMedia('(hover: none) and (pointer: coarse)').matches
-      || Math.min(screen.width || 0, window.innerWidth || 0) <= 820;
+    return window.matchMedia('(hover: none) and (pointer: coarse)').matches;
   }
 
   function isPwa() {
@@ -39,23 +39,17 @@
       || window.navigator.standalone === true;
   }
 
-  function type() {
-    const o = screen.orientation;
-    const t = String((o && o.type) || '').toLowerCase();
-    if (t.indexOf('landscape') >= 0) return t;
-    if (t.indexOf('portrait') >= 0) return t;
-    const ang = Number((o && o.angle) || window.orientation || 0);
-    if (ang === 90 || ang === -90 || ang === 270) {
-      return ang === -90 || ang === 270 ? 'landscape-secondary' : 'landscape-primary';
-    }
-    return 'portrait';
+  function viewport() {
+    return {
+      w: Math.round(window.innerWidth || root.clientWidth || 0),
+      h: Math.round(window.innerHeight || root.clientHeight || 0),
+    };
   }
 
-  function size() {
-    const vv = window.visualViewport;
-    const w = Math.round((vv && vv.width) || window.innerWidth || 0);
-    const h = Math.round((vv && vv.height) || window.innerHeight || 0);
-    return { w: w, h: h };
+  function turnedLeft() {
+    const o = screen.orientation;
+    const ang = Number((o && typeof o.angle === 'number') ? o.angle : (window.orientation || 0));
+    return ang === -90 || ang === 270;
   }
 
   function nativeLock() {
@@ -68,42 +62,52 @@
     } catch (e) {}
   }
 
+  function clearLock() {
+    root.classList.remove('opa-lock', 'opa-lock-left', 'opa-orienting');
+    ['--opa-lock-w', '--opa-lock-h', '--opa-lock-top', '--opa-lock-left'].forEach(function (k) {
+      root.style.removeProperty(k);
+    });
+  }
+
   function apply() {
     if (!(isPhone() && isPwa())) {
-      root.classList.remove('opa-lock');
-      root.style.removeProperty('--opa-lock-w');
-      root.style.removeProperty('--opa-lock-h');
+      clearLock();
       return;
     }
     nativeLock();
-    const t = type();
-    const s = size();
-    if (t.indexOf('landscape') < 0) {
-      root.classList.remove('opa-lock');
-      root.style.removeProperty('--opa-lock-w');
-      root.style.removeProperty('--opa-lock-h');
+    const s = viewport();
+    if (!(s.w > s.h + 40)) {
+      clearLock();
       return;
     }
-    // After rotate(-90deg), CSS width/height swap: use the current (landscape)
-    // innerHeight as the portrait width, innerWidth as the portrait height.
-    const pw = Math.max(s.h, 1);
-    const ph = Math.max(s.w, 1);
-    root.style.setProperty('--opa-lock-w', pw + 'px');
-    root.style.setProperty('--opa-lock-h', ph + 'px');
-    root.classList.toggle('opa-lock-left', t.indexOf('secondary') >= 0);
+    const left = turnedLeft();
+    root.style.setProperty('--opa-lock-w', s.h + 'px');
+    root.style.setProperty('--opa-lock-h', s.w + 'px');
+    root.style.setProperty('--opa-lock-top', left ? '0px' : (s.h + 'px'));
+    root.style.setProperty('--opa-lock-left', left ? (s.w + 'px') : '0px');
+    root.classList.toggle('opa-lock-left', left);
     root.classList.add('opa-lock');
+  }
+
+  function settle() {
+    apply();
+    root.classList.remove('opa-orienting');
+    settling = true;
+    requestAnimationFrame(function () { settling = false; });
   }
 
   nativeLock();
   apply();
   window.addEventListener('orientationchange', function () {
     nativeLock();
-    requestAnimationFrame(apply);
+    root.classList.add('opa-orienting');
+    [40, 140, 320, 600].forEach(function (ms) { setTimeout(settle, ms); });
   });
-  window.addEventListener('resize', apply);
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', apply);
+  window.addEventListener('resize', function () {
+    if (!settling) apply();
+  });
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) { nativeLock(); apply(); }
+    if (!document.hidden) { nativeLock(); settle(); }
   });
   document.addEventListener('pointerdown', nativeLock, { passive: true });
 })();

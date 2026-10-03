@@ -2334,6 +2334,7 @@ function rpnlPageVisible() {
 
 function fitRpnlView() {
   if (!ohlcChart || !rpnlChart) return;
+  rpnlResetPriceZoom(ohlcChart);
   rpnlResumeLiveFollow();
   applyRpnlChartSize();
   rpnlBeginSync();
@@ -2559,110 +2560,100 @@ function clearRpnlYScaleMode() {
     if (el) setRpnlYScaleMode(el, false);
   });
 }
-// Manual Y zoom is a price-range scale, not chart padding. Padding died at
-// 0.42 and felt like the max after a short drag. 250× in / 120× out from the
-// range where the drag started.
-const rpnlYZoomBase = new WeakMap();
+// This chart build has no priceScale.setVisibleRange. Manual Y zoom is held
+// by the series autoscale provider, which the library actually applies.
+let ohlcPriceLock = null;
 function rpnlPriceMargins(chart) {
   if (chart === ohlcChart) return { top: 0.1, bottom: ohlcShowVol ? 0.18 : 0.05 };
   return { top: 0.1, bottom: 0.08 };
 }
+function ohlcWrapAutoscale(base) {
+  return function (original) {
+    if (ohlcPriceLock && ohlcPriceLock.max > ohlcPriceLock.min) {
+      return { priceRange: { minValue: ohlcPriceLock.min, maxValue: ohlcPriceLock.max } };
+    }
+    if (typeof base === 'function') return base(original);
+    return typeof original === 'function' ? original() : null;
+  };
+}
+function ohlcInstallPriceLock() {
+  if (!ohlcChart || ohlcInstallPriceLock._done) return;
+  ohlcInstallPriceLock._done = true;
+  [ohlcSeries, ohlcBarSeries, ohlcLineSeries, ohlcAreaSeries,
+    ohlcQuoteMarkerSeries, ohlcHedgeMarkerSeries].forEach(s => {
+    if (s) s.applyOptions({ autoscaleInfoProvider: ohlcWrapAutoscale(null) });
+  });
+  Object.keys(ohlcMaSeries || {}).forEach(p => {
+    if (ohlcMaSeries[p]) ohlcMaSeries[p].applyOptions({ autoscaleInfoProvider: ohlcWrapAutoscale(null) });
+  });
+}
+function ohlcNudgeScale() {
+  if (!ohlcChart) return;
+  try { ohlcChart.priceScale('right').applyOptions({ autoScale: true, scaleMargins: rpnlPriceMargins(ohlcChart) }); } catch (e) {}
+  const s = typeof ohlcActiveSeries === 'function' ? ohlcActiveSeries() : ohlcSeries;
+  const bar = ohlcBarsCache && ohlcBarsCache[ohlcBarsCache.length - 1];
+  if (!s || !bar) return;
+  try {
+    if (ohlcStyle === 'line' || ohlcStyle === 'area') s.update({ time: bar.time, value: bar.close });
+    else s.update(bar);
+  } catch (e) {}
+}
+function ohlcReadPriceSpan() {
+  const s = typeof ohlcActiveSeries === 'function' ? ohlcActiveSeries() : ohlcSeries;
+  const el = document.getElementById('ohlcChart');
+  if (!s || !el) return null;
+  const h = el.clientHeight || 0;
+  if (h < 8) return null;
+  let top = null, bot = null;
+  try {
+    top = s.coordinateToPrice(1);
+    bot = s.coordinateToPrice(h - 2);
+  } catch (e) {}
+  if (top == null || bot == null || !isFinite(top) || !isFinite(bot)) return null;
+  const min = Math.min(top, bot);
+  const max = Math.max(top, bot);
+  if (!(max > min)) return null;
+  return { min: min, max: max };
+}
+function ohlcZoomSpan(range, factor) {
+  if (!range || !(factor > 0)) return null;
+  if (ohlcLogScale && range.min > 0 && range.max > 0) {
+    const a = Math.log(range.min);
+    const b = Math.log(range.max);
+    const mid = (a + b) / 2;
+    const half = Math.max(1e-8, (b - a) / 2 * factor);
+    const min = Math.exp(mid - half);
+    const max = Math.exp(mid + half);
+    if (!(max > min) || !isFinite(min) || !isFinite(max)) return null;
+    return { min: min, max: max };
+  }
+  const mid = (range.min + range.max) / 2;
+  const half = (range.max - range.min) / 2 * factor;
+  if (!(half > 0) || !isFinite(mid)) return null;
+  return { min: mid - half, max: mid + half };
+}
 function rpnlResetPriceZoom(chart) {
   if (!chart) return;
-  rpnlYZoomBase.delete(chart);
+  if (chart === ohlcChart) {
+    ohlcPriceLock = null;
+    ohlcNudgeScale();
+    return;
+  }
   try {
     chart.priceScale('right').applyOptions({ autoScale: true, scaleMargins: rpnlPriceMargins(chart) });
   } catch (e) {}
 }
-function rpnlRangeSpan(range, log) {
-  if (!range || !(range.to > range.from)) return 0;
-  if (log && range.from > 0 && range.to > 0) return Math.log(range.to / range.from);
-  return range.to - range.from;
-}
-function rpnlScalePriceRange(range, factor, log) {
-  if (!(factor > 0) || !(range.to > range.from)) return null;
-  if (log && range.from > 0 && range.to > 0) {
-    const a = Math.log(range.from);
-    const b = Math.log(range.to);
-    const mid = (a + b) / 2;
-    const half = Math.max(1e-9, (b - a) / 2 * factor);
-    const from = Math.exp(mid - half);
-    const to = Math.exp(mid + half);
-    if (!(to > from) || !isFinite(from) || !isFinite(to)) return null;
-    return { from: from, to: to };
-  }
-  const mid = (range.from + range.to) / 2;
-  const half = (range.to - range.from) / 2 * factor;
-  if (!(half > 0) || !isFinite(mid) || !isFinite(half)) return null;
-  return { from: mid - half, to: mid + half };
-}
-function rpnlApplyYFactor(chart, range, factor) {
-  if (!chart || !range) return;
-  const log = chart === ohlcChart && !!ohlcLogScale;
-  if (!rpnlYZoomBase.has(chart)) {
-    rpnlYZoomBase.set(chart, { from: range.from, to: range.to });
-    try {
-      chart.priceScale('right').applyOptions({ autoScale: false, scaleMargins: rpnlPriceMargins(chart) });
-    } catch (e) {}
-  }
-  const baseSpan = rpnlRangeSpan(rpnlYZoomBase.get(chart), log);
-  const nowSpan = rpnlRangeSpan(range, log);
-  if (baseSpan > 0 && nowSpan > 0) {
-    const nextSpan = nowSpan * factor;
-    const clamped = Math.max(baseSpan / 250, Math.min(baseSpan * 120, nextSpan));
-    factor = clamped / nowSpan;
-  }
-  const next = rpnlScalePriceRange(range, factor, log);
+function rpnlZoomPriceScale(chart, dy, h) {
+  if (chart !== ohlcChart || !dy) return;
+  const range = ohlcPriceLock
+    ? { min: ohlcPriceLock.min, max: ohlcPriceLock.max }
+    : ohlcReadPriceSpan();
+  if (!range) return;
+  const factor = Math.exp(dy / Math.max(160, (h || 240) * 0.48));
+  const next = ohlcZoomSpan(range, factor);
   if (!next) return;
-  try {
-    chart.priceScale('right').applyOptions({ autoScale: false });
-    chart.priceScale('right').setVisibleRange(next);
-  } catch (e) {}
-  if (chart === rpnlChart && rpnlAutoY) {
-    rpnlAutoY = false;
-    syncRpnlViewButtons();
-  }
-}
-function rpnlZoomPriceScale(chart, dy, h, dragDownZoomsOut) {
-  if (!chart || !dy) return;
-  let range = null;
-  try { range = chart.priceScale('right').getVisibleRange(); } catch (e) {}
-  if (!range || !(range.to > range.from)) return;
-  const zoomInDy = dragDownZoomsOut ? -dy : dy;
-  const factor = Math.exp(-zoomInDy / Math.max(200, (h || 240) * 0.7));
-  rpnlApplyYFactor(chart, range, factor);
-}
-function bindOhlcYDrag() {
-  const el = document.getElementById('ohlcChart');
-  if (!el || el.dataset.yDrag) return;
-  el.dataset.yDrag = '1';
-  let drag = null;
-  el.addEventListener('pointerdown', (ev) => {
-    if (ev.pointerType === 'touch' || rpnlSelectMode || ev.button !== 0) return;
-    if (!ohlcChart || !rpnlTouchOnYAxis(el, ev.clientX)) return;
-    let range = null;
-    try { range = ohlcChart.priceScale('right').getVisibleRange(); } catch (e) {}
-    if (!range || !(range.to > range.from)) return;
-    drag = { id: ev.pointerId, y: ev.clientY, range: { from: range.from, to: range.to } };
-    try { el.setPointerCapture(ev.pointerId); } catch (e) {}
-    ev.stopPropagation();
-  }, true);
-  el.addEventListener('pointermove', (ev) => {
-    if (!drag || ev.pointerId !== drag.id) return;
-    const dy = ev.clientY - drag.y;
-    if (Math.abs(dy) < 1) return;
-    // Drag down zooms out, same as the chart's own price-axis drag.
-    const factor = Math.exp(dy / Math.max(200, (el.clientHeight || 240) * 0.7));
-    rpnlApplyYFactor(ohlcChart, drag.range, factor);
-    ev.preventDefault();
-  }, true);
-  const end = (ev) => {
-    if (!drag || ev.pointerId !== drag.id) return;
-    drag = null;
-  };
-  el.addEventListener('pointerup', end, true);
-  el.addEventListener('pointercancel', end, true);
-  bindOhlcYHit();
+  ohlcPriceLock = next;
+  ohlcNudgeScale();
 }
 function bindOhlcYHit() {
   const hit = document.getElementById('ohlcYHit');
@@ -2673,10 +2664,9 @@ function bindOhlcYHit() {
   hit.addEventListener('touchstart', (ev) => {
     if (rpnlSelectMode || !ohlcChart || ev.touches.length !== 1) { drag = null; return; }
     const t = ev.touches[0];
-    let range = null;
-    try { range = ohlcChart.priceScale('right').getVisibleRange(); } catch (e) {}
-    if (!range || !(range.to > range.from)) return;
-    drag = { y: t.clientY, range: { from: range.from, to: range.to } };
+    const range = ohlcReadPriceSpan();
+    if (!range) return;
+    drag = { y: t.clientY, range: range };
     tap = { x: t.clientX, y: t.clientY, t: Date.now() };
   }, { passive: true });
   hit.addEventListener('touchmove', (ev) => {
@@ -2685,8 +2675,13 @@ function bindOhlcYHit() {
     if (Math.abs(dy) < 1) return;
     if (ev.cancelable) ev.preventDefault();
     const h = (document.getElementById('ohlcChart') || {}).clientHeight || hit.clientHeight || 240;
-    const factor = Math.exp(dy / Math.max(200, h * 0.7));
-    rpnlApplyYFactor(ohlcChart, drag.range, factor);
+    let factor = Math.exp(dy / Math.max(160, h * 0.48));
+    factor = Math.max(1 / 60, Math.min(60, factor));
+    const next = ohlcZoomSpan(drag.range, factor);
+    if (next) {
+      ohlcPriceLock = next;
+      ohlcNudgeScale();
+    }
     tap = null;
   }, { passive: false });
   const endTouch = (ev) => {
@@ -2745,7 +2740,7 @@ function bindRpnlYScaleMode() {
   const onMq = (e) => { if (!e.matches) clearRpnlYScaleMode(); };
   if (mq.addEventListener) mq.addEventListener('change', onMq);
   else if (mq.addListener) mq.addListener(onMq);
-  bindOhlcYDrag();
+  bindOhlcYHit();
 }
 
 function rpnlSetLiveShift(on) {
@@ -3555,11 +3550,6 @@ function initRpnl() {
     return fmtPxFull(p);
   } };
   ohlcChart = LightweightCharts.createChart(document.getElementById('ohlcChart'), rpnlChartBase(false));
-  try {
-    ohlcChart.applyOptions({
-      handleScale: { axisPressedMouseMove: { time: true, price: false } },
-    });
-  } catch (e) {}
   ohlcSeries = ohlcChart.addCandlestickSeries({
     upColor: '#26a69a', downColor: '#ef5350',
     borderUpColor: '#26a69a', borderDownColor: '#ef5350',
@@ -3596,7 +3586,7 @@ function initRpnl() {
     lastValueVisible: false,
     priceLineVisible: false,
     crosshairMarkerVisible: false,
-    autoscaleInfoProvider: function (original) {
+    autoscaleInfoProvider: ohlcWrapAutoscale(function (original) {
       const quotes = quotesForCurrentRpnl();
       const px = (quotes || []).map(q => Number(q.price)).filter(p => isFinite(p) && p > 0);
       const base = typeof original === 'function' ? original() : null;
@@ -3611,7 +3601,7 @@ function initRpnl() {
       const span = Math.max(max - min, Math.abs(mid) * 0.003);
       const pad = Math.max(span * 0.12, Math.abs(mid) * 0.002);
       return { priceRange: { minValue: Math.max(0, min - pad), maxValue: max + pad } };
-    },
+    }),
   });
   ohlcHedgeMarkerSeries = ohlcChart.addLineSeries({
     color: 'rgba(0,0,0,0)',
@@ -3629,6 +3619,7 @@ function initRpnl() {
       priceFormat: pxFmt,
     });
   });
+  ohlcInstallPriceLock();
   ohlcVolSeries = ohlcChart.addHistogramSeries({
     priceFormat: { type: 'volume' },
     priceScaleId: '',
@@ -4157,6 +4148,8 @@ async function loadRpnl(keepRange) {
       if (savedView) rpnlHoldSnap = savedView;
     } else {
       ohlcBarsCache = rpnlClipBarsToWindow(bars);
+      ohlcPriceLock = null;
+      try { ohlcChart.priceScale('right').applyOptions({ autoScale: true, scaleMargins: rpnlPriceMargins(ohlcChart) }); } catch (e) {}
     }
     setOhlcEmpty(!ohlcBarsCache.length, ohlcBarsCache.length ? '' : ((candleNote || '').replace(/^ · /, '') || 'No price candles for this window'));
     try {
@@ -4399,7 +4392,7 @@ function rpnlApplySelectHandle(chart) {
     chart.applyOptions({
       handleScroll: { mouseWheel: true, pressedMouseMove: !rpnlSelectMode, horzTouchDrag: !rpnlSelectMode, vertTouchDrag: false },
       handleScale: {
-        axisPressedMouseMove: { time: !rpnlSelectMode, price: chart !== ohlcChart && !rpnlSelectMode },
+        axisPressedMouseMove: { time: !rpnlSelectMode, price: !rpnlSelectMode },
         mouseWheel: !rpnlSelectMode,
         pinch: !rpnlSelectMode,
       },
