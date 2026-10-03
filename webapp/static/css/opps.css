@@ -192,7 +192,7 @@
 }
 .opp-venue-err { color: var(--red); }
 
-@media (max-width: 720px) {
+@media (max-width: 720px), (hover: none) and (pointer: coarse) and (max-height: 500px) {
   #opps { padding: 10px max(12px, var(--safe-r)) 24px max(12px, var(--safe-l)); }
   .opp-head { flex-direction: column; gap: 4px; }
   .opp-grid { grid-template-columns: 1fr; }
