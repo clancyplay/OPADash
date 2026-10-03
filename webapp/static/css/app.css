@@ -112,13 +112,16 @@
     background: var(--red);
     border-color: var(--red);
   }
-nav .nav-install {
+nav button.nav-install {
   display: inline-flex; align-items: center; gap: 6px;
+  align-self: center;
+  height: auto; min-height: 0; line-height: 1;
   margin-left: 8px; font-size: 12px; font-weight: 650;
   color: var(--accent); cursor: pointer;
   flex-shrink: 0; white-space: nowrap;
   padding: 5px 10px; border-radius: 8px;
   border: 1px solid rgba(41, 98, 255, .4);
+  border-bottom-width: 1px;
   background: rgba(41, 98, 255, .12);
   transition: background .15s, border-color .15s, color .15s;
 }
@@ -1157,7 +1160,7 @@ nav .nav-install:hover {
     nav .db-badge { display: none; }
     nav .nav-logout { margin-left: 6px; padding: 5px 8px; }
     nav .nav-logout-txt { display: none; }
-    nav .nav-install { margin-left: 6px; padding: 5px 8px; }
+    nav button.nav-install { margin-left: 6px; padding: 5px 8px; height: auto; }
     nav .nav-install-txt { display: none; }
 
     #home { padding: 24px 16px 36px; }
