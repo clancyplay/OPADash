@@ -1418,6 +1418,14 @@ body.ops-open { overflow: hidden; }
 .rp-ops-group .rp-ops-sub { margin: 0 0 6px; }
 .rp-ops-group:last-child { margin-bottom: 4px; }
 .rp-ops-wide { grid-column: 1 / -1; }
+.rp-ops-field-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--muted);
+}
 .rp-ops-params .rp-ops-check {
   flex-direction: row; align-items: center; gap: 8px;
   font-weight: 500; color: var(--text);

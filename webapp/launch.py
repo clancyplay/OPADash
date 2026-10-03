@@ -695,6 +695,7 @@ _KNOB_SETUP = (
     ("ASK_TICKS", "ask_ticks", "int"),
     ("FATE_USD", "fate", "float"),
     ("GRIND_USD", "grind", "float"),
+    ("FLATTEN_PCT", "flatten", "float"),
     ("QUOTE_MS", "quote_ms", "int"),
     ("PLACE_SECS", "place_secs", "float"),
     ("IGNORE_MIN_SIZE", "ignore", "float"),

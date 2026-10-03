@@ -144,14 +144,34 @@ def _geom(lenses, hint="", defaults=None, auto=None, auto_defaults=None):
     return row
 
 
-def _fate():
+def _flatten(default="0"):
+    """Open-position percent stop. 0 is off. Sits at the top of Risk."""
+    return {
+        "key": "FLATTEN_PCT",
+        "label": "Flatten at loss %",
+        "type": "number",
+        "default": str(default),
+        "min": 0,
+        "group": "risk",
+        "wide": True,
+        "note": (
+            "0 is off. Market-closes the open position when price is this percent "
+            "against your average entry. A long bought at 1.280 with 1.5 closes "
+            "once mid is 1.261 or lower. A short is the mirror. Fate and Grind "
+            "still watch closed fills; this one watches the open bag."
+        ),
+    }
+
+
+def _fate(flatten="0"):
     return [
+        _flatten(flatten),
         {"key": "FATE_USD", "label": "Fate $", "type": "number", "default": "10", "group": "risk"},
         {"key": "GRIND_USD", "label": "Grind $", "type": "number", "default": "10", "group": "risk"},
     ]
 
 
-def _ladder(*, auto=True, auto_defaults=None, touch=False, vol=False, fate=True, hook=True, quote_ms="150", place_secs="20"):
+def _ladder(*, auto=True, auto_defaults=None, touch=False, vol=False, fate=True, hook=True, quote_ms="150", place_secs="20", flatten="0"):
     """Hem/span/step makers: stack, clip, fade, flip."""
     rows = _max() + [_ORDERS]
     if hook:
@@ -168,13 +188,13 @@ def _ladder(*, auto=True, auto_defaults=None, touch=False, vol=False, fate=True,
     rows.append({**_MULT, "embed": True})
     rows.extend(_pace(quote_ms=quote_ms, place_secs=place_secs))
     if fate:
-        rows.extend(_fate())
+        rows.extend(_fate(flatten))
     rows.append({"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": vol, "group": "risk"})
     rows.append(_DRY)
     return rows
 
 
-def _touch_like(*, k_default="0", step_default="0.05", per_side=False):
+def _touch_like(*, k_default="0", step_default="0.05", per_side=False, flatten="0"):
     """Join BBO (touch / lean): ladder step, no hem/span/hook.
 
     Touch uses per-side bid/ask distance (+ deeper, − into the spread).
@@ -203,7 +223,7 @@ def _touch_like(*, k_default="0", step_default="0.05", per_side=False):
         geom,
         {**_MULT, "embed": True},
         *_pace(place_secs="60"),
-        *_fate(),
+        *_fate(flatten),
         {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
         _DRY,
     ]
@@ -220,6 +240,7 @@ PAIR_PARAMS = [
     },
     {"key": "BID_TICKS", "label": "Bid +ticks", "type": "int", "default": "1", "group": "quote"},
     {"key": "ASK_TICKS", "label": "Ask −ticks", "type": "int", "default": "1", "group": "quote"},
+    _flatten(),
 ]
 
 STRATEGIES = [
@@ -283,7 +304,7 @@ STRATEGIES = [
     {
         "id": "lean", "label": "Lean",
         "blurb": "Join the touch when flat; cover-only with inventory. No hem/span.",
-        "params": _touch_like(k_default="0.05"),
+        "params": _touch_like(k_default="0.05", flatten="4"),
     },
     {
         "id": "touch", "label": "Touch",
@@ -301,7 +322,7 @@ STRATEGIES = [
             {"key": "TRAIL_PCT", "label": "Trail %", "type": "number", "default": "0.35", "group": "quote"},
             {"key": "MOM_STOP_PCT", "label": "Stop %", "type": "number", "default": "0.50", "group": "risk"},
             *_pace(place_secs="8"),
-            *_fate(),
+            *_fate("1.5"),
             {"key": "VOL_GATE", "label": "Vol gate", "type": "bool", "default": True, "group": "risk"},
             _DRY,
         ],
@@ -314,6 +335,7 @@ STRATEGIES = [
             {"key": "MOVE_PCT", "label": "Move %", "type": "number", "default": "0.5", "group": "quote"},
             {"key": "MOVE_SECS", "label": "Move secs", "type": "number", "default": "30", "group": "quote"},
             {"key": "RISK_REWARD", "label": "Risk:reward", "type": "number", "default": "2", "group": "risk"},
+            _flatten(),
             {"key": "FLIP", "label": "Flip side", "type": "bool", "default": False, "group": "quote"},
             *_pace(place_secs="0"),
             _DRY,
@@ -363,6 +385,7 @@ STRATEGIES = [
              "hint": "Taker haircut taken off the gross gap before min edge. 0.10 is both legs."},
             {"key": "ARB_COOL_SECS", "label": "Cool secs", "type": "number", "default": "3", "min": 0, "group": "pace",
              "hint": "Wait after a shot before the next one."},
+            _flatten(),
             _DRY,
         ],
     },
@@ -394,6 +417,7 @@ STRATEGIES = [
              "hint": "Minimum milliseconds between edits of the same order."},
             {"key": "DUST", "label": "Dust", "type": "number", "default": "5", "min": 0, "group": "book",
              "hint": "Ignore book size below this."},
+            _flatten(),
             _DRY,
         ],
     },
@@ -415,6 +439,7 @@ STRATEGIES = [
              "hint": "How far from spot the call and put must sit."},
             *_pace(quote_ms="250"),
             _IGNORE,
+            _flatten(),
             _DRY,
         ],
     },
@@ -439,6 +464,7 @@ STRATEGIES = [
             *_pace(quote_ms="250"),
             {"key": "FIELD_DUST", "label": "Dust", "type": "number", "default": "0", "min": 0, "group": "book",
              "hint": "Ignore book size below this."},
+            _flatten(),
             _DRY,
         ],
     },

@@ -1226,9 +1226,10 @@ function renderOpsParam(p) {
   }
   const step = p.type === 'int' ? '1' : 'any';
   const min = p.min != null ? ' min="' + escHtml(String(p.min)) + '"' : '';
+  const note = p.note ? '<span class="rp-ops-field-note">' + escHtml(p.note) + '</span>' : '';
   return '<label' + cls + showIf + title + '>' + escHtml(p.label) +
     '<input id="' + id + '" type="number" step="' + step + '"' + min + title +
-      ' value="' + escHtml(p.default == null ? '' : p.default) + '" /></label>';
+      ' value="' + escHtml(p.default == null ? '' : p.default) + '" />' + note + '</label>';
 }
 
 function syncOpsDependentFields() {
@@ -1361,6 +1362,7 @@ const OPS_GLOSS = {
   HOOK: 'What the ladder hangs off — position, liquidity, bid, or ask.',
   STEP_MULT: 'How the step grows down the ladder. Lives on the Step row.',
   TOUCH_TICKS: 'How far inside the BBO when span follows the book. 0 joins the touch.',
+  FLATTEN_PCT: 'Market-close the open position when price is this percent against your average entry. 0 is off.',
   FATE_USD: 'Pause if rPnL drops this far from the peak.',
   GRIND_USD: 'Pause if window rPnL is this negative.',
   VOL_GATE: 'Only quote while the tape is busy.',
@@ -1703,6 +1705,7 @@ function fillOpsFromSetup(s) {
   if (s.step_auto != null) setChk('opsP_STEP_AUTO', s.step_auto, true);
   else if (s.fit_auto != null) setChk('opsP_STEP_AUTO', s.fit_auto, true);
   if (s.vol_gate != null) setChk('opsP_VOL_GATE', s.vol_gate, true);
+  setNum('opsP_FLATTEN_PCT', s.flatten != null ? s.flatten : s.flatten_pct);
   setNum('opsP_FATE_USD', s.fate);
   setNum('opsP_GRIND_USD', s.grind);
   if (s.dry_run != null) setChk('opsP_DRY_RUN', s.dry_run, true);
@@ -2246,6 +2249,7 @@ function opsRememberEdit(payload) {
   num('ASK_PCT', 'ask');
   num('BID_TICKS', 'bid_ticks');
   num('ASK_TICKS', 'ask_ticks');
+  num('FLATTEN_PCT', 'flatten');
   num('FATE_USD', 'fate');
   num('GRIND_USD', 'grind');
   num('QUOTE_MS', 'quote_ms');
