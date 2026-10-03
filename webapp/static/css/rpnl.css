@@ -226,21 +226,16 @@ body:has(#rpnl.visible) {
 }
 .rpnl-pill:focus { outline: none; }
 .rpnl-pill:focus-visible { border-color: var(--accent); }
-.rpnl-pill.active { border-color: var(--accent); background: rgba(41, 98, 255, .12); }
+.rpnl-pill.active { border-color: var(--accent); }
 .rpnl-pill.has-color {
-  background: color-mix(in srgb, var(--pill) 24%, var(--surface));
-  border-color: color-mix(in srgb, var(--pill) 42%, var(--border2));
   box-shadow: inset 3px 0 0 var(--pill);
 }
 .rpnl-pill.has-color.active {
   border-color: var(--accent);
-  box-shadow: inset 3px 0 0 var(--pill), 0 0 0 1px rgba(41, 98, 255, .45);
+  box-shadow: inset 3px 0 0 var(--pill);
 }
 .rpnl-pill.has-color.booting { border-color: rgba(255, 183, 77, .65); }
-.rpnl-pill.has-color.removed {
-  border-color: rgba(255, 183, 77, .5);
-  background: color-mix(in srgb, var(--pill) 12%, var(--surface));
-}
+.rpnl-pill.has-color.removed { border-color: rgba(255, 183, 77, .5); }
 .rpnl-pill.has-color .p-name { color: #f4f7fb; }
 .rpnl-pill.has-color .p-max,
 .rpnl-pill.has-color .p-bal,

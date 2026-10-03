@@ -1540,9 +1540,7 @@ function renderRpnlInspect(row) {
     return;
   }
   const s = row.settings || null;
-  const qlab = row.quote_label || 'Delta';
   const qsym = row.quote_symbol || row.contract;
-  const hlab = row.hedge_label || 'Hedge';
   const hedged = !!row.has_hedge && !!row.hedge_fills;
   const quote = Number(row.rpnl) || 0;
   const hedge = hedged ? (Number(row.hedge_rpnl) || 0) : 0;
@@ -1587,8 +1585,6 @@ function renderRpnlInspect(row) {
           (pairHedge
             ? '<span class="ri-chip hedge">Hedge' + (hedgeOf ? ' of ' + escHtml(hedgeOf) : '') + '</span>'
             : (via ? '<span class="ri-chip hedge">hedged by ' + escHtml(via) + '</span>' : '')) +
-          '<span class="ri-chip">' + escHtml(qlab) + ' · ' + (row.fills || 0) + ' fills' +
-            (hedged ? ' · ' + escHtml(hlab) + ' ' + (row.hedge_fills || 0) : '') + '</span>' +
         '</div>' +
       '</div>' +
       '<div class="ri-row ri-tools">' + rpnlActsHtml(row) + '</div>' +
