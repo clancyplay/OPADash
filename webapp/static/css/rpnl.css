@@ -326,15 +326,24 @@ body:has(#rpnl.visible) {
   color: #ffe082; background: rgba(255, 224, 130, .14); border-radius: 4px;
   padding: 1px 5px; flex-shrink: 0;
 }
+.rpnl-pill .p-money {
+  display: flex; align-items: flex-end; gap: 10px; margin-top: 3px;
+}
+.rpnl-pill .p-col { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.rpnl-pill .p-col-u { margin-left: auto; text-align: right; }
+.rpnl-pill .p-k {
+  font-size: 8px; letter-spacing: .4px; text-transform: uppercase;
+  color: #6b7385; font-weight: 700;
+}
 .rpnl-pill .p-val {
-  display: flex; align-items: baseline; gap: 8px;
-  font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 4px;
+  display: flex; align-items: baseline; gap: 5px;
+  font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 0;
 }
 .rpnl-pill .p-usd {
-  font-size: 12px; font-weight: 650; opacity: .78;
+  font-size: 11px; font-weight: 650; opacity: .78;
 }
 .rpnl-pill .p-upnl {
-  font-size: 11px; font-weight: 650; margin-top: 1px;
+  font-size: 12px; font-weight: 650; margin-top: 0; white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .rpnl-pill .p-upnl.up { color: var(--green); }
@@ -347,10 +356,13 @@ body:has(#rpnl.visible) {
 .rpnl-pill .p-pos.short .p-held { color: var(--red); }
 .rpnl-pill .p-pos .p-lot { color: var(--muted); }
 .rpnl-pill .p-max,
-.rpnl-pill .p-bal { font-size: 10px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .rpnl-pill .p-geom {
-  font-size: 9px; color: #8b93a7; margin-top: 2px;
-  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: inline; font-size: 9px; color: #8b93a7; margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.rpnl-pill .p-max + .p-geom::before { content: ' · '; }
+.rpnl-pill .p-bal {
+  display: block; font-size: 9px; color: #9aa3b5; margin-top: 2px;
   font-variant-numeric: tabular-nums;
 }
 .rpnl-pill .p-mode { font-size: 10px; color: #ffb74d; margin-top: 3px; }

@@ -1,0 +1,194 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>rPnL pill themes (not applied)</title>
+<!--
+  Saved reference only. The live pills use layout E:
+  rPnL / uPnL labels, uPnL beside rPnL with INR and USD, balance on its own line.
+  These 12 themes were not applied.
+  Open this file in a browser to see them.
+-->
+<style>
+  :root { --bg:#0b0e14; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:#e8eaef; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif; }
+  .banner { padding:14px 18px 0; color:#9aa6c3; font-size:13px; }
+  section { padding:16px 18px 12px; border-bottom:1px solid #1a2030; }
+  h2 { margin:0 0 2px; font-size:15px; }
+  p.note { margin:0 0 10px; color:#8b93a7; font-size:12px; }
+  .row { display:flex; gap:12px; align-items:flex-start; }
+  .up { color:#1f9d78; } .dn { color:#e4544b; }
+  svg.ico { width:14px; height:14px; display:block; }
+  .sym { font-weight:800; }
+  .chips { display:flex; gap:4px; align-items:center; }
+  .chip { font-size:9px; font-weight:800; letter-spacing:.3px; text-transform:uppercase; border-radius:999px; padding:2px 6px; }
+  .clay { width:280px; padding:10px 12px 8px; border-radius:26px; background:#232a3b; color:#f4f7fb;
+    box-shadow: inset 0 -8px 0 rgba(0,0,0,.25), 0 10px 0 #121722, 0 14px 24px rgba(0,0,0,.35); }
+  .clay .top { display:flex; align-items:center; gap:8px; }
+  .clay .blob { width:28px; height:28px; border-radius:12px; display:grid; place-items:center; background:#3a4460; box-shadow: inset 0 -3px 0 rgba(0,0,0,.25); }
+  .clay .name { font-size:13px; }
+  .clay .chip { background:#2e364c; color:#d5dced; }
+  .clay .money { display:flex; justify-content:space-between; margin-top:8px; gap:8px; }
+  .clay .k { font-size:9px; font-weight:800; letter-spacing:.6px; text-transform:uppercase; color:#9aa6c3; display:flex; align-items:center; gap:4px; }
+  .clay .val { font-size:18px; font-weight:800; }
+  .clay .sub { font-size:11px; font-weight:700; opacity:.8; }
+  .clay .line { margin-top:6px; font-size:11px; color:#c5cedf; display:flex; gap:6px; align-items:flex-start; }
+  .clay .bal { margin-top:8px; background:#1a2030; border-radius:14px; padding:6px 8px; display:flex; justify-content:space-between; font-weight:800; font-size:12px; }
+  .comic { width:290px; background:#fff8e8; color:#1a1a1a; border:3px solid #111; border-radius:6px; padding:8px 10px; box-shadow:6px 6px 0 #111; }
+  .comic .top { display:flex; align-items:center; gap:6px; }
+  .comic .bang { background:#ffe14a; border:2px solid #111; border-radius:4px; font-weight:900; font-size:12px; padding:2px 6px; transform:rotate(-2deg); }
+  .comic .chip { background:#111; color:#fff; border-radius:2px; }
+  .comic .money { display:flex; justify-content:space-between; align-items:flex-end; margin-top:8px; }
+  .comic .k { font-family:Impact,Haettenschweiler,sans-serif; letter-spacing:.5px; font-size:12px; }
+  .comic .val { font-family:Impact,Haettenschweiler,sans-serif; font-size:26px; line-height:.9; }
+  .comic .burst { background:#ff4d6d; color:#fff; border:2px solid #111; padding:4px 6px; font-weight:900; font-size:12px; clip-path:polygon(8% 0,100% 12%,90% 100%,0 88%); }
+  .comic .line { margin-top:6px; font-size:11px; font-weight:700; }
+  .comic .bal { margin-top:6px; border-top:3px solid #111; padding-top:4px; font-weight:900; display:flex; justify-content:space-between; }
+  .neon { width:280px; background:#070910; border:1px solid #123; border-radius:14px; padding:10px 12px; box-shadow:0 0 0 1px #0ff3, inset 0 0 24px #062, 0 0 18px #0ff2; color:#d9fff6; }
+  .neon .top { display:flex; align-items:center; gap:6px; }
+  .neon .sym { color:#7ef; text-shadow:0 0 8px #0ff; }
+  .neon .chip { border:1px solid #0ff6; color:#7ef; background:transparent; }
+  .neon .money { display:flex; justify-content:space-between; margin-top:8px; }
+  .neon .k { font-size:9px; letter-spacing:1px; color:#f6c; text-transform:uppercase; }
+  .neon .val { font-size:20px; font-weight:800; text-shadow:0 0 10px currentColor; }
+  .neon .line { margin-top:6px; font-size:11px; color:#9ee; display:flex; gap:6px; }
+  .neon .bal { margin-top:8px; border:1px solid #0ff5; border-radius:8px; padding:4px 8px; display:flex; justify-content:space-between; color:#7ef; }
+  .stick { width:300px; background:#1b2030; border-radius:18px; padding:12px; }
+  .stick .top { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .stick .st { background:#fff; color:#222; border-radius:8px; padding:3px 7px; font-weight:800; font-size:12px; box-shadow:2px 3px 0 #0006; transform:rotate(-2deg); }
+  .stick .st.y { background:#ffe14a; transform:rotate(2deg); }
+  .stick .st.b { background:#b9f; transform:rotate(-1deg); font-size:9px; }
+  .stick .money { display:flex; gap:8px; margin-top:10px; }
+  .stick .note { background:#f7f1e3; color:#222; border-radius:10px; padding:6px 8px; transform:rotate(-1deg); box-shadow:3px 4px 0 #0005; flex:1; }
+  .stick .note.r { background:#ffe1ea; transform:rotate(1.5deg); flex:0 0 auto; }
+  .stick .k { font-size:9px; font-weight:800; letter-spacing:.4px; }
+  .stick .val { font-size:16px; font-weight:900; }
+  .stick .tape { margin-top:8px; background:#e8f7ff; color:#143; font-size:11px; font-weight:700; padding:4px 8px; border-radius:3px; }
+  .stick .bal { margin-top:6px; background:#c8f5d4; color:#143; font-weight:900; border-radius:999px; padding:4px 10px; display:inline-flex; gap:6px; }
+  .px { width:280px; background:#0d1b12; color:#b6f7c1; border:4px solid #39d353; padding:8px; font-family:ui-monospace,Menlo,monospace; box-shadow:6px 6px 0 #062; }
+  .px .top { display:flex; justify-content:space-between; align-items:center; font-size:12px; }
+  .px .lv { width:8px; height:8px; background:#39d353; box-shadow:0 0 0 2px #062; display:inline-block; }
+  .px .money { display:flex; justify-content:space-between; margin-top:8px; border:2px solid #1f6b32; padding:4px; }
+  .px .k { font-size:9px; color:#6dca7c; }
+  .px .val { font-size:16px; }
+  .px .line { margin-top:6px; font-size:10px; }
+  .px .bal { margin-top:6px; background:#39d353; color:#062; padding:3px 6px; font-weight:700; display:flex; justify-content:space-between; }
+  .glass { width:290px; border-radius:20px; padding:10px 12px; color:#f5f7ff; background:linear-gradient(160deg, rgba(255,255,255,.16), rgba(255,255,255,.04)); border:1px solid rgba(255,255,255,.28); box-shadow:inset 0 1px 0 rgba(255,255,255,.35); }
+  .glass .top { display:flex; align-items:center; gap:6px; font-size:13px; }
+  .glass .chip { background:rgba(255,255,255,.12); }
+  .glass .money { display:flex; justify-content:space-between; margin-top:8px; }
+  .glass .k { font-size:10px; letter-spacing:.8px; text-transform:uppercase; opacity:.7; display:flex; gap:4px; align-items:center; }
+  .glass .val { font-size:22px; font-weight:650; letter-spacing:-.4px; }
+  .glass .line { margin-top:6px; font-size:11px; opacity:.85; }
+  .glass .bal { margin-top:8px; display:flex; justify-content:space-between; font-size:12px; padding-top:6px; border-top:1px solid rgba(255,255,255,.18); }
+  .candy { width:286px; border-radius:28px; padding:10px 12px; color:#3b2148; background:linear-gradient(180deg,#ffe4f3,#fff6d8); border:3px solid #fff; box-shadow:0 8px 0 #f3b6d8; }
+  .candy .top { display:flex; align-items:center; gap:6px; }
+  .candy .face { width:26px; height:26px; border-radius:50%; background:#fff; display:grid; place-items:center; font-size:14px; }
+  .candy .chip { background:#fff; color:#c45; }
+  .candy .money { display:flex; gap:8px; margin-top:8px; }
+  .candy .bubble { background:#fff; border-radius:16px; padding:6px 8px; flex:1; box-shadow:0 3px 0 #f3c; }
+  .candy .bubble.s { flex:0 0 auto; background:#e7fff4; box-shadow:0 3px 0 #8d6; }
+  .candy .k { font-size:9px; font-weight:800; }
+  .candy .val { font-size:16px; font-weight:900; }
+  .candy .line { margin-top:6px; font-size:11px; font-weight:700; }
+  .candy .bal { margin-top:6px; background:#fff; border-radius:999px; padding:4px 10px; font-weight:900; display:flex; justify-content:space-between; }
+  .mag { width:280px; background:#111; color:#f6f1e7; overflow:hidden; }
+  .mag .banner { background:#ff3b30; color:#fff; font-weight:900; letter-spacing:1px; font-size:10px; padding:3px 8px; }
+  .mag .pad { padding:8px 10px 10px; }
+  .mag .sym { font-family:Georgia,serif; font-size:20px; font-weight:700; }
+  .mag .money { display:flex; justify-content:space-between; align-items:flex-end; border-top:1px solid #444; margin-top:6px; padding-top:6px; }
+  .mag .k { font-size:9px; letter-spacing:1.5px; }
+  .mag .val { font-family:Georgia,serif; font-size:26px; line-height:.9; }
+  .mag .side { background:#ffe14a; color:#111; padding:4px 6px; font-weight:900; font-size:12px; }
+  .mag .line { margin-top:6px; font-size:11px; color:#ddd; }
+  .mag .bal { margin-top:6px; font-size:12px; display:flex; justify-content:space-between; border-bottom:4px solid #ff3b30; padding-bottom:4px; }
+  .badge { width:300px; display:flex; gap:8px; background:#172033; border-radius:18px; padding:8px; border:1px solid #2c3a55; }
+  .badge .seal { width:74px; flex:0 0 74px; border-radius:50%; background:radial-gradient(circle at 40% 35%, #ffe9a0, #e0a020 55%, #8a5a10); color:#3a2504; display:flex; flex-direction:column; align-items:center; justify-content:center; font-weight:900; text-align:center; box-shadow:inset 0 0 0 4px #fff4, 0 4px 0 #0b1020; }
+  .badge .seal b { font-size:11px; line-height:1; }
+  .badge .seal small { font-size:8px; }
+  .badge .body { flex:1; min-width:0; }
+  .badge .top { font-size:12px; font-weight:800; }
+  .badge .k { font-size:9px; color:#9ab; letter-spacing:.4px; }
+  .badge .val { font-size:16px; font-weight:800; }
+  .badge .line { font-size:10px; color:#c5d0e0; margin-top:3px; }
+  .badge .bal { margin-top:4px; font-size:11px; font-weight:800; color:#ffe9a0; }
+  .toy { width:290px; background:#2a2f3a; border-radius:16px 16px 22px 22px; padding:8px 10px 10px; border:2px solid #111; box-shadow:inset 0 2px 0 #4a5160, 0 8px 0 #111; }
+  .toy .screws { display:flex; justify-content:space-between; }
+  .toy .screws i { width:8px; height:8px; border-radius:50%; background:#111; box-shadow:inset 1px 1px 0 #888; }
+  .toy .screen { background:#0c1a14; border-radius:8px; padding:6px 8px; color:#b7f7c8; margin-top:6px; border:2px solid #111; }
+  .toy .top { display:flex; justify-content:space-between; font-size:11px; font-weight:800; }
+  .toy .led { width:8px; height:8px; border-radius:50%; background:#3f3; box-shadow:0 0 6px #3f3; display:inline-block; }
+  .toy .money { display:flex; justify-content:space-between; margin-top:4px; }
+  .toy .k { font-size:8px; letter-spacing:1px; color:#7dca8c; }
+  .toy .val { font-family:ui-monospace,monospace; font-size:16px; }
+  .toy .keys { display:flex; gap:4px; margin-top:6px; }
+  .toy .key { background:#c23b4a; border-radius:6px; border:2px solid #111; color:#fff; font-size:9px; font-weight:800; padding:3px 6px; box-shadow:0 2px 0 #111; }
+  .toy .key.g { background:#2f9e6b; }
+  .toy .key.y { background:#e2b33c; color:#111; flex:1; }
+  .doodle { width:286px; background:#fffdf6; color:#2b2416; border:2px dashed #2b2416; border-radius:18px; padding:8px 10px; }
+  .doodle .top { display:flex; align-items:center; gap:6px; font-family:"Comic Sans MS","Chalkboard SE",cursive; }
+  .doodle .sym { font-size:15px; }
+  .doodle .chip { border:1.5px solid #2b2416; background:#fff3bf; }
+  .doodle .money { display:flex; justify-content:space-between; margin-top:6px; font-family:"Comic Sans MS","Chalkboard SE",cursive; }
+  .doodle .val { font-size:18px; font-weight:700; }
+  .doodle .bubble { border:2px solid #2b2416; border-radius:14px 14px 14px 4px; padding:2px 6px; background:#e7f8ff; font-size:12px; font-weight:700; }
+  .doodle .line { margin-top:5px; font-size:12px; }
+  .doodle .bal { margin-top:6px; background:#ffe08a; border-radius:10px; padding:3px 8px; font-weight:800; display:flex; justify-content:space-between; }
+  .bill { width:300px; border-radius:18px; overflow:hidden; color:#fff; background:linear-gradient(135deg,#5b4dff,#ff4d8d 55%,#ffb703); }
+  .bill .pad { padding:10px 12px; }
+  .bill .top { display:flex; align-items:center; gap:6px; }
+  .bill .sym { font-size:16px; font-weight:900; }
+  .bill .chip { background:rgba(0,0,0,.25); }
+  .bill .money { display:flex; justify-content:space-between; align-items:flex-end; margin-top:6px; }
+  .bill .k { font-size:10px; font-weight:800; letter-spacing:.6px; opacity:.85; }
+  .bill .val { font-size:26px; font-weight:900; letter-spacing:-1px; line-height:.9; }
+  .bill .pillu { background:rgba(0,0,0,.28); border-radius:12px; padding:4px 8px; font-weight:800; font-size:12px; text-align:right; }
+  .bill .icons { display:flex; gap:6px; margin-top:8px; font-size:11px; font-weight:700; }
+  .bill .icons span { background:rgba(255,255,255,.18); border-radius:999px; padding:3px 7px; }
+  .bill .bal { background:rgba(0,0,0,.3); padding:6px 12px; display:flex; justify-content:space-between; font-weight:800; }
+</style>
+</head>
+<body>
+<p class="banner">Reference only. Live pills use layout E. These 12 themes are not applied. Open this file in a browser.</p>
+<section id="t1"><h2>1 · Clay</h2><p class="note">Soft 3D, chubby icons, balance ek dabbe mein.</p><div class="row" id="r1"></div></section>
+<section id="t2"><h2>2 · Comic</h2><p class="note">Moty outline, burst pe uPnL, poster type.</p><div class="row" id="r2"></div></section>
+<section id="t3"><h2>3 · Neon</h2><p class="note">Glow, HUD labels, balance ek outlined box.</p><div class="row" id="r3"></div></section>
+<section id="t4"><h2>4 · Stickers</h2><p class="note">Har fact ek alag sticker, thoda tilted.</p><div class="row" id="r4"></div></section>
+<section id="t5"><h2>5 · Pixel</h2><p class="note">8-bit inventory card.</p><div class="row" id="r5"></div></section>
+<section id="t6"><h2>6 · Glass</h2><p class="note">Frosted slab, thin type, bada rPnL.</p><div class="row" id="r6"></div></section>
+<section id="t7"><h2>7 · Candy</h2><p class="note">Pastel bubbles, round.</p><div class="row" id="r7"></div></section>
+<section id="t8"><h2>8 · Pop mag</h2><p class="note">Magazine cover. Serif number, yellow uPnL box.</p><div class="row" id="r8"></div></section>
+<section id="t9"><h2>9 · Badge</h2><p class="note">Scout-patch seal baayein, stats daayein.</p><div class="row" id="r9"></div></section>
+<section id="t10"><h2>10 · Toy</h2><p class="note">Handheld console. Screen + chunky keys.</p><div class="row" id="r10"></div></section>
+<section id="t11"><h2>11 · Doodle</h2><p class="note">Notebook sketch, speech bubble uPnL.</p><div class="row" id="r11"></div></section>
+<section id="t12"><h2>12 · Billboard</h2><p class="note">Gradient poster, icon chips, balance ek dark footer.</p><div class="row" id="r12"></div></section>
+<script>
+const I = {
+  chart: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 16l5-5 4 4 7-8"/><path d="M14 7h6v6"/></svg>',
+  pulse: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg>',
+  box: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M3 8v8l9 4 9-4V8"/></svg>',
+  coin: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><ellipse cx="12" cy="7" rx="8" ry="3"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7"/></svg>'
+};
+const rows = [
+  { sym:'VELVETUSD', acct:'SA1', strat:'STACK', up:true, posUp:false, rp:'₹1,22,340', ru:'$1,406', uu:'+₹0.61', us:'+$0.01', pos:'140 @ 0.0798', lot:'1 lot = 10 · 11,248,230 filled', setup:'max $7500 · hem 1t · span 3t · step 1tx1', bal:'₹2,50,408' },
+  { sym:'AXSUSD', acct:'SA1', strat:'STACK', up:false, posUp:false, rp:'−₹97', ru:'−$1.14', uu:'−₹329', us:'−$3.88', pos:'370 @ 1.20747', lot:'1 lot = 10 · 3,970 filled', setup:'max $5000 · hem 1t · span 5t · step 1tx1', bal:'₹2,50,408' }
+];
+const cls = r => r.up ? 'up' : 'dn';
+const pc = r => r.posUp ? 'up' : 'dn';
+function clay(r){return `<div class="clay"><div class="top"><div class="blob">${I.chart}</div><div><div class="name sym">${r.sym}</div><div class="chips"><span class="chip">${r.acct}</span><span class="chip">${r.strat}</span></div></div></div><div class="money"><div><div class="k">${I.chart} rPnL</div><div class="val ${cls(r)}">${r.rp}</div><div class="sub ${cls(r)}">${r.ru}</div></div><div style="text-align:right"><div class="k" style="justify-content:flex-end">${I.pulse} uPnL</div><div class="val ${cls(r)}" style="font-size:14px">${r.uu}</div><div class="sub ${cls(r)}">${r.us}</div></div></div><div class="line">${I.box}<div><b class="${pc(r)}">${r.pos}</b><br>${r.lot}<br>${r.setup}</div></div><div class="bal"><span>${I.coin} bal</span>${r.bal}</div></div>`;}
+function comic(r){return `<div class="comic"><div class="top"><span class="bang">${r.sym}</span><span class="chip">${r.acct}</span><span class="chip">${r.strat}</span></div><div class="money"><div><div class="k">RPNL</div><div class="val ${cls(r)}">${r.rp}</div><div>${r.ru}</div></div><div class="burst">${r.uu}<br>${r.us}</div></div><div class="line">${r.pos} · ${r.lot}</div><div class="line">${r.setup}</div><div class="bal"><span>BAL</span>${r.bal}</div></div>`;}
+function neon(r){return `<div class="neon"><div class="top"><span class="sym">${r.sym}</span><span class="chip">${r.acct}</span><span class="chip">${r.strat}</span></div><div class="money"><div><div class="k">rPnL</div><div class="val ${cls(r)}">${r.rp}</div><div>${r.ru}</div></div><div style="text-align:right"><div class="k">uPnL</div><div class="val ${cls(r)}" style="font-size:14px">${r.uu}</div><div>${r.us}</div></div></div><div class="line">${I.box} ${r.pos} · ${r.lot}</div><div class="line">${r.setup}</div><div class="bal"><span>bal</span>${r.bal}</div></div>`;}
+function stick(r){return `<div class="stick"><div class="top"><span class="st">${r.sym}</span><span class="st y">${r.acct}</span><span class="st b">${r.strat}</span></div><div class="money"><div class="note"><div class="k">rPnL</div><div class="val ${cls(r)}">${r.rp}</div><div>${r.ru}</div></div><div class="note r"><div class="k">uPnL</div><div class="val ${cls(r)}">${r.uu}</div><div>${r.us}</div></div></div><div class="tape">${r.pos}<br>${r.lot}<br>${r.setup}</div><div class="bal">bal ${r.bal}</div></div>`;}
+function pixel(r){return `<div class="px"><div class="top"><span><i class="lv"></i> ${r.sym}</span><span>${r.acct}</span></div><div class="money"><div><div class="k">RPNL</div><div class="val">${r.rp}</div><div>${r.ru}</div></div><div style="text-align:right"><div class="k">UPNL</div><div class="val">${r.uu}</div><div>${r.us}</div></div></div><div class="line">&gt; ${r.pos}</div><div class="line">&gt; ${r.lot}</div><div class="line">&gt; ${r.setup}</div><div class="bal"><span>BAL</span>${r.bal}</div></div>`;}
+function glass(r){return `<div class="glass"><div class="top">${I.chart}<span class="sym">${r.sym}</span><span class="chip">${r.acct}</span><span class="chip">${r.strat}</span></div><div class="money"><div><div class="k">${I.chart} rPnL</div><div class="val ${cls(r)}">${r.rp}</div><div>${r.ru}</div></div><div style="text-align:right"><div class="k" style="justify-content:flex-end">${I.pulse} uPnL</div><div class="val ${cls(r)}" style="font-size:16px">${r.uu}</div><div>${r.us}</div></div></div><div class="line">${r.pos} · ${r.lot}</div><div class="line">${r.setup}</div><div class="bal"><span>bal</span>${r.bal}</div></div>`;}
+function candy(r){return `<div class="candy"><div class="top"><div class="face">✦</div><div class="sym">${r.sym}</div><span class="chip">${r.acct}</span><span class="chip">${r.strat}</span></div><div class="money"><div class="bubble"><div class="k">rPnL</div><div class="val ${cls(r)}">${r.rp}</div><div>${r.ru}</div></div><div class="bubble s"><div class="k">uPnL</div><div class="val ${cls(r)}">${r.uu}</div><div>${r.us}</div></div></div><div class="line">${r.pos}</div><div class="line">${r.lot}</div><div class="line">${r.setup}</div><div class="bal"><span>bal</span>${r.bal}</div></div>`;}
+function mag(r){return `<div class="mag"><div class="banner">${r.strat} · ${r.acct} · DELTA</div><div class="pad"><div class="sym">${r.sym}</div><div class="money"><div><div class="k">RPNL</div><div class="val">${r.rp}</div><div>${r.ru}</div></div><div class="side">UPNL<br>${r.uu}<br>${r.us}</div></div><div class="line">${r.pos}<br>${r.lot}<br>${r.setup}</div><div class="bal"><span>BALANCE</span>${r.bal}</div></div></div>`;}
+function badge(r){return `<div class="badge"><div class="seal"><b>${r.rp.replace('₹','').replace('−','')}</b><small>rPnL</small><small>${r.ru}</small></div><div class="body"><div class="top">${r.sym} · ${r.acct}</div><div class="k">uPnL</div><div class="val ${cls(r)}">${r.uu} (${r.us})</div><div class="line">${r.pos}</div><div class="line">${r.lot}</div><div class="line">${r.setup}</div><div class="bal">bal ${r.bal}</div></div></div>`;}
+function toy(r){return `<div class="toy"><div class="screws"><i></i><i></i></div><div class="screen"><div class="top"><span><i class="led"></i> ${r.sym}</span><span>${r.acct}</span></div><div class="money"><div><div class="k">RPNL</div><div class="val">${r.rp}</div><div>${r.ru}</div></div><div style="text-align:right"><div class="k">UPNL</div><div class="val">${r.uu}</div><div>${r.us}</div></div></div><div class="line" style="font-size:10px;margin-top:4px">${r.pos}</div></div><div class="keys"><span class="key">${r.lot.split('·')[0]}</span><span class="key g">filled</span><span class="key y">${r.setup}</span></div><div class="keys"><span class="key y">bal ${r.bal}</span></div></div>`;}
+function doodle(r){return `<div class="doodle"><div class="top">✎ <span class="sym">${r.sym}</span><span class="chip">${r.acct}</span><span class="chip">${r.strat}</span></div><div class="money"><div><div style="font-size:11px">rPnL</div><div class="val ${cls(r)}">${r.rp}</div><div>${r.ru}</div></div><div class="bubble">uPnL ${r.uu}<br>${r.us}</div></div><div class="line">${r.pos} · ${r.lot}</div><div class="line">${r.setup}</div><div class="bal"><span>bal</span>${r.bal}</div></div>`;}
+function bill(r){return `<div class="bill"><div class="pad"><div class="top"><span class="sym">${r.sym}</span><span class="chip">${r.acct}</span><span class="chip">${r.strat}</span></div><div class="money"><div><div class="k">RPNL</div><div class="val">${r.rp}</div><div>${r.ru}</div></div><div class="pillu"><div class="k">UPNL</div>${r.uu}<br>${r.us}</div></div><div class="icons"><span>${r.pos}</span><span>${r.lot.split('·')[0]}</span></div><div class="icons"><span>${r.setup}</span></div></div><div class="bal"><span>BAL</span>${r.bal}</div></div>`;}
+[clay,comic,neon,stick,pixel,glass,candy,mag,badge,toy,doodle,bill].forEach((fn,i)=>{document.getElementById('r'+(i+1)).innerHTML=rows.map(fn).join('');});
+</script>
+</body>
+</html>

@@ -1766,7 +1766,7 @@ function rpnlPillUpnl(r) {
   const usd = liveUpnlUsd(s, r.quote_venue);
   const d = Math.abs(inr) < 100 ? 2 : 0;
   const usdBit = (usd != null && isFinite(usd)) ? ' (' + usdFmtDec(usd, 2) + ')' : '';
-  return { text: 'uPnL ' + inrFmtDec(inr, d) + usdBit, up: inr >= 0 };
+  return { text: inrFmtDec(inr, d) + usdBit, up: inr >= 0 };
 }
 
 function rpnlPillBookHtml(r) {
@@ -1775,10 +1775,8 @@ function rpnlPillBookHtml(r) {
   const sym = r._pairGroup
     ? (r._legLabel || r.quote_symbol || r.contract)
     : (r.quote_symbol || r.contract);
-  const up = rpnlPillUpnl(r);
   const pos = rpnlHeldLines(s, sym, r);
   let html = '';
-  if (up) html += '<div class="p-upnl ' + (up.up ? 'up' : 'dn') + '">' + escHtml(up.text) + '</div>';
   if (pos) {
     html += '<div class="p-pos ' + pos.side + '">';
     for (let i = 0; i < pos.lines.length; i++) {
@@ -1787,6 +1785,27 @@ function rpnlPillBookHtml(r) {
     html += '</div>';
   }
   return html;
+}
+
+function rpnlSyncPillUpnl(el, r) {
+  const up = (r && !r.removed) ? rpnlPillUpnl(r) : null;
+  const money = el.querySelector('.p-money');
+  if (!money) return;
+  let col = money.querySelector('.p-col-u');
+  if (!up) {
+    if (col) col.remove();
+    return;
+  }
+  if (!col) {
+    col = document.createElement('div');
+    col.className = 'p-col p-col-u';
+    col.innerHTML = '<div class="p-k">uPnL</div><div class="p-upnl"></div>';
+    money.appendChild(col);
+  }
+  const node = col.querySelector('.p-upnl');
+  if (!node) return;
+  node.className = 'p-upnl ' + (up.up ? 'up' : 'dn');
+  node.textContent = up.text;
 }
 
 function rpnlSyncPillBook(el, r) {
@@ -1842,7 +1861,17 @@ function rpnlPillHtml(r, cur, nameCount) {
       '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span>' +
       rpnlPillSetupBtn(r, cur) +
     '</div>' +
-    '<div class="p-val" style="color:' + mainCol + '">' + rpnlPillValInner(r) + '</div>' +
+    (bootOnly || r.removed
+      ? '<div class="p-val" style="color:' + mainCol + '">' + rpnlPillValInner(r) + '</div>'
+      : '<div class="p-money"><div class="p-col"><div class="p-k">rPnL</div>' +
+          '<div class="p-val" style="color:' + mainCol + '">' + rpnlPillValInner(r) + '</div></div>' +
+          (function () {
+            const up = rpnlPillUpnl(r);
+            if (!up) return '';
+            return '<div class="p-col p-col-u"><div class="p-k">uPnL</div>' +
+              '<div class="p-upnl ' + (up.up ? 'up' : 'dn') + '">' + escHtml(up.text) + '</div></div>';
+          })() +
+        '</div>') +
     (book ? '<div class="p-book">' + book + '</div>' : '') +
     (r._pairGroup ? '<div class="p-hedge" title="option vs hedge">opt ' + inrFmt(r._optRpnl || 0) + ' · hedge ' + inrFmt(r._hedgeRpnl || 0) + '</div>' : '') +
     (hedgeBit && hedgeOf ? '<div class="p-hedge" title="' + escHtml(hedgeOf) + '">of ' + escHtml(hedgeOf) + '</div>' : '') +
@@ -1925,6 +1954,7 @@ function renderRpnlSummary(rows, hours) {
           ? '#ffb74d'
           : (main >= 0 ? 'var(--green)' : 'var(--red)');
       }
+      rpnlSyncPillUpnl(el, r);
       rpnlSyncPillBook(el, r);
       const mode = rpnlPillMode(r);
       let modeEl = el.querySelector('.p-mode');
@@ -1944,8 +1974,8 @@ function renderRpnlSummary(rows, hours) {
         if (!maxEl) {
           maxEl = document.createElement('div');
           maxEl.className = 'p-max';
-          const valEl = el.querySelector('.p-val');
-          if (valEl && valEl.nextSibling) el.insertBefore(maxEl, valEl.nextSibling);
+          const before = el.querySelector('.p-geom') || el.querySelector('.p-bal') || el.querySelector('.p-mode');
+          if (before) el.insertBefore(maxEl, before);
           else el.appendChild(maxEl);
         }
         maxEl.textContent = maxBit;
@@ -1958,8 +1988,8 @@ function renderRpnlSummary(rows, hours) {
         if (!balEl) {
           balEl = document.createElement('div');
           balEl.className = 'p-bal';
-          const after = el.querySelector('.p-max') || el.querySelector('.p-val');
-          if (after && after.nextSibling) el.insertBefore(balEl, after.nextSibling);
+          const before = el.querySelector('.p-mode');
+          if (before) el.insertBefore(balEl, before);
           else el.appendChild(balEl);
         }
         balEl.textContent = walletBit;
@@ -1972,8 +2002,8 @@ function renderRpnlSummary(rows, hours) {
         if (!geomEl) {
           geomEl = document.createElement('div');
           geomEl.className = 'p-geom';
-          const after = el.querySelector('.p-bal') || el.querySelector('.p-max') || el.querySelector('.p-val');
-          if (after && after.nextSibling) el.insertBefore(geomEl, after.nextSibling);
+          const before = el.querySelector('.p-bal') || el.querySelector('.p-mode');
+          if (before) el.insertBefore(geomEl, before);
           else el.appendChild(geomEl);
         }
         geomEl.textContent = geomBit;
