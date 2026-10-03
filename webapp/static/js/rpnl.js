@@ -151,9 +151,9 @@ function rpnlIsBooting(r) {
 }
 function rpnlRowRank(r) {
   if (rpnlIsBooting(r)) return 0;
-  if (r && r.live) return 1;
-  if (r && r.removed) return 2;
-  return 3;
+  if (r && r.live) return rpnlIsStoppedRunning(r) ? 2 : 1;
+  if (r && r.removed) return 3;
+  return 4;
 }
 function rpnlSelMark(c) {
   if (c && c.live) return '● ';
