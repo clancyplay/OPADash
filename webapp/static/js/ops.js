@@ -16,16 +16,16 @@ let opsLoadGen = 0;
 let opsLoadN = 0;
 
 const OPS_COLORS = [
-  { id: '', hex: '#161a25', label: 'Default', light: false },
-  { id: 'red', hex: '#c62828', label: 'Red', light: false },
-  { id: 'orange', hex: '#ef6c00', label: 'Orange', light: false },
-  { id: 'yellow', hex: '#f9a825', label: 'Yellow', light: true },
-  { id: 'green', hex: '#2e7d32', label: 'Green', light: false },
-  { id: 'blue', hex: '#1565c0', label: 'Blue', light: false },
-  { id: 'purple', hex: '#6a1b9a', label: 'Purple', light: false },
-  { id: 'white', hex: '#eceff1', label: 'White', light: true },
-  { id: 'brown', hex: '#6d4c41', label: 'Brown', light: false },
-  { id: 'black', hex: '#12141c', label: 'Black', light: false },
+  { id: '', hex: '', label: 'Default' },
+  { id: 'red', hex: '#e08a86', label: 'Red' },
+  { id: 'orange', hex: '#e0a36a', label: 'Orange' },
+  { id: 'yellow', hex: '#d4bc72', label: 'Yellow' },
+  { id: 'green', hex: '#7dbea0', label: 'Green' },
+  { id: 'blue', hex: '#86aee0', label: 'Blue' },
+  { id: 'purple', hex: '#b79ad4', label: 'Purple' },
+  { id: 'white', hex: '#d0d7e4', label: 'White' },
+  { id: 'brown', hex: '#c9a888', label: 'Brown' },
+  { id: 'black', hex: '#9aa3b5', label: 'Black' },
 ];
 
 function renderOpsColors(selected) {
@@ -35,8 +35,8 @@ function renderOpsColors(selected) {
   const known = OPS_COLORS.some(c => c.id === want);
   box.innerHTML = OPS_COLORS.map(c => {
     const on = known ? c.id === want : c.id === '';
-    return '<button type="button" class="rp-color' + (on ? ' on' : '') + (c.light ? ' tone-ink' : '') +
-      '" data-color="' + c.id + '" style="background:' + c.hex + '" title="' + c.label +
+    return '<button type="button" class="rp-color' + (on ? ' on' : '') + (c.hex ? ' has-color' : '') +
+      '" data-color="' + c.id + '"' + (c.hex ? ' style="--pill:' + c.hex + '"' : '') + ' title="' + c.label +
       '" aria-pressed="' + (on ? 'true' : 'false') + '"><i></i><span>' + c.label + '</span></button>';
   }).join('');
   if (!box.dataset.bound) {

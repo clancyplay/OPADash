@@ -1457,15 +1457,15 @@ async def rpnl_chart(
 
 
 _PILL_COLOR_HEX = {
-    "red": "#c62828",
-    "orange": "#ef6c00",
-    "yellow": "#f9a825",
-    "green": "#2e7d32",
-    "blue": "#1565c0",
-    "purple": "#6a1b9a",
-    "white": "#eceff1",
-    "brown": "#6d4c41",
-    "black": "#12141c",
+    "red": "#e08a86",
+    "orange": "#e0a36a",
+    "yellow": "#d4bc72",
+    "green": "#7dbea0",
+    "blue": "#86aee0",
+    "purple": "#b79ad4",
+    "white": "#d0d7e4",
+    "brown": "#c9a888",
+    "black": "#9aa3b5",
 }
 
 
