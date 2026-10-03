@@ -202,7 +202,7 @@ body:has(#rpnl.visible) {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding: 8px max(12px, var(--safe-r)) 8px max(12px, var(--safe-l));
+  padding: 8px max(12px, var(--safe-r)) 16px max(12px, var(--safe-l));
   border-bottom: 1px solid var(--border);
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
@@ -212,6 +212,7 @@ body:has(#rpnl.visible) {
 .rpnl-pills:empty { display: none; }
 .rpnl-empty { padding: 12px 4px; color: var(--muted); font-size: 13px; }
 .rpnl-pill {
+  position: relative;
   flex: 0 0 auto;
   cursor: pointer;
   border: 1px solid var(--border2);
@@ -365,9 +366,45 @@ body:has(#rpnl.visible) {
   display: block; font-size: 9px; color: #9aa3b5; margin-top: 2px;
   font-variant-numeric: tabular-nums;
 }
-.rpnl-pill .p-mode { font-size: 10px; color: #ffb74d; margin-top: 3px; }
-.rpnl-pill .p-mode.stop { color: #ffb74d; font-weight: 650; letter-spacing: .2px; }
-.rpnl-pill .p-mode.bad { color: var(--red); font-weight: 650; }
+.rpnl-pill .p-medal {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  z-index: 3;
+  transform: translate(-50%, 50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #1a160f;
+  color: #ffb74d;
+  border: 1px solid #ffb74d;
+  border-radius: 999px;
+  padding: 0 6px 0 1px;
+  box-shadow: 0 0 0 2px var(--bg);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .1px;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.rpnl-pill .p-medal i {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #ffb74d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.rpnl-pill .p-medal svg { width: 9px; height: 9px; display: block; }
+.rpnl-pill .p-medal.bad {
+  color: var(--red);
+  border-color: var(--red);
+  background: #1c1214;
+}
+.rpnl-pill .p-medal.bad i { background: var(--red); }
 .rpnl-pill .rpnl-hedge {
   font-size: 9px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
   color: #ffb74d; background: rgba(255, 183, 77, .16); border-radius: 4px;
@@ -1057,7 +1094,10 @@ body:has(#rpnl.visible) {
     padding: 0 10px 0 8px !important;
   }
 
-  .rpnl-pills { padding: 6px max(8px, var(--safe-r)); gap: 6px; }
+  .rpnl-pills { padding: 6px max(8px, var(--safe-r)) 14px; gap: 6px; }
+  .rpnl-pill .p-medal { font-size: 8px; }
+  .rpnl-pill .p-medal i { width: 12px; height: 12px; }
+  .rpnl-pill .p-medal svg { width: 8px; height: 8px; }
   .rpnl-pill { padding: 6px 8px; min-width: 108px; border-radius: 8px; }
   .rpnl-pill .p-val { font-size: 13px; margin-top: 1px; }
   .rpnl-pill .p-upnl { font-size: 10px; }

@@ -378,6 +378,7 @@ function rpnlDashStatus(s) {
 function rpnlStatusLabel(mode) {
   const m = String(mode || '').trim().toLowerCase();
   if (m === 'stopped') return 'Stopped';
+  if (m === 'stopping') return 'Stopping';
   if (m === 'flattening') return 'Closing';
   if (m === 'paused') return 'Paused';
   if (m === 'waiting') return 'Waiting';
@@ -1638,10 +1639,107 @@ function rpnlLiveDot(r) {
   return '<span class="' + cls + '" title="' + escHtml(title) + '"></span>';
 }
 
-function rpnlPillMode(r) {
-  if (rpnlIsBooting(r)) return '';
-  if (r && r.removed) return 'Removed · restart ready';
-  return rpnlModeText(r && r.settings, true) || '';
+const RPNL_MEDAL_INK = '#2a1c08';
+const RPNL_MEDAL_ICONS = (function () {
+  const ink = RPNL_MEDAL_INK;
+  const L = 'fill="none" stroke="' + ink + '" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"';
+  const F = 'fill="' + ink + '"';
+  return {
+    stopped: '<rect x="2.4" y="2.4" width="7.2" height="7.2" rx="1.15" ' + F + '/>',
+    stopping: '<path ' + L + ' d="M8.7 2.5a4.1 4.1 0 1 0 1.15 2.05"/><path ' + L + ' d="M8.5 1.35V3.1h1.75"/><rect x="4.2" y="4.2" width="3.6" height="3.6" rx=".55" ' + F + '/>',
+    paused: '<rect x="2.2" y="1.7" width="2.35" height="8.6" rx=".7" ' + F + '/><rect x="7.45" y="1.7" width="2.35" height="8.6" rx=".7" ' + F + '/>',
+    closing: '<path fill="none" stroke="' + ink + '" stroke-width="1.8" stroke-linecap="round" d="M2.7 2.7l6.6 6.6M9.3 2.7L2.7 9.3"/>',
+    waiting: '<path ' + L + ' d="M3.1 1.7h5.8M3.1 10.3h5.8"/><path ' + L + ' d="M3.4 2.1C3.4 4 6 4.9 6 6s-2.6 2-2.6 3.9M8.6 2.1C8.6 4 6 4.9 6 6s2.6 2 2.6 3.9"/>',
+    stale: '<path ' + L + ' d="M2 2.5h3.3V9.2H2zM6.7 2.5H10V9.2H6.7z"/><path ' + L + ' d="M1.8 10.2L10.2 1.8"/>',
+    quiet: '<path ' + F + ' d="M1.5 4.5h2L5.8 2.6v6.8L3.5 7.5h-2z"/><path ' + L + ' d="M8 4.1l2.7 3.7M10.7 4.1L8 7.8"/>',
+    fill: '<rect x="1.5" y="1.6" width="2.15" height="6.3" rx=".55" ' + F + '/><rect x="4.7" y="1.6" width="2.15" height="6.3" rx=".55" ' + F + '/><circle cx="9.35" cy="8.7" r="1.75" ' + F + '/>',
+    rest: '<path fill="none" stroke="' + ink + '" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M2.5 3.1h7L2.5 8.9h7"/>',
+    cover: '<path ' + F + ' d="M6 1.25l4.15 1.45v3.05c0 2.25-1.65 3.6-4.15 4.55C3.5 9.35 1.85 8 1.85 5.75V2.7z"/>',
+    trend: '<path ' + L + ' d="M6 1.35l4 1.4v2.9c0 2.15-1.55 3.45-4 4.35-2.45-.9-4-2.2-4-4.35V2.75z"/><path ' + L + ' d="M4.15 5.15L6 7.15l1.85-2"/>',
+    cool: '<path ' + L + ' d="M6 1.3v9.4M1.5 6h9M2.5 2.5l7 7M9.5 2.5l-7 7"/>',
+    clock: '<circle cx="6" cy="6" r="4.15" ' + L + '/><path ' + L + ' d="M6 3.2V6.15l2 1.25"/>',
+    wind: '<path ' + L + ' d="M6 1.5v6.1M3.35 5.5L6 8.25l2.65-2.75M2.3 10.25h7.4"/>',
+    delay: '<path ' + L + ' d="M1.7 7.3h8.6"/><path ' + L + ' d="M3.15 7.3a2.85 2.85 0 0 1 5.7 0"/><path ' + L + ' d="M6 2.2v1.25M3.3 3.5l.85.85M8.7 3.5l-.85.85"/>',
+    day: '<circle cx="6" cy="4.7" r="1.85" ' + F + '/><path ' + L + ' d="M6 1.15v1.15M2.55 2.55l.8.8M9.45 2.55l-.8.8M1.5 4.7h1.15M9.35 4.7H10.5"/><path fill="none" stroke="' + ink + '" stroke-width="1.7" stroke-linecap="round" d="M2.1 9.35h7.8"/>',
+    hold: '<rect x="2.7" y="5.3" width="6.6" height="4.7" rx="1" ' + L + '/><path ' + L + ' d="M4.25 5.3V3.75a1.75 1.75 0 0 1 3.5 0V5.3"/>',
+    removed: '<path ' + L + ' d="M2.3 3.3h7.4M4.55 3.3V2.25h2.9V3.3"/><path ' + L + ' d="M3.25 3.5l.55 6.15h4.4l.55-6.15"/>',
+    size: '<circle cx="6" cy="6" r="4.1" ' + L + '/><path ' + F + ' d="M6 6 L6 2.05 A3.95 3.95 0 0 1 9.55 7.35 Z"/>',
+    building: '<rect x="2" y="7.5" width="8" height="2.15" rx=".35" ' + F + '/><rect x="3.1" y="4.9" width="5.8" height="2.15" rx=".35" ' + F + '/><rect x="4.15" y="2.3" width="3.7" height="2.15" rx=".35" ' + F + '/>',
+    deploying: '<path ' + L + ' d="M6 8.7V2.3M3.55 4.55L6 2.1l2.45 2.45M2.15 10.2h7.7"/>',
+    starting: '<path ' + F + ' d="M3.3 1.7l6.2 4.3-6.2 4.3z"/>',
+    queued: '<path ' + L + ' d="M2.1 3h7.8M2.1 6h7.8M2.1 9h5.1"/>',
+    mark: '<circle cx="6" cy="6" r="2.3" ' + F + '/>'
+  };
+})();
+
+function rpnlMedalIconName(mode) {
+  const m = String(mode || '').trim().toLowerCase();
+  const map = {
+    stopped: 'stopped', stopping: 'stopping', paused: 'paused', flattening: 'closing',
+    waiting: 'waiting', stale: 'stale', rest: 'rest', 'no-volume': 'quiet',
+    'fill-pause': 'fill', 'grind-cover': 'cover', cover: 'cover', 'trend-cover': 'trend',
+    'size-cool': 'cool', 'clock-closed': 'clock', 'wind-down': 'wind', 'open-delay': 'delay',
+    'day-stop': 'day', 'hold-stop': 'hold'
+  };
+  return map[m] || 'mark';
+}
+
+function rpnlBootIcon(r) {
+  const d = String((r && r.deploy) || '').trim().toLowerCase();
+  if (d === 'building' || d === 'deploying' || d === 'starting' || d === 'queued') return d;
+  return 'queued';
+}
+
+function rpnlMedalSvg(name) {
+  return '<svg viewBox="0 0 12 12" aria-hidden="true">' +
+    (RPNL_MEDAL_ICONS[name] || RPNL_MEDAL_ICONS.mark) + '</svg>';
+}
+
+function rpnlPillMedal(r) {
+  if (!r || rpnlIsPairHedge(r)) return null;
+  if (rpnlIsBooting(r)) {
+    const text = rpnlBootLabel(r);
+    if (!text) return null;
+    return { text: text, icon: rpnlBootIcon(r), bad: false };
+  }
+  if (r.removed) return { text: 'Removed · restart ready', icon: 'removed', bad: false };
+  const text = rpnlModeText(r.settings, true);
+  if (!text) return null;
+  const s = r.settings || {};
+  const mode = String(s.mode || '').trim().toLowerCase();
+  const dash = rpnlDashStatus(s);
+  let icon = 'mark';
+  if (dash.key === 'stopped') icon = 'stopped';
+  else if (dash.key === 'flattening') icon = 'closing';
+  else if (/^size\b/i.test(text) && (!mode || mode === 'quoting')) icon = 'size';
+  else icon = rpnlMedalIconName(mode);
+  return { text: text, icon: icon, bad: dash.tone === 'bad' };
+}
+
+function rpnlMedalHtml(medal) {
+  if (!medal) return '';
+  return '<div class="p-medal' + (medal.bad ? ' bad' : '') + '" data-icon="' + escHtml(medal.icon) + '">' +
+    '<i>' + rpnlMedalSvg(medal.icon) + '</i><span>' + escHtml(medal.text) + '</span></div>';
+}
+
+function rpnlSyncPillMedal(el, r) {
+  const medal = rpnlPillMedal(r);
+  let node = el.querySelector('.p-medal');
+  if (!medal) {
+    if (node) node.remove();
+    return;
+  }
+  if (!node) {
+    node = document.createElement('div');
+    el.appendChild(node);
+  }
+  if (node.dataset.icon === medal.icon && node.textContent === medal.text) {
+    node.className = 'p-medal' + (medal.bad ? ' bad' : '');
+    return;
+  }
+  node.className = 'p-medal' + (medal.bad ? ' bad' : '');
+  node.dataset.icon = medal.icon;
+  node.innerHTML = '<i>' + rpnlMedalSvg(medal.icon) + '</i><span>' + escHtml(medal.text) + '</span>';
 }
 
 function rpnlPillMax(r) {
@@ -1828,15 +1926,13 @@ function rpnlSyncPillBook(el, r) {
 function rpnlPillHtml(r, cur, nameCount) {
   const key = rpnlOptionValue(r);
   const active = key === cur ? ' active' : '';
-  const bootOnly = rpnlIsBooting(r) && !rpnlWindowFillCount(r);
   const liveCls = r.live ? ' live' : (rpnlIsBooting(r) ? ' booting' : (r.removed ? ' removed' : ''));
   const acct = rpnlPillAcctText(r, nameCount);
   const qv = r.quote_venue || 'delta';
   const qlab = r.quote_label || 'Delta';
   const qsym = r._pairGroup ? (r._legLabel || r.quote_symbol || r.contract) : (r.quote_symbol || r.contract);
   const main = rpnlPillMain(r);
-  const mainCol = (bootOnly || r.removed) ? '#ffb74d' : (main >= 0 ? 'var(--green)' : 'var(--red)');
-  const mode = rpnlPillMode(r);
+  const mainCol = main >= 0 ? 'var(--green)' : 'var(--red)';
   const maxBit = rpnlIsPairHedge(r) ? '' : rpnlPillMax(r);
   const geomBit = rpnlIsPairHedge(r) ? '' : rpnlPillGeom(r);
   const walletBit = rpnlPillWallet(r);
@@ -1844,10 +1940,9 @@ function rpnlPillHtml(r, cur, nameCount) {
   const hedgeBit = rpnlIsPairHedge(r);
   const st = rpnlDashStatus(r.settings);
   const statusCls = hedgeBit || !st.key ? '' : ' ' + st.key;
-  const modeCls = st.tone ? ' ' + st.tone : '';
   const hedgeOf = rpnlHedgeOf(r);
   const via = r.settings && r.settings.hedge_via;
-  const shownMode = hedgeBit ? '' : mode;
+  const medal = rpnlPillMedal(r);
   const tint = rpnlPillColor(r);
   const book = rpnlPillBookHtml(r);
   return '<div class="rpnl-pill' + active + liveCls + statusCls + (hedgeBit ? ' hedge' : '') + (tint.hex ? ' has-color' : '') + '"' +
@@ -1861,17 +1956,15 @@ function rpnlPillHtml(r, cur, nameCount) {
       '<span class="rpnl-venue ' + rpnlVenueClass(qv) + '">' + escHtml(qlab) + '</span>' +
       rpnlPillSetupBtn(r, cur) +
     '</div>' +
-    (bootOnly || r.removed
-      ? '<div class="p-val" style="color:' + mainCol + '">' + rpnlPillValInner(r) + '</div>'
-      : '<div class="p-money"><div class="p-col"><div class="p-k">rPnL</div>' +
-          '<div class="p-val" style="color:' + mainCol + '">' + rpnlPillValInner(r) + '</div></div>' +
-          (function () {
-            const up = rpnlPillUpnl(r);
-            if (!up) return '';
-            return '<div class="p-col p-col-u"><div class="p-k">uPnL</div>' +
-              '<div class="p-upnl ' + (up.up ? 'up' : 'dn') + '">' + escHtml(up.text) + '</div></div>';
-          })() +
-        '</div>') +
+    '<div class="p-money"><div class="p-col"><div class="p-k">rPnL</div>' +
+      '<div class="p-val" style="color:' + mainCol + '">' + rpnlPillValInner(r) + '</div></div>' +
+      (function () {
+        const up = rpnlPillUpnl(r);
+        if (!up) return '';
+        return '<div class="p-col p-col-u"><div class="p-k">uPnL</div>' +
+          '<div class="p-upnl ' + (up.up ? 'up' : 'dn') + '">' + escHtml(up.text) + '</div></div>';
+      })() +
+    '</div>' +
     (book ? '<div class="p-book">' + book + '</div>' : '') +
     (r._pairGroup ? '<div class="p-hedge" title="option vs hedge">opt ' + inrFmt(r._optRpnl || 0) + ' · hedge ' + inrFmt(r._hedgeRpnl || 0) + '</div>' : '') +
     (hedgeBit && hedgeOf ? '<div class="p-hedge" title="' + escHtml(hedgeOf) + '">of ' + escHtml(hedgeOf) + '</div>' : '') +
@@ -1879,7 +1972,7 @@ function rpnlPillHtml(r, cur, nameCount) {
     (maxBit ? '<div class="p-max">' + escHtml(maxBit) + '</div>' : '') +
     (geomBit ? '<div class="p-geom" title="' + escHtml(r.settings && r.settings.geom || geomBit) + '">' + escHtml(geomBit) + '</div>' : '') +
     (walletBit ? '<div class="p-bal">' + escHtml(walletBit) + '</div>' : '') +
-    (shownMode ? '<div class="p-mode' + modeCls + '">' + escHtml(shownMode) + '</div>' : '') +
+    rpnlMedalHtml(medal) +
     '</div>';
 }
 
@@ -1898,10 +1991,6 @@ function rpnlPillUsdText(r, inr) {
 }
 
 function rpnlPillValInner(r) {
-  if (r && r.removed) return '<span class="p-boot">Removed</span>';
-  if (rpnlIsBooting(r) && !rpnlWindowFillCount(r)) {
-    return '<span class="p-boot">' + escHtml(rpnlBootLabel(r)) + '</span>';
-  }
   const main = rpnlPillMain(r);
   return inrFmt(main) + '<span class="p-usd">' + rpnlPillUsdText(r, main) + '</span>';
 }
@@ -1950,31 +2039,18 @@ function renderRpnlSummary(rows, hours) {
       const main = rpnlPillMain(r);
       if (val) {
         val.innerHTML = rpnlPillValInner(r);
-        val.style.color = (rpnlIsBooting(r) && !rpnlWindowFillCount(r))
-          ? '#ffb74d'
-          : (main >= 0 ? 'var(--green)' : 'var(--red)');
+        val.style.color = main >= 0 ? 'var(--green)' : 'var(--red)';
       }
       rpnlSyncPillUpnl(el, r);
       rpnlSyncPillBook(el, r);
-      const mode = rpnlPillMode(r);
-      let modeEl = el.querySelector('.p-mode');
-      if (mode) {
-        if (!modeEl) {
-          modeEl = document.createElement('div');
-          el.appendChild(modeEl);
-        }
-        modeEl.className = 'p-mode' + (st.tone ? ' ' + st.tone : '');
-        modeEl.textContent = mode;
-      } else if (modeEl) {
-        modeEl.remove();
-      }
+      rpnlSyncPillMedal(el, r);
       const maxBit = rpnlIsPairHedge(r) ? '' : rpnlPillMax(r);
       let maxEl = el.querySelector('.p-max');
       if (maxBit) {
         if (!maxEl) {
           maxEl = document.createElement('div');
           maxEl.className = 'p-max';
-          const before = el.querySelector('.p-geom') || el.querySelector('.p-bal') || el.querySelector('.p-mode');
+          const before = el.querySelector('.p-geom') || el.querySelector('.p-bal') || el.querySelector('.p-medal');
           if (before) el.insertBefore(maxEl, before);
           else el.appendChild(maxEl);
         }
@@ -1988,7 +2064,7 @@ function renderRpnlSummary(rows, hours) {
         if (!balEl) {
           balEl = document.createElement('div');
           balEl.className = 'p-bal';
-          const before = el.querySelector('.p-mode');
+          const before = el.querySelector('.p-medal');
           if (before) el.insertBefore(balEl, before);
           else el.appendChild(balEl);
         }
@@ -2002,7 +2078,7 @@ function renderRpnlSummary(rows, hours) {
         if (!geomEl) {
           geomEl = document.createElement('div');
           geomEl.className = 'p-geom';
-          const before = el.querySelector('.p-bal') || el.querySelector('.p-mode');
+          const before = el.querySelector('.p-bal') || el.querySelector('.p-medal');
           if (before) el.insertBefore(geomEl, before);
           else el.appendChild(geomEl);
         }
