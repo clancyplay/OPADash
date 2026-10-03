@@ -2354,7 +2354,7 @@ function rpnlResetDblClick(ev) {
   if (!el) return;
   if (rpnlTouchOnYAxis(el, ev.clientX)) {
     const chart = el.id === 'rpnlChart' ? rpnlChart : ohlcChart;
-    try { chart.priceScale('right').applyOptions({ autoScale: true }); } catch (e) {}
+    rpnlResetPriceZoom(chart);
     if (chart === rpnlChart && !rpnlAutoY) { rpnlAutoY = true; syncRpnlViewButtons(); }
     return;
   }
@@ -2559,27 +2559,150 @@ function clearRpnlYScaleMode() {
     if (el) setRpnlYScaleMode(el, false);
   });
 }
-function rpnlZoomPriceScale(chart, dy, h) {
-  if (!chart || !dy) return;
-  const scale = chart.priceScale('right');
-  let top = 0.1;
-  let bot = chart === rpnlChart ? 0.08 : (ohlcShowVol ? 0.18 : 0.05);
+// Manual Y zoom is a price-range scale, not chart padding. Padding died at
+// 0.42 and felt like the max after a short drag. 250× in / 120× out from the
+// range where the drag started.
+const rpnlYZoomBase = new WeakMap();
+function rpnlPriceMargins(chart) {
+  if (chart === ohlcChart) return { top: 0.1, bottom: ohlcShowVol ? 0.18 : 0.05 };
+  return { top: 0.1, bottom: 0.08 };
+}
+function rpnlResetPriceZoom(chart) {
+  if (!chart) return;
+  rpnlYZoomBase.delete(chart);
   try {
-    const m = scale.options() && scale.options().scaleMargins;
-    if (m) { top = m.top; bot = m.bottom; }
+    chart.priceScale('right').applyOptions({ autoScale: true, scaleMargins: rpnlPriceMargins(chart) });
   } catch (e) {}
-  const k = dy / Math.max(120, h || 240) * 0.45;
-  const clamp = (v) => Math.max(0.02, Math.min(0.42, v));
+}
+function rpnlRangeSpan(range, log) {
+  if (!range || !(range.to > range.from)) return 0;
+  if (log && range.from > 0 && range.to > 0) return Math.log(range.to / range.from);
+  return range.to - range.from;
+}
+function rpnlScalePriceRange(range, factor, log) {
+  if (!(factor > 0) || !(range.to > range.from)) return null;
+  if (log && range.from > 0 && range.to > 0) {
+    const a = Math.log(range.from);
+    const b = Math.log(range.to);
+    const mid = (a + b) / 2;
+    const half = Math.max(1e-9, (b - a) / 2 * factor);
+    const from = Math.exp(mid - half);
+    const to = Math.exp(mid + half);
+    if (!(to > from) || !isFinite(from) || !isFinite(to)) return null;
+    return { from: from, to: to };
+  }
+  const mid = (range.from + range.to) / 2;
+  const half = (range.to - range.from) / 2 * factor;
+  if (!(half > 0) || !isFinite(mid) || !isFinite(half)) return null;
+  return { from: mid - half, to: mid + half };
+}
+function rpnlApplyYFactor(chart, range, factor) {
+  if (!chart || !range) return;
+  const log = chart === ohlcChart && !!ohlcLogScale;
+  if (!rpnlYZoomBase.has(chart)) {
+    rpnlYZoomBase.set(chart, { from: range.from, to: range.to });
+    try {
+      chart.priceScale('right').applyOptions({ autoScale: false, scaleMargins: rpnlPriceMargins(chart) });
+    } catch (e) {}
+  }
+  const baseSpan = rpnlRangeSpan(rpnlYZoomBase.get(chart), log);
+  const nowSpan = rpnlRangeSpan(range, log);
+  if (baseSpan > 0 && nowSpan > 0) {
+    const nextSpan = nowSpan * factor;
+    const clamped = Math.max(baseSpan / 250, Math.min(baseSpan * 120, nextSpan));
+    factor = clamped / nowSpan;
+  }
+  const next = rpnlScalePriceRange(range, factor, log);
+  if (!next) return;
   try {
-    scale.applyOptions({
-      autoScale: false,
-      scaleMargins: { top: clamp(top - k), bottom: clamp(bot - k) },
-    });
+    chart.priceScale('right').applyOptions({ autoScale: false });
+    chart.priceScale('right').setVisibleRange(next);
   } catch (e) {}
   if (chart === rpnlChart && rpnlAutoY) {
     rpnlAutoY = false;
     syncRpnlViewButtons();
   }
+}
+function rpnlZoomPriceScale(chart, dy, h, dragDownZoomsOut) {
+  if (!chart || !dy) return;
+  let range = null;
+  try { range = chart.priceScale('right').getVisibleRange(); } catch (e) {}
+  if (!range || !(range.to > range.from)) return;
+  const zoomInDy = dragDownZoomsOut ? -dy : dy;
+  const factor = Math.exp(-zoomInDy / Math.max(200, (h || 240) * 0.7));
+  rpnlApplyYFactor(chart, range, factor);
+}
+function bindOhlcYDrag() {
+  const el = document.getElementById('ohlcChart');
+  if (!el || el.dataset.yDrag) return;
+  el.dataset.yDrag = '1';
+  let drag = null;
+  el.addEventListener('pointerdown', (ev) => {
+    if (ev.pointerType === 'touch' || rpnlSelectMode || ev.button !== 0) return;
+    if (!ohlcChart || !rpnlTouchOnYAxis(el, ev.clientX)) return;
+    let range = null;
+    try { range = ohlcChart.priceScale('right').getVisibleRange(); } catch (e) {}
+    if (!range || !(range.to > range.from)) return;
+    drag = { id: ev.pointerId, y: ev.clientY, range: { from: range.from, to: range.to } };
+    try { el.setPointerCapture(ev.pointerId); } catch (e) {}
+    ev.stopPropagation();
+  }, true);
+  el.addEventListener('pointermove', (ev) => {
+    if (!drag || ev.pointerId !== drag.id) return;
+    const dy = ev.clientY - drag.y;
+    if (Math.abs(dy) < 1) return;
+    // Drag down zooms out, same as the chart's own price-axis drag.
+    const factor = Math.exp(dy / Math.max(200, (el.clientHeight || 240) * 0.7));
+    rpnlApplyYFactor(ohlcChart, drag.range, factor);
+    ev.preventDefault();
+  }, true);
+  const end = (ev) => {
+    if (!drag || ev.pointerId !== drag.id) return;
+    drag = null;
+  };
+  el.addEventListener('pointerup', end, true);
+  el.addEventListener('pointercancel', end, true);
+  bindOhlcYHit();
+}
+function bindOhlcYHit() {
+  const hit = document.getElementById('ohlcYHit');
+  if (!hit || hit.dataset.bound) return;
+  hit.dataset.bound = '1';
+  let drag = null;
+  let tap = null;
+  hit.addEventListener('touchstart', (ev) => {
+    if (rpnlSelectMode || !ohlcChart || ev.touches.length !== 1) { drag = null; return; }
+    const t = ev.touches[0];
+    let range = null;
+    try { range = ohlcChart.priceScale('right').getVisibleRange(); } catch (e) {}
+    if (!range || !(range.to > range.from)) return;
+    drag = { y: t.clientY, range: { from: range.from, to: range.to } };
+    tap = { x: t.clientX, y: t.clientY, t: Date.now() };
+  }, { passive: true });
+  hit.addEventListener('touchmove', (ev) => {
+    if (!drag || ev.touches.length !== 1) return;
+    const dy = ev.touches[0].clientY - drag.y;
+    if (Math.abs(dy) < 1) return;
+    if (ev.cancelable) ev.preventDefault();
+    const h = (document.getElementById('ohlcChart') || {}).clientHeight || hit.clientHeight || 240;
+    const factor = Math.exp(dy / Math.max(200, h * 0.7));
+    rpnlApplyYFactor(ohlcChart, drag.range, factor);
+    tap = null;
+  }, { passive: false });
+  const endTouch = (ev) => {
+    const t = ev.changedTouches && ev.changedTouches[0];
+    if (tap && t && Math.abs(t.clientX - tap.x) < 14 && Math.abs(t.clientY - tap.y) < 14 && (Date.now() - tap.t) < 350) {
+      const now = Date.now();
+      if (bindOhlcYHit._tap && now - bindOhlcYHit._tap < 320) {
+        rpnlResetPriceZoom(ohlcChart);
+        bindOhlcYHit._tap = 0;
+      } else bindOhlcYHit._tap = now;
+    }
+    drag = null;
+    tap = null;
+  };
+  hit.addEventListener('touchend', endTouch, { passive: true });
+  hit.addEventListener('touchcancel', () => { drag = null; tap = null; }, { passive: true });
 }
 function bindRpnlYScaleMode() {
   if (bindRpnlYScaleMode._bound) return;
@@ -2606,7 +2729,7 @@ function bindRpnlYScaleMode() {
       lastY = t.clientY;
     }, { passive: false });
     el.addEventListener('touchend', (ev) => {
-      if (!rpnlMobileYAxis()) return;
+      if (!rpnlMobileYAxis() || el.id === 'ohlcChart') return;
       const t = ev.changedTouches && ev.changedTouches[0];
       if (!t) return;
       const tap = Math.abs(t.clientX - ax) < 12 && Math.abs(t.clientY - ay) < 12 && (Date.now() - t0) < 450;
@@ -2622,6 +2745,7 @@ function bindRpnlYScaleMode() {
   const onMq = (e) => { if (!e.matches) clearRpnlYScaleMode(); };
   if (mq.addEventListener) mq.addEventListener('change', onMq);
   else if (mq.addListener) mq.addListener(onMq);
+  bindOhlcYDrag();
 }
 
 function rpnlSetLiveShift(on) {
@@ -3431,6 +3555,11 @@ function initRpnl() {
     return fmtPxFull(p);
   } };
   ohlcChart = LightweightCharts.createChart(document.getElementById('ohlcChart'), rpnlChartBase(false));
+  try {
+    ohlcChart.applyOptions({
+      handleScale: { axisPressedMouseMove: { time: true, price: false } },
+    });
+  } catch (e) {}
   ohlcSeries = ohlcChart.addCandlestickSeries({
     upColor: '#26a69a', downColor: '#ef5350',
     borderUpColor: '#26a69a', borderDownColor: '#ef5350',
@@ -4269,7 +4398,11 @@ function rpnlApplySelectHandle(chart) {
   try {
     chart.applyOptions({
       handleScroll: { mouseWheel: true, pressedMouseMove: !rpnlSelectMode, horzTouchDrag: !rpnlSelectMode, vertTouchDrag: false },
-      handleScale: { axisPressedMouseMove: { time: !rpnlSelectMode, price: !rpnlSelectMode }, mouseWheel: !rpnlSelectMode, pinch: !rpnlSelectMode },
+      handleScale: {
+        axisPressedMouseMove: { time: !rpnlSelectMode, price: chart !== ohlcChart && !rpnlSelectMode },
+        mouseWheel: !rpnlSelectMode,
+        pinch: !rpnlSelectMode,
+      },
     });
   } catch (e) {}
 }
@@ -4282,6 +4415,8 @@ function setRpnlSelectMode(on) {
     rpnlSelDrag = null;
   }
   rpnlSelectMode = next;
+  const yHit = document.getElementById('ohlcYHit');
+  if (yHit) yHit.style.pointerEvents = next ? 'none' : '';
   document.querySelectorAll('.rpnl-select-layer').forEach(function (layer) {
     layer.hidden = !rpnlSelectMode;
   });
