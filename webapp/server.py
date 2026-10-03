@@ -663,10 +663,13 @@ def _stamp_arb(row: dict, setup: dict | None, rpnls: dict, counts: dict, counts_
     if isinstance(setup, dict) and setup.get("quote_sym"):
         row["quote_symbol"] = str(setup["quote_sym"])
     q_rpnl, h_rpnl, q_n, h_n = _split_rpnl("arb", qv, rpnls, counts)
+    _, _, q_qty, h_qty = _split_rpnl("arb", qv, {}, dict(row.get("venue_qty") or {}))
     row["rpnl"] = round(q_rpnl, 2)
     row["hedge_rpnl"] = round(h_rpnl, 2)
     row["fills"] = q_n
     row["hedge_fills"] = h_n
+    row["fills_qty"] = q_qty
+    row["hedge_fills_qty"] = h_qty
     others = {k: n for k, n in counts_all.items() if k != qv and n}
     hedge = max(others, key=lambda k: others[k]) if others else ""
     if not hedge and isinstance(setup, dict):
@@ -701,13 +704,19 @@ def _annotate_rpnl_row(
     meta = venue_meta(row.get("contract") or "", counts_all, strategy=row.get("strategy") or strategy)
     row = dict(row)
     row.update(meta)
+    quote = meta.get("quote_venue") or ""
     q_rpnl, h_rpnl, q_n, h_n = _split_rpnl(
-        row.get("strategy") or strategy, meta.get("quote_venue") or "", rpnls, counts,
+        row.get("strategy") or strategy, quote, rpnls, counts,
+    )
+    _, _, q_qty, h_qty = _split_rpnl(
+        row.get("strategy") or strategy, quote, {}, dict(row.get("venue_qty") or {}),
     )
     row["rpnl"] = round(q_rpnl, 2)
     row["fills"] = q_n
     row["hedge_rpnl"] = round(h_rpnl, 2)
     row["hedge_fills"] = h_n
+    row["fills_qty"] = q_qty
+    row["hedge_fills_qty"] = h_qty
     acct = row.get("account") or ""
     shown = (names or {}).get(acct) or (row.get("account_name") or "").strip() or acct
     if shown:

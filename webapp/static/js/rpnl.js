@@ -1751,23 +1751,38 @@ function rpnlPaintPillColor(el, r) {
   }
 }
 
-function rpnlHeldLines(s, sym) {
-  if (!s || s.pos == null) return null;
-  const n = Number(s.pos);
-  if (!isFinite(n) || Math.abs(n) < 1e-12) return null;
+function rpnlWindowCoins(r) {
+  const qty = Number(r && r.fills_qty);
+  if (!isFinite(qty) || qty <= 0) return 0;
+  const cv = Number(r && r.settings && r.settings.cv);
+  if (isFinite(cv) && cv > 0 && Math.abs(cv - 1) > 1e-9) return qty * cv;
+  return qty;
+}
+
+function rpnlWindowFilledText(r, unitBit) {
+  return '(' + fmtG(rpnlWindowCoins(r)) + unitBit + ' filled)';
+}
+
+function rpnlHeldLines(s, sym, r) {
   const unit = rpnlBaseUnit(sym);
-  const cv = Number(s.cv);
-  const lots = isFinite(cv) && cv > 0 && Math.abs(cv - 1) > 1e-9;
-  const base = lots ? Math.abs(n) * cv : Math.abs(n);
   const unitBit = unit ? ' ' + unit : '';
+  const n = s && s.pos != null ? Number(s.pos) : NaN;
+  const open = isFinite(n) && Math.abs(n) >= 1e-12;
+  const cv = Number(s && s.cv);
+  const lots = isFinite(cv) && cv > 0 && Math.abs(cv - 1) > 1e-9;
   const lines = [];
-  if (lots) {
-    lines.push('1 lot = ' + fmtG(cv) + unitBit + ' (' + fmtG(base) + unitBit + ' filled)');
+  if (open) {
+    const base = lots ? Math.abs(n) * cv : Math.abs(n);
+    let held = fmtG(base) + unitBit;
+    if (s.entry != null && Number(s.entry) > 0) held += ' @ ' + fmtG(s.entry);
+    lines.push({ cls: 'p-held', text: held });
   }
-  let held = fmtG(base) + unitBit;
-  if (s.entry != null && Number(s.entry) > 0) held += ' @ ' + fmtG(s.entry);
-  lines.push(held);
-  return { side: n > 0 ? 'long' : 'short', lines: lines };
+  if (lots || rpnlWindowCoins(r) > 0) {
+    const lot = lots ? '1 lot = ' + fmtG(cv) + unitBit + ' ' : '';
+    lines.push({ cls: 'p-lot', text: lot + rpnlWindowFilledText(r, unitBit) });
+  }
+  if (!lines.length) return null;
+  return { side: open ? (n > 0 ? 'long' : 'short') : '', lines: lines };
 }
 
 function rpnlPillUpnl(r) {
@@ -1788,14 +1803,13 @@ function rpnlPillBookHtml(r) {
     ? (r._legLabel || r.quote_symbol || r.contract)
     : (r.quote_symbol || r.contract);
   const up = rpnlPillUpnl(r);
-  const pos = rpnlHeldLines(s, sym);
+  const pos = rpnlHeldLines(s, sym, r);
   let html = '';
   if (up) html += '<div class="p-upnl ' + (up.up ? 'up' : 'dn') + '">' + escHtml(up.text) + '</div>';
   if (pos) {
     html += '<div class="p-pos ' + pos.side + '">';
     for (let i = 0; i < pos.lines.length; i++) {
-      const lot = pos.lines.length > 1 && i === 0;
-      html += '<div class="' + (lot ? 'p-lot' : 'p-held') + '">' + escHtml(pos.lines[i]) + '</div>';
+      html += '<div class="' + pos.lines[i].cls + '">' + escHtml(pos.lines[i].text) + '</div>';
     }
     html += '</div>';
   }

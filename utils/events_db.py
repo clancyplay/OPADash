@@ -2120,6 +2120,9 @@ class EventsDB:
                            COALESCE(SUM(fee) FILTER (
                                WHERE ${since_i}::timestamptz IS NULL OR created_at >= ${since_i}
                            ), 0)::float AS fee,
+                           COALESCE(SUM(quantity) FILTER (
+                               WHERE ${since_i}::timestamptz IS NULL OR created_at >= ${since_i}
+                           ), 0)::float AS qty,
                            MIN(created_at) AS first_at,
                            MAX(created_at) FILTER (
                                WHERE ${since_i}::timestamptz IS NULL OR created_at >= ${since_i}
@@ -2143,6 +2146,7 @@ class EventsDB:
                     "strategy": strat,
                     "venue_fills": {},
                     "venue_fills_all": {},
+                    "venue_qty": {},
                     "venue_rpnl": {},
                     "venue_fees": {},
                     "first_at": None,
@@ -2153,6 +2157,7 @@ class EventsDB:
                     item["venue_fills_all"].get(venue, 0) + int(r["n_all"] or 0)
                 )
                 item["venue_fills"][venue] = item["venue_fills"].get(venue, 0) + int(r["n"] or 0)
+                item["venue_qty"][venue] = item["venue_qty"].get(venue, 0.0) + float(r["qty"] or 0)
                 item["venue_rpnl"][venue] = round(
                     item["venue_rpnl"].get(venue, 0.0)
                     + self._rpnl_inr(float(r["rpnl"] or 0), venue), 4,
@@ -2181,7 +2186,7 @@ class EventsDB:
             for item in out:
                 h = venue_only.get((item["contract"], item.get("strategy") or ""))
                 if h and set(item["venue_fills_all"]) <= {"delta"}:
-                    for field in ("venue_fills", "venue_fills_all", "venue_rpnl", "venue_fees"):
+                    for field in ("venue_fills", "venue_fills_all", "venue_qty", "venue_rpnl", "venue_fees"):
                         for venue, val in h[field].items():
                             if venue != "delta":
                                 item[field][venue] = val
@@ -2206,6 +2211,7 @@ class EventsDB:
                     "strategy": strat,
                     "venue_fills": {},
                     "venue_fills_all": {},
+                    "venue_qty": {},
                     "venue_rpnl": {},
                     "venue_fees": {},
                     "first_at": None,
