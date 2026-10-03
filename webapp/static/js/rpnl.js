@@ -2335,6 +2335,7 @@ function rpnlPageVisible() {
 function fitRpnlView() {
   if (!ohlcChart || !rpnlChart) return;
   rpnlResetPriceZoom(ohlcChart);
+  rpnlResetPriceZoom(rpnlChart);
   rpnlResumeLiveFollow();
   applyRpnlChartSize();
   rpnlBeginSync();
@@ -2563,6 +2564,7 @@ function clearRpnlYScaleMode() {
 // This chart build has no priceScale.setVisibleRange. Manual Y zoom is held
 // by the series autoscale provider, which the library actually applies.
 let ohlcPriceLock = null;
+let rpnlPriceLock = null;
 function rpnlPriceMargins(chart) {
   if (chart === ohlcChart) return { top: 0.1, bottom: ohlcShowVol ? 0.18 : 0.05 };
   return { top: 0.1, bottom: 0.08 };
@@ -2598,16 +2600,15 @@ function ohlcNudgeScale() {
     else s.update(bar);
   } catch (e) {}
 }
-function ohlcReadPriceSpan() {
-  const s = typeof ohlcActiveSeries === 'function' ? ohlcActiveSeries() : ohlcSeries;
-  const el = document.getElementById('ohlcChart');
-  if (!s || !el) return null;
-  const h = el.clientHeight || 0;
-  if (h < 8) return null;
+function chartReadPriceSpan(chart, el, series) {
+  if (!chart || !series || !el) return null;
+  let timeH = 0;
+  try { timeH = chart.timeScale().height() || 0; } catch (e) {}
+  const paneH = Math.max(8, (el.clientHeight || 0) - timeH);
   let top = null, bot = null;
   try {
-    top = s.coordinateToPrice(1);
-    bot = s.coordinateToPrice(h - 2);
+    top = series.coordinateToPrice(1);
+    bot = series.coordinateToPrice(paneH - 2);
   } catch (e) {}
   if (top == null || bot == null || !isFinite(top) || !isFinite(bot)) return null;
   const min = Math.min(top, bot);
@@ -2615,9 +2616,25 @@ function ohlcReadPriceSpan() {
   if (!(max > min)) return null;
   return { min: min, max: max };
 }
-function ohlcZoomSpan(range, factor) {
+function ohlcReadPriceSpan() {
+  const s = typeof ohlcActiveSeries === 'function' ? ohlcActiveSeries() : ohlcSeries;
+  return chartReadPriceSpan(ohlcChart, document.getElementById('ohlcChart'), s);
+}
+function rpnlActiveValueSeries() {
+  if (rpnlView === 'bucket' && rpnlHistSeries) return rpnlHistSeries;
+  try {
+    if (rpnlNetSeries && rpnlNetSeries.options().visible) return rpnlNetSeries;
+    if (rpnlSeries && rpnlSeries.options().visible) return rpnlSeries;
+    if (rpnlHedgeSeries && rpnlHedgeSeries.options().visible) return rpnlHedgeSeries;
+  } catch (e) {}
+  return rpnlSeries || rpnlHedgeSeries || rpnlHistSeries;
+}
+function rpnlReadPriceSpan() {
+  return chartReadPriceSpan(rpnlChart, document.getElementById('rpnlChart'), rpnlActiveValueSeries());
+}
+function chartZoomSpan(range, factor, log) {
   if (!range || !(factor > 0)) return null;
-  if (ohlcLogScale && range.min > 0 && range.max > 0) {
+  if (log && range.min > 0 && range.max > 0) {
     const a = Math.log(range.min);
     const b = Math.log(range.max);
     const mid = (a + b) / 2;
@@ -2632,11 +2649,62 @@ function ohlcZoomSpan(range, factor) {
   if (!(half > 0) || !isFinite(mid)) return null;
   return { min: mid - half, max: mid + half };
 }
+function ohlcZoomSpan(range, factor) {
+  return chartZoomSpan(range, factor, !!ohlcLogScale);
+}
+function rpnlWrapAutoscale(base) {
+  return function (original) {
+    if (rpnlPriceLock && rpnlPriceLock.max > rpnlPriceLock.min) {
+      return { priceRange: { minValue: rpnlPriceLock.min, maxValue: rpnlPriceLock.max } };
+    }
+    if (typeof base === 'function') return base(original);
+    return typeof original === 'function' ? original() : null;
+  };
+}
+function rpnlInstallPriceLock() {
+  if (!rpnlChart || rpnlInstallPriceLock._done) return;
+  rpnlInstallPriceLock._done = true;
+  [rpnlSeries, rpnlHistSeries, rpnlHedgeSeries, rpnlNetSeries].forEach(s => {
+    if (s) s.applyOptions({ autoscaleInfoProvider: rpnlWrapAutoscale(null) });
+  });
+}
+function rpnlNudgeScale() {
+  if (!rpnlChart) return;
+  try { rpnlChart.priceScale('right').applyOptions({ autoScale: true, scaleMargins: rpnlPriceMargins(rpnlChart) }); } catch (e) {}
+  const s = rpnlActiveValueSeries();
+  if (!s) return;
+  if (s === rpnlHistSeries) {
+    const venue = typeof currentRpnlVenue === 'function' ? currentRpnlVenue() : 'quote';
+    const src = venue === 'hedge' ? (rpnlHedgeCache || []) : (rpnlPtsCache || []);
+    const i = src.length - 1;
+    if (i < 0) return;
+    const val = i === 0 ? src[i].value : parseFloat((src[i].value - src[i - 1].value).toFixed(4));
+    try {
+      s.update({ time: src[i].time, value: val, color: val >= 0 ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)' });
+    } catch (e) {}
+    return;
+  }
+  let pt = null;
+  if (s === rpnlHedgeSeries) pt = rpnlHedgeCache && rpnlHedgeCache[rpnlHedgeCache.length - 1];
+  else if (s === rpnlNetSeries) {
+    const net = (typeof netFromCaches === 'function') ? netFromCaches(rpnlPtsCache, rpnlHedgeCache) : [];
+    pt = net[net.length - 1];
+  } else pt = rpnlPtsCache && rpnlPtsCache[rpnlPtsCache.length - 1];
+  if (!pt) return;
+  try { s.update({ time: pt.time, value: pt.value }); } catch (e) {}
+}
 function rpnlResetPriceZoom(chart) {
   if (!chart) return;
   if (chart === ohlcChart) {
     ohlcPriceLock = null;
     ohlcNudgeScale();
+    return;
+  }
+  if (chart === rpnlChart) {
+    rpnlPriceLock = null;
+    rpnlAutoY = true;
+    rpnlNudgeScale();
+    if (typeof syncRpnlViewButtons === 'function') syncRpnlViewButtons();
     return;
   }
   try {
@@ -2655,16 +2723,16 @@ function rpnlZoomPriceScale(chart, dy, h) {
   ohlcPriceLock = next;
   ohlcNudgeScale();
 }
-function bindOhlcYHit() {
-  const hit = document.getElementById('ohlcYHit');
+function bindChartYHit(hit, read, applyRange, reset) {
   if (!hit || hit.dataset.bound) return;
   hit.dataset.bound = '1';
   let drag = null;
   let tap = null;
+  let lastTap = 0;
   hit.addEventListener('touchstart', (ev) => {
-    if (rpnlSelectMode || !ohlcChart || ev.touches.length !== 1) { drag = null; return; }
+    if (rpnlSelectMode || ev.touches.length !== 1) { drag = null; return; }
     const t = ev.touches[0];
-    const range = ohlcReadPriceSpan();
+    const range = read();
     if (!range) return;
     drag = { y: t.clientY, range: range };
     tap = { x: t.clientX, y: t.clientY, t: Date.now() };
@@ -2674,30 +2742,54 @@ function bindOhlcYHit() {
     const dy = ev.touches[0].clientY - drag.y;
     if (Math.abs(dy) < 1) return;
     if (ev.cancelable) ev.preventDefault();
-    const h = (document.getElementById('ohlcChart') || {}).clientHeight || hit.clientHeight || 240;
+    const h = hit.clientHeight || 240;
     let factor = Math.exp(dy / Math.max(160, h * 0.48));
     factor = Math.max(1 / 60, Math.min(60, factor));
-    const next = ohlcZoomSpan(drag.range, factor);
-    if (next) {
-      ohlcPriceLock = next;
-      ohlcNudgeScale();
-    }
+    applyRange(drag.range, factor);
     tap = null;
   }, { passive: false });
   const endTouch = (ev) => {
     const t = ev.changedTouches && ev.changedTouches[0];
     if (tap && t && Math.abs(t.clientX - tap.x) < 14 && Math.abs(t.clientY - tap.y) < 14 && (Date.now() - tap.t) < 350) {
       const now = Date.now();
-      if (bindOhlcYHit._tap && now - bindOhlcYHit._tap < 320) {
-        rpnlResetPriceZoom(ohlcChart);
-        bindOhlcYHit._tap = 0;
-      } else bindOhlcYHit._tap = now;
+      if (lastTap && now - lastTap < 320) {
+        reset();
+        lastTap = 0;
+      } else lastTap = now;
     }
     drag = null;
     tap = null;
   };
   hit.addEventListener('touchend', endTouch, { passive: true });
   hit.addEventListener('touchcancel', () => { drag = null; tap = null; }, { passive: true });
+}
+function bindOhlcYHit() {
+  bindChartYHit(
+    document.getElementById('ohlcYHit'),
+    ohlcReadPriceSpan,
+    function (range, factor) {
+      const next = ohlcZoomSpan(range, factor);
+      if (!next) return;
+      ohlcPriceLock = next;
+      ohlcNudgeScale();
+    },
+    function () { rpnlResetPriceZoom(ohlcChart); }
+  );
+}
+function bindRpnlYHit() {
+  bindChartYHit(
+    document.getElementById('rpnlYHit'),
+    rpnlReadPriceSpan,
+    function (range, factor) {
+      const next = chartZoomSpan(range, factor, false);
+      if (!next) return;
+      rpnlPriceLock = next;
+      rpnlAutoY = false;
+      rpnlNudgeScale();
+      if (typeof syncRpnlViewButtons === 'function') syncRpnlViewButtons();
+    },
+    function () { rpnlResetPriceZoom(rpnlChart); }
+  );
 }
 function bindRpnlYScaleMode() {
   if (bindRpnlYScaleMode._bound) return;
@@ -2724,7 +2816,7 @@ function bindRpnlYScaleMode() {
       lastY = t.clientY;
     }, { passive: false });
     el.addEventListener('touchend', (ev) => {
-      if (!rpnlMobileYAxis() || el.id === 'ohlcChart') return;
+      if (!rpnlMobileYAxis() || el.id === 'ohlcChart' || el.id === 'rpnlChart') return;
       const t = ev.changedTouches && ev.changedTouches[0];
       if (!t) return;
       const tap = Math.abs(t.clientX - ax) < 12 && Math.abs(t.clientY - ay) < 12 && (Date.now() - t0) < 450;
@@ -2741,6 +2833,7 @@ function bindRpnlYScaleMode() {
   if (mq.addEventListener) mq.addEventListener('change', onMq);
   else if (mq.addListener) mq.addListener(onMq);
   bindOhlcYHit();
+  bindRpnlYHit();
 }
 
 function rpnlSetLiveShift(on) {
@@ -3305,7 +3398,12 @@ function syncRpnlViewButtons() {
 
 function toggleAutoY() {
   rpnlAutoY = !rpnlAutoY;
-  if (rpnlChart) rpnlChart.priceScale('right').applyOptions({ autoScale: rpnlAutoY });
+  if (rpnlAutoY) {
+    rpnlPriceLock = null;
+    rpnlNudgeScale();
+  } else if (rpnlChart) {
+    rpnlChart.priceScale('right').applyOptions({ autoScale: false });
+  }
   syncRpnlViewButtons();
 }
 
@@ -3668,6 +3766,7 @@ function initRpnl() {
     lineType: LightweightCharts.LineType.WithSteps,
     priceFormat: rpnlInrFormat(),
   });
+  rpnlInstallPriceLock();
   rpnlHedgeSeries.applyOptions({ visible: false });
   rpnlNetSeries.applyOptions({ visible: false });
   setRpnlView('cumul');
@@ -4150,6 +4249,12 @@ async function loadRpnl(keepRange) {
       ohlcBarsCache = rpnlClipBarsToWindow(bars);
       ohlcPriceLock = null;
       try { ohlcChart.priceScale('right').applyOptions({ autoScale: true, scaleMargins: rpnlPriceMargins(ohlcChart) }); } catch (e) {}
+      if (rpnlPriceLock) {
+        rpnlPriceLock = null;
+        rpnlAutoY = true;
+        if (typeof syncRpnlViewButtons === 'function') syncRpnlViewButtons();
+        try { rpnlChart.priceScale('right').applyOptions({ autoScale: true, scaleMargins: rpnlPriceMargins(rpnlChart) }); } catch (e) {}
+      }
     }
     setOhlcEmpty(!ohlcBarsCache.length, ohlcBarsCache.length ? '' : ((candleNote || '').replace(/^ · /, '') || 'No price candles for this window'));
     try {
@@ -4408,8 +4513,9 @@ function setRpnlSelectMode(on) {
     rpnlSelDrag = null;
   }
   rpnlSelectMode = next;
-  const yHit = document.getElementById('ohlcYHit');
-  if (yHit) yHit.style.pointerEvents = next ? 'none' : '';
+  document.querySelectorAll('.rp-y-hit').forEach(function (hit) {
+    hit.style.pointerEvents = next ? 'none' : '';
+  });
   document.querySelectorAll('.rpnl-select-layer').forEach(function (layer) {
     layer.hidden = !rpnlSelectMode;
   });
