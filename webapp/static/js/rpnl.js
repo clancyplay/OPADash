@@ -391,7 +391,7 @@ function rpnlStatusLabel(mode) {
   if (m === 'size-cool') return 'Size cool';
   if (m === 'clock-closed') return 'Clock';
   if (m === 'wind-down') return 'Wind-down';
-  if (m === 'open-delay') return 'Open delay';
+  if (m === 'open-delay') return 'Warmup';
   if (m === 'day-stop') return 'Day stop';
   if (m === 'hold-stop') return 'Max hold';
   if (m === 'cover') return 'Cover';
@@ -1642,33 +1642,33 @@ function rpnlLiveDot(r) {
 const RPNL_MEDAL_INK = '#2a1c08';
 const RPNL_MEDAL_ICONS = (function () {
   const ink = RPNL_MEDAL_INK;
-  const L = 'fill="none" stroke="' + ink + '" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"';
   const F = 'fill="' + ink + '"';
+  const S = 'fill="none" stroke="' + ink + '" stroke-linecap="round" stroke-linejoin="round"';
   return {
-    stopped: '<rect x="2.4" y="2.4" width="7.2" height="7.2" rx="1.15" ' + F + '/>',
-    stopping: '<path ' + L + ' d="M8.7 2.5a4.1 4.1 0 1 0 1.15 2.05"/><path ' + L + ' d="M8.5 1.35V3.1h1.75"/><rect x="4.2" y="4.2" width="3.6" height="3.6" rx=".55" ' + F + '/>',
-    paused: '<rect x="2.2" y="1.7" width="2.35" height="8.6" rx=".7" ' + F + '/><rect x="7.45" y="1.7" width="2.35" height="8.6" rx=".7" ' + F + '/>',
-    closing: '<path fill="none" stroke="' + ink + '" stroke-width="1.8" stroke-linecap="round" d="M2.7 2.7l6.6 6.6M9.3 2.7L2.7 9.3"/>',
-    waiting: '<path ' + L + ' d="M3.1 1.7h5.8M3.1 10.3h5.8"/><path ' + L + ' d="M3.4 2.1C3.4 4 6 4.9 6 6s-2.6 2-2.6 3.9M8.6 2.1C8.6 4 6 4.9 6 6s2.6 2 2.6 3.9"/>',
-    stale: '<path ' + L + ' d="M2 2.5h3.3V9.2H2zM6.7 2.5H10V9.2H6.7z"/><path ' + L + ' d="M1.8 10.2L10.2 1.8"/>',
-    quiet: '<path ' + F + ' d="M1.5 4.5h2L5.8 2.6v6.8L3.5 7.5h-2z"/><path ' + L + ' d="M8 4.1l2.7 3.7M10.7 4.1L8 7.8"/>',
-    fill: '<rect x="1.5" y="1.6" width="2.15" height="6.3" rx=".55" ' + F + '/><rect x="4.7" y="1.6" width="2.15" height="6.3" rx=".55" ' + F + '/><circle cx="9.35" cy="8.7" r="1.75" ' + F + '/>',
-    rest: '<path fill="none" stroke="' + ink + '" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M2.5 3.1h7L2.5 8.9h7"/>',
-    cover: '<path ' + F + ' d="M6 1.25l4.15 1.45v3.05c0 2.25-1.65 3.6-4.15 4.55C3.5 9.35 1.85 8 1.85 5.75V2.7z"/>',
-    trend: '<path ' + L + ' d="M6 1.35l4 1.4v2.9c0 2.15-1.55 3.45-4 4.35-2.45-.9-4-2.2-4-4.35V2.75z"/><path ' + L + ' d="M4.15 5.15L6 7.15l1.85-2"/>',
-    cool: '<path ' + L + ' d="M6 1.3v9.4M1.5 6h9M2.5 2.5l7 7M9.5 2.5l-7 7"/>',
-    clock: '<circle cx="6" cy="6" r="4.15" ' + L + '/><path ' + L + ' d="M6 3.2V6.15l2 1.25"/>',
-    wind: '<path ' + L + ' d="M6 1.5v6.1M3.35 5.5L6 8.25l2.65-2.75M2.3 10.25h7.4"/>',
-    delay: '<path ' + L + ' d="M1.7 7.3h8.6"/><path ' + L + ' d="M3.15 7.3a2.85 2.85 0 0 1 5.7 0"/><path ' + L + ' d="M6 2.2v1.25M3.3 3.5l.85.85M8.7 3.5l-.85.85"/>',
-    day: '<circle cx="6" cy="4.7" r="1.85" ' + F + '/><path ' + L + ' d="M6 1.15v1.15M2.55 2.55l.8.8M9.45 2.55l-.8.8M1.5 4.7h1.15M9.35 4.7H10.5"/><path fill="none" stroke="' + ink + '" stroke-width="1.7" stroke-linecap="round" d="M2.1 9.35h7.8"/>',
-    hold: '<rect x="2.7" y="5.3" width="6.6" height="4.7" rx="1" ' + L + '/><path ' + L + ' d="M4.25 5.3V3.75a1.75 1.75 0 0 1 3.5 0V5.3"/>',
-    removed: '<path ' + L + ' d="M2.3 3.3h7.4M4.55 3.3V2.25h2.9V3.3"/><path ' + L + ' d="M3.25 3.5l.55 6.15h4.4l.55-6.15"/>',
-    size: '<circle cx="6" cy="6" r="4.1" ' + L + '/><path ' + F + ' d="M6 6 L6 2.05 A3.95 3.95 0 0 1 9.55 7.35 Z"/>',
-    building: '<rect x="2" y="7.5" width="8" height="2.15" rx=".35" ' + F + '/><rect x="3.1" y="4.9" width="5.8" height="2.15" rx=".35" ' + F + '/><rect x="4.15" y="2.3" width="3.7" height="2.15" rx=".35" ' + F + '/>',
-    deploying: '<path ' + L + ' d="M6 8.7V2.3M3.55 4.55L6 2.1l2.45 2.45M2.15 10.2h7.7"/>',
-    starting: '<path ' + F + ' d="M3.3 1.7l6.2 4.3-6.2 4.3z"/>',
-    queued: '<path ' + L + ' d="M2.1 3h7.8M2.1 6h7.8M2.1 9h5.1"/>',
-    mark: '<circle cx="6" cy="6" r="2.3" ' + F + '/>'
+    stopped: '<rect x="4" y="4" width="8" height="8" rx="1.7" ' + F + '/>',
+    stopping: '<rect x="4.4" y="4.4" width="7.2" height="7.2" rx="1.35" ' + F + '/><path d="M12.8 6.1A5.4 5.4 0 0 0 9.6 2.6" ' + S + ' stroke-width="2"/>',
+    paused: '<rect x="3.3" y="2.5" width="3" height="11" rx="1.15" ' + F + '/><rect x="9.7" y="2.5" width="3" height="11" rx="1.15" ' + F + '/>',
+    closing: '<path d="M3.4 3.4l9.2 9.2M12.6 3.4l-9.2 9.2" ' + S + ' stroke-width="2.35"/>',
+    waiting: '<circle cx="3.3" cy="8" r="1.65" ' + F + '/><circle cx="8" cy="8" r="1.65" ' + F + '/><circle cx="12.7" cy="8" r="1.65" ' + F + '/>',
+    stale: '<rect x="6.9" y="2.1" width="2.2" height="7.4" rx="1.05" ' + F + '/><circle cx="8" cy="12.5" r="1.45" ' + F + '/>',
+    quiet: '<path ' + F + ' fill-rule="evenodd" d="M9.4 1.7a6 6 0 1 0 3.6 10.6A4.9 4.9 0 0 1 9.4 1.7z"/>',
+    fill: '<rect x="1.7" y="3.1" width="2.7" height="9.8" rx="1.05" ' + F + '/><rect x="5.7" y="3.1" width="2.7" height="9.8" rx="1.05" ' + F + '/><circle cx="12.3" cy="8" r="2.35" ' + F + '/>',
+    rest: '<path d="M3.2 3.6h9.6L3.2 12.4h9.6" ' + S + ' stroke-width="2.15"/>',
+    cover: '<path ' + F + ' d="M8 1.5l5.3 1.9v4.1c0 3.3-2.2 5.3-5.3 6.8-3.1-1.5-5.3-3.5-5.3-6.8V3.4z"/>',
+    trend: '<path d="M3.2 5.6L8 10.6l4.8-5" ' + S + ' stroke-width="2.4"/>',
+    cool: '<rect x="2" y="2.2" width="2.8" height="11.6" rx=".7" ' + F + '/><rect x="6.6" y="5.5" width="2.8" height="8.3" rx=".7" ' + F + '/><rect x="11.2" y="8.6" width="2.8" height="5.2" rx=".7" ' + F + '/>',
+    clock: '<path ' + F + ' fill-rule="evenodd" d="M8 1.3a6.7 6.7 0 1 0 .01 13.4A6.7 6.7 0 0 0 8 1.3zm.95 3.15v3.35l2.45 1.55-.95 1.45-3.4-2.1V4.45z"/>',
+    wind: '<path ' + F + ' d="M7 1.8h2v7.1h2.7L8 14.2 4.3 8.9H7z"/>',
+    warmup: '<path ' + F + ' d="M2.8 11.2a5.2 5.2 0 0 1 10.4 0z"/><rect x="2" y="11.6" width="12" height="1.9" rx=".7" ' + F + '/>',
+    day: '<circle cx="8" cy="8" r="3.15" ' + F + '/><rect x="7.15" y="1.35" width="1.7" height="2.2" rx=".5" ' + F + '/><rect x="7.15" y="12.45" width="1.7" height="2.2" rx=".5" ' + F + '/><rect x="1.35" y="7.15" width="2.2" height="1.7" rx=".5" ' + F + '/><rect x="12.45" y="7.15" width="2.2" height="1.7" rx=".5" ' + F + '/>',
+    hold: '<rect x="3.3" y="7.1" width="9.4" height="6.6" rx="1.4" ' + F + '/><path ' + S + ' stroke-width="2" d="M5.5 7.2V5.1a2.5 2.5 0 0 1 5 0v2.1"/>',
+    removed: '<path ' + F + ' fill-rule="evenodd" d="M8 1.4a6.6 6.6 0 1 0 0 13.2A6.6 6.6 0 0 0 8 1.4zM4.3 7.05h7.4v1.9H4.3z"/>',
+    size: '<path ' + F + ' d="M8 1.6A6.4 6.4 0 0 0 8 14.4z"/>',
+    building: '<rect x="2.2" y="2.3" width="11.6" height="2.5" rx=".7" ' + F + '/><rect x="3.5" y="6.7" width="9" height="2.5" rx=".7" ' + F + '/><rect x="4.8" y="11.1" width="6.4" height="2.5" rx=".7" ' + F + '/>',
+    deploying: '<path ' + F + ' d="M8 1.5l4.3 4.5H9.7V14.2H6.3V6H3.7z"/>',
+    starting: '<path ' + F + ' d="M4.6 2.2l8.2 5.8-8.2 5.8z"/>',
+    queued: '<rect x="2.3" y="2.2" width="11.4" height="2.35" rx=".7" ' + F + '/><rect x="2.3" y="6.8" width="11.4" height="2.35" rx=".7" ' + F + '/><rect x="2.3" y="11.4" width="7.2" height="2.35" rx=".7" ' + F + '/>',
+    mark: '<path ' + F + ' d="M8 1.7l4.7 6.3L8 14.3 3.3 8z"/>'
   };
 })();
 
@@ -1678,7 +1678,7 @@ function rpnlMedalIconName(mode) {
     stopped: 'stopped', stopping: 'stopping', paused: 'paused', flattening: 'closing',
     waiting: 'waiting', stale: 'stale', rest: 'rest', 'no-volume': 'quiet',
     'fill-pause': 'fill', 'grind-cover': 'cover', cover: 'cover', 'trend-cover': 'trend',
-    'size-cool': 'cool', 'clock-closed': 'clock', 'wind-down': 'wind', 'open-delay': 'delay',
+    'size-cool': 'cool', 'clock-closed': 'clock', 'wind-down': 'wind', 'open-delay': 'warmup',
     'day-stop': 'day', 'hold-stop': 'hold'
   };
   return map[m] || 'mark';
@@ -1691,7 +1691,7 @@ function rpnlBootIcon(r) {
 }
 
 function rpnlMedalSvg(name) {
-  return '<svg viewBox="0 0 12 12" aria-hidden="true">' +
+  return '<svg viewBox="0 0 16 16" aria-hidden="true">' +
     (RPNL_MEDAL_ICONS[name] || RPNL_MEDAL_ICONS.mark) + '</svg>';
 }
 
