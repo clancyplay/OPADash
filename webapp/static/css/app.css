@@ -57,9 +57,11 @@
     z-index: 50;
   }
   nav .brand {
+    display: flex; align-items: center; gap: 7px;
     font-weight: 700; font-size: 15px; margin-right: 12px; color: #fff;
     letter-spacing: .5px; flex-shrink: 0; white-space: nowrap;
   }
+  nav .brand-mark { display: block; flex-shrink: 0; }
   nav .nav-links {
     flex: 1;
     min-width: 0;

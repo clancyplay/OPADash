@@ -1,12 +1,12 @@
 /* OPADash PWA — install shell only. Live API/WS stay network-first. */
-const CACHE = "opadash-shell-v5";
+const CACHE = "opadash-shell-v6";
 const PRECACHE = [
   "/",
   "/manifest.webmanifest",
-  "/static/icons/icon-192.png",
-  "/static/icons/icon-512.png",
-  "/static/icons/icon-180.png",
-  "/static/icons/favicon-32.png",
+  "/static/icons/icon-192.png?v=2",
+  "/static/icons/icon-512.png?v=2",
+  "/static/icons/icon-180.png?v=2",
+  "/static/icons/favicon-32.png?v=2",
 ];
 
 self.addEventListener("install", (event) => {

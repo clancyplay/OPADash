@@ -898,8 +898,9 @@ _LOGIN_HTML = """<!DOCTYPE html>
 <meta name="theme-color" content="#161a25" />
 <title>OPADash login</title>
 <link rel="manifest" href="/manifest.webmanifest" />
-<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png" />
-<link rel="apple-touch-icon" href="/static/icons/icon-180.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png?v=2" />
+<link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png?v=2" />
+<link rel="apple-touch-icon" href="/static/icons/icon-180.png?v=2" />
 <style>
   * { box-sizing: border-box; }
   body {

@@ -389,8 +389,8 @@ body:has(#rpnl.visible) {
   pointer-events: none;
 }
 .rpnl-pill .p-medal i {
-  width: 16px;
-  height: 16px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
   background: #ffb74d;
   display: flex;
@@ -398,7 +398,7 @@ body:has(#rpnl.visible) {
   justify-content: center;
   flex: 0 0 auto;
 }
-.rpnl-pill .p-medal svg { width: 11px; height: 11px; display: block; }
+.rpnl-pill .p-medal svg { width: 9px; height: 9px; display: block; }
 .rpnl-pill .p-medal.bad {
   color: var(--red);
   border-color: var(--red);
@@ -1096,8 +1096,8 @@ body:has(#rpnl.visible) {
 
   .rpnl-pills { padding: 6px max(8px, var(--safe-r)) 14px; gap: 6px; }
   .rpnl-pill .p-medal { font-size: 8px; }
-  .rpnl-pill .p-medal i { width: 14px; height: 14px; }
-  .rpnl-pill .p-medal svg { width: 10px; height: 10px; }
+  .rpnl-pill .p-medal i { width: 12px; height: 12px; }
+  .rpnl-pill .p-medal svg { width: 8px; height: 8px; }
   .rpnl-pill { padding: 6px 8px; min-width: 108px; border-radius: 8px; }
   .rpnl-pill .p-val { font-size: 13px; margin-top: 1px; }
   .rpnl-pill .p-upnl { font-size: 10px; }
