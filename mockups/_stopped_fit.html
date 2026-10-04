@@ -1,0 +1,173 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Stopped badge, fitted</title>
+<style>
+  :root { --bg:#0e1117; --surface:#161a25; --border2:#303647; --green:#26a69a; --red:#ef5350; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:#d1d4dc; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif; }
+  section { padding:14px 16px 0; border-bottom:1px solid #1c2230; height:210px; overflow:hidden; }
+  h2 { margin:0 0 2px; font-size:14px; color:#f4f7fb; }
+  p.note { margin:0 0 14px; color:#8b93a7; font-size:12px; }
+  .row { display:flex; gap:10px; align-items:flex-start; padding:18px 4px 22px; width:max-content; transform:scale(.62); transform-origin:top left; }
+  .slot { position:relative; flex:0 0 auto; }
+  .pill {
+    width:300px; background:var(--surface); border:1px solid var(--border2); border-radius:10px;
+    padding:8px 12px; box-shadow:inset 3px 0 0 var(--edge); color:inherit; text-align:left;
+  }
+  .head { display:flex; align-items:center; gap:6px; }
+  .dot { width:7px; height:7px; border-radius:50%; flex:0 0 auto; background:var(--green); box-shadow:0 0 6px var(--green); }
+  .dot.stop { background:#ffb74d; box-shadow:0 0 6px #ffb74d; }
+  .sym { font-size:11px; font-weight:700; color:#f4f7fb; }
+  .acct { font-size:9px; font-weight:700; color:#ffe082; background:rgba(255,224,130,.14); border-radius:4px; padding:1px 5px; }
+  .tag { font-size:9px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; color:#b4c0d9; background:rgba(255,255,255,.07); border-radius:4px; padding:1px 5px; }
+  .ven { margin-left:auto; font-size:9px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; color:#9ecbff; background:rgba(41,98,255,.16); border-radius:4px; padding:1px 5px; }
+  .i {
+    width:18px; height:18px; margin-left:2px; border-radius:5px; border:1px solid var(--border2);
+    background:rgba(255,255,255,.06); color:#9aa3b8; font:italic 700 11px/16px inherit; text-align:center;
+    flex:0 0 auto; position:relative; z-index:5;
+  }
+  .money { display:flex; align-items:flex-end; gap:10px; margin-top:3px; }
+  .col { display:flex; flex-direction:column; line-height:1.15; min-width:0; }
+  .col.u { margin-left:auto; text-align:right; }
+  .k { font-size:8px; letter-spacing:.4px; text-transform:uppercase; color:#6b7385; font-weight:700; }
+  .val { display:flex; align-items:baseline; gap:5px; font-size:16px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .usd { font-size:11px; font-weight:650; opacity:.78; }
+  .up { font-size:12px; font-weight:650; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .up.pos { color:var(--green); }
+  .up.neg, .val.neg { color:var(--red); }
+  .held { margin-top:3px; font-size:10px; line-height:1.35; color:var(--green); font-variant-numeric:tabular-nums; }
+  .lot, .meta { font-size:9px; color:#c5cedf; margin-top:2px; font-variant-numeric:tabular-nums; }
+  .meta { color:#8b93a7; }
+  .bal { display:block; font-size:9px; color:#9aa3b5; margin-top:2px; font-variant-numeric:tabular-nums; }
+
+  .badge {
+    position:absolute; z-index:3; white-space:nowrap;
+    font-size:10px; font-weight:800; letter-spacing:.2px;
+  }
+
+  /* 1 lip — own box, bottom center, half overlap */
+  .lip {
+    left:50%; bottom:0; transform:translate(-50%, 46%);
+    background:#1a160f; color:#ffb74d; border:1px solid #ffb74d; border-radius:999px;
+    padding:2px 9px; box-shadow:0 0 0 3px var(--bg);
+  }
+
+  /* 2 ticket — solid, hangs off the bottom edge */
+  .ticket {
+    left:50%; bottom:0; transform:translate(-50%, 58%);
+    background:#ffb74d; color:#2a1c08; border-radius:0 0 8px 8px;
+    padding:5px 12px 3px; letter-spacing:.3px;
+    box-shadow:0 3px 0 #b67a2e;
+  }
+
+  /* 3 medal — pause circle plus the word, bottom center */
+  .medal {
+    left:50%; bottom:0; transform:translate(-50%, 42%);
+    display:flex; align-items:center; gap:6px;
+    background:#1a160f; color:#ffb74d; border:1px solid #ffb74d; border-radius:999px;
+    padding:2px 9px 2px 3px; box-shadow:0 0 0 3px var(--bg);
+  }
+  .medal i {
+    width:16px; height:16px; border-radius:50%; background:#ffb74d;
+    display:flex; align-items:center; justify-content:center; gap:2px;
+  }
+  .medal b { width:2px; height:7px; border-radius:1px; background:#2a1c08; display:block; }
+
+  /* 4 top tab — sits above the name, clear of the i button */
+  .tab {
+    left:50%; top:0; transform:translate(-50%, -58%);
+    background:#ffb74d; color:#2a1c08; border-radius:7px 7px 3px 3px;
+    padding:3px 10px 5px; letter-spacing:.35px;
+  }
+
+  /* 5 sticker — tilted label on the bottom edge */
+  .sticker {
+    left:50%; bottom:0; transform:translate(-50%, 40%) rotate(-3deg);
+    background:#ffe082; color:#3a2a08; border-radius:3px;
+    padding:2px 8px; letter-spacing:.6px; text-transform:uppercase; font-size:9px;
+    box-shadow:0 2px 0 rgba(0,0,0,.45);
+  }
+  .sticker:before {
+    content:""; position:absolute; left:4px; top:50%; width:4px; height:4px; margin-top:-2px;
+    border-radius:50%; background:#3a2a08;
+  }
+  .sticker { padding-left:12px; }
+
+  /* 6 rail — amber line becomes the box */
+  .rail {
+    left:14px; right:14px; bottom:0; transform:translateY(50%);
+    display:flex; justify-content:center;
+  }
+  .rail span {
+    background:#161a25; color:#ffb74d; border:1px solid #ffb74d; border-radius:999px;
+    padding:1px 8px; font-size:10px; font-weight:800;
+    box-shadow:0 0 0 3px var(--bg);
+  }
+  .slot.railed .pill { box-shadow:inset 3px 0 0 var(--edge), inset 0 -2px 0 #ffb74d; }
+</style>
+</head>
+<body>
+<section id="a"><h2>1 · Lip</h2><p class="note">Bottom center. Alag box, aadha pill ke bahar. Info button khula rehta hai.</p><div class="row" data-kind="lip"></div></section>
+<section id="b"><h2>2 · Ticket</h2><p class="note">Bottom center se solid tab latakta hai. Upar ka hissa pill pe overlap.</p><div class="row" data-kind="ticket"></div></section>
+<section id="c"><h2>3 · Medal</h2><p class="note">Chhota round box bottom center pe. Pause mark. Info button se door.</p><div class="row" data-kind="medal"></div></section>
+<section id="d"><h2>4 · Top tab</h2><p class="note">Name ke upar, center. Sirf top edge pe overlap. Right wala i button poora dikhta hai.</p><div class="row" data-kind="tab"></div></section>
+<section id="e"><h2>5 · Sticker</h2><p class="note">Neeche edge pe thoda tilted label. Apna shadow, thoda overlap.</p><div class="row" data-kind="sticker"></div></section>
+<section id="f"><h2>6 · Rail</h2><p class="note">Neeche ki edge amber ho jati hai, beech mein chhota box usi line pe baitha hai.</p><div class="row" data-kind="rail"></div></section>
+<script>
+const cards = [
+  { edge:'#4c8dff', sym:'OILUSD', acct:'SA3', strat:'TOUCH', live:true,
+    rp:'₹0', usd:'$0.01', rpCol:'#26a69a',
+    up:'+₹644 (+$7.40)', upCls:'pos',
+    held:'20.9 OIL @ 144.376',
+    lot:'1 lot = 0.1 OIL (0.4 OIL filled)',
+    meta:'max $500 · bid -1t · ask -1t · step 1tx2',
+    bal:'bal ₹59,102' },
+  { edge:'#3d7eff', sym:'AINUSD', acct:'SA2', strat:'TOUCH', live:true,
+    rp:'-₹2,433', usd:'-$28.6', rpCol:'#ef5350', neg:true,
+    up:'-₹41.76 (-$0.49)', upCls:'neg',
+    held:'17300 AIN @ 0.0554884',
+    lot:'1 lot = 100 AIN (488500 AIN filled)',
+    meta:'max $2000 · bid -1t · ask -1t · step 4tx1',
+    bal:'bal ₹42,670' },
+  { edge:'#e0a36a', sym:'AXSUSD', acct:'SA1', strat:'STACK', live:false,
+    rp:'₹0', usd:'$0.00', rpCol:'#d1d4dc',
+    lot:'1 lot = 10 AXS (0 AXS filled)',
+    meta:'max $5000 · hem 1t · span 5t · step 1tx1',
+    bal:'bal ₹93,718', stopped:true },
+  { edge:'#e07a90', sym:'ENJUSD', acct:'SA2', strat:'STACK', live:false,
+    rp:'₹0', usd:'$0.00', rpCol:'#d1d4dc',
+    lot:'1 lot = 100 ENJ (0 ENJ filled)',
+    meta:'max $1000 · hem 3t · span 9t · step 4tx1',
+    bal:'bal ₹42,670', stopped:true }
+];
+function pill(c) {
+  const up = c.up
+    ? '<div class="col u"><div class="k">uPnL</div><div class="up ' + c.upCls + '">' + c.up + '</div></div>'
+    : '';
+  const held = c.held ? '<div class="held">' + c.held + '</div>' : '';
+  return '<div class="pill" style="--edge:' + c.edge + '">' +
+    '<div class="head"><span class="dot' + (c.live ? '' : ' stop') + '"></span>' +
+    '<span class="sym">' + c.sym + '</span><span class="acct">' + c.acct + '</span>' +
+    '<span class="tag">' + c.strat + '</span><span class="ven">DELTA</span><span class="i">i</span></div>' +
+    '<div class="money"><div class="col"><div class="k">rPnL</div>' +
+    '<div class="val' + (c.neg ? ' neg' : '') + '" style="color:' + c.rpCol + '">' + c.rp +
+    '<span class="usd">' + c.usd + '</span></div></div>' + up + '</div>' +
+    held + '<div class="lot">' + c.lot + '</div><div class="meta">' + c.meta + '</div><div class="bal">' + c.bal + '</div></div>';
+}
+function badge(kind) {
+  if (kind === 'medal') return '<div class="badge medal"><i><b></b><b></b></i>Stopped</div>';
+  if (kind === 'rail') return '<div class="badge rail"><span>Stopped</span></div>';
+  return '<div class="badge ' + kind + '">Stopped</div>';
+}
+document.querySelectorAll('.row').forEach(row => {
+  const kind = row.dataset.kind;
+  row.innerHTML = cards.map(c => {
+    const extra = c.stopped && kind === 'rail' ? ' railed' : '';
+    return '<div class="slot' + extra + '">' + pill(c) + (c.stopped ? badge(kind) : '') + '</div>';
+  }).join('');
+});
+</script>
+</body>
+</html>

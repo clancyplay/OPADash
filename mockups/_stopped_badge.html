@@ -1,0 +1,107 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Stopped badge ideas</title>
+<style>
+  :root { --bg:#0e1117; --surface:#161a25; --border2:#303647; --green:#26a69a; --muted:#7f8598; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:#d1d4dc; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif; }
+  section { padding:22px 18px 18px; border-bottom:1px solid #1c2230; }
+  h2 { margin:0 0 3px; font-size:14px; }
+  p.note { margin:0 0 16px; color:#8b93a7; font-size:12px; }
+  .row { display:flex; gap:28px; align-items:flex-end; padding:18px 8px 10px; }
+  .slot { position:relative; }
+  .pill {
+    width:210px; background:var(--surface); border:1px solid var(--border2); border-radius:10px;
+    padding:6px 8px 6px; box-shadow:inset 3px 0 0 #e0a36a;
+  }
+  .head { display:flex; align-items:center; gap:5px; font-size:11px; font-weight:700; color:#fff; }
+  .dot { width:7px; height:7px; border-radius:50%; background:#ffb74d; box-shadow:0 0 6px #ffb74d; }
+  .acct { font-size:9px; font-weight:700; color:#ffe082; background:rgba(255,224,130,.14); border-radius:4px; padding:1px 5px; }
+  .tag { font-size:9px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; color:#b4c0d9; background:rgba(255,255,255,.07); border-radius:4px; padding:1px 5px; }
+  .ven { margin-left:auto; font-size:9px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; color:#9ecbff; background:rgba(41,98,255,.16); border-radius:4px; padding:1px 5px; }
+  .i { width:16px; height:16px; border-radius:5px; border:1px solid var(--border2); color:#9aa3b8; font:italic 700 11px/14px inherit; text-align:center; }
+  .k { font-size:8px; letter-spacing:.4px; text-transform:uppercase; color:#6b7385; font-weight:700; margin-top:3px; }
+  .val { font-size:16px; font-weight:700; }
+  .usd { font-size:11px; opacity:.78; margin-left:4px; }
+  .lot, .meta, .bal { font-size:9px; color:#8b93a7; margin-top:2px; }
+  .bal { color:#9aa3b5; display:block; }
+
+  /* 1 bottom lip */
+  .lip { position:absolute; left:50%; bottom:-9px; transform:translateX(-50%);
+    background:#2a2118; color:#ffb74d; border:1px solid #ffb74d; border-radius:999px;
+    font-size:10px; font-weight:800; letter-spacing:.3px; padding:2px 8px; white-space:nowrap;
+    box-shadow:0 2px 0 #0e1117; }
+
+  /* 2 top tab */
+  .tab { position:absolute; left:50%; top:-11px; transform:translateX(-50%);
+    background:#ffb74d; color:#2a1c08; border-radius:7px 7px 2px 2px;
+    font-size:10px; font-weight:800; letter-spacing:.4px; padding:3px 10px 5px; white-space:nowrap; }
+  .slot.tabbed .pill { padding-top:10px; }
+
+  /* 3 stamp */
+  .stamp { position:absolute; right:10px; top:-8px; transform:rotate(8deg);
+    border:1.5px solid #ffb74d; color:#ffb74d; border-radius:4px; padding:1px 6px;
+    font-size:10px; font-weight:900; letter-spacing:1px; text-transform:uppercase;
+    background:rgba(22,26,37,.92); }
+
+  /* 4 pin */
+  .pin { position:absolute; left:50%; top:-14px; transform:translateX(-50%);
+    background:#161a25; color:#ffb74d; border:1px solid #ffb74d; border-radius:8px;
+    font-size:10px; font-weight:800; padding:3px 8px; white-space:nowrap;
+    box-shadow:0 6px 0 rgba(0,0,0,.35); }
+  .pin:after { content:""; position:absolute; left:50%; bottom:-5px; transform:translateX(-50%) rotate(45deg);
+    width:8px; height:8px; background:#161a25; border-right:1px solid #ffb74d; border-bottom:1px solid #ffb74d; }
+
+  /* 5 ribbon */
+  .ribbon { position:absolute; left:50%; top:0; transform:translate(-50%, -55%);
+    background:#ffb74d; color:#2a1c08; font-size:10px; font-weight:900; letter-spacing:.5px;
+    padding:3px 12px; white-space:nowrap; }
+  .ribbon:before, .ribbon:after { content:""; position:absolute; top:100%; border:6px solid transparent; }
+  .ribbon:before { left:0; border-top-color:#c48a3a; border-left-color:#c48a3a; }
+  .ribbon:after { right:0; border-top-color:#c48a3a; border-right-color:#c48a3a; }
+
+  /* 6 ticket bite */
+  .bite .pill { border-bottom-left-radius:4px; border-bottom-right-radius:4px; }
+  .ticket { position:absolute; left:50%; bottom:-12px; transform:translateX(-50%);
+    background:#ffb74d; color:#2a1c08; font-size:10px; font-weight:900; letter-spacing:.4px;
+    padding:3px 12px 3px 10px; border-radius:0 0 8px 8px; white-space:nowrap;
+    box-shadow:0 3px 0 #a86b22; }
+</style>
+</head>
+<body>
+
+<section id="a"><h2>1 · Bottom lip</h2><p class="note">Center, pill ke neeche wale edge pe. Aadha andar, aadha bahar.</p><div class="row"></div></section>
+<section id="b"><h2>2 · Top tab</h2><p class="note">Pill ke upar, center. Neeche ka hissa pill pe overlap.</p><div class="row"></div></section>
+<section id="c"><h2>3 · Stamp</h2><p class="note">Corner pe thoda tilted stamp. Text ke upar overlap.</p><div class="row"></div></section>
+<section id="d"><h2>4 · Pin</h2><p class="note">Upar ek alag box, neeche pointer pill ke top-center pe lagta hai.</p><div class="row"></div></section>
+<section id="e"><h2>5 · Ribbon</h2><p class="note">Top center pe ribbon, side folds ke saath. Thoda overlap.</p><div class="row"></div></section>
+<section id="f"><h2>6 · Ticket</h2><p class="note">Bottom center se latakta hua ticket. Pill ke neeche chipka, thoda bahar.</p><div class="row"></div></section>
+
+<script>
+function pill() {
+  return `<div class="pill">
+    <div class="head"><span class="dot"></span>AXSUSD<span class="acct">SA1</span><span class="tag">Stack</span><span class="ven">Delta</span><span class="i">i</span></div>
+    <div class="k">rPnL</div>
+    <div class="val">₹0 <span class="usd">$0.00</span></div>
+    <div class="lot">1 lot = 10 AXS (0 AXS filled)</div>
+    <div class="meta">max $5000 · hem 1t · span 5t · step 1tx1</div>
+    <div class="bal">bal ₹93,718</div>
+  </div>`;
+}
+const marks = {
+  a: '<span class="lip">Stopped</span>',
+  b: '<span class="tab">Stopped</span>',
+  c: '<span class="stamp">Stopped</span>',
+  d: '<span class="pin">Stopped</span>',
+  e: '<span class="ribbon">Stopped</span>',
+  f: '<span class="ticket">Stopped</span>'
+};
+['a','b','c','d','e','f'].forEach(id => {
+  const row = document.querySelector('#' + id + ' .row');
+  row.innerHTML = [0,1].map(() => `<div class="slot ${id==='b'?'tabbed':''} ${id==='f'?'bite':''}">${pill()}${marks[id]}</div>`).join('');
+});
+</script>
+</body>
+</html>

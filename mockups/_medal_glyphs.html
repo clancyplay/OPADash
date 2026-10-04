@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Medal glyphs</title>
+<style>
+  :root { --bg:#0e1117; --amber:#ffb74d; --ink:#2a1c08; --red:#ef5350; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:#d1d4dc; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif; padding:18px; }
+  .grid { display:flex; flex-wrap:wrap; gap:18px 14px; transform:scale(2.2); transform-origin:top left; width:45%; }
+  .medal {
+    display:flex; align-items:center; gap:5px;
+    background:#1a160f; color:var(--amber); border:1px solid var(--amber); border-radius:999px;
+    padding:0 7px 0 1px; box-shadow:0 0 0 2px var(--bg);
+    font-size:9px; font-weight:800; letter-spacing:.1px; line-height:1.2; white-space:nowrap;
+  }
+  .medal i {
+    width:16px; height:16px; border-radius:50%; background:var(--amber);
+    display:flex; align-items:center; justify-content:center; flex:0 0 auto;
+  }
+  .medal svg { width:11px; height:11px; display:block; }
+  .medal.bad { color:var(--red); border-color:var(--red); background:#1c1214; }
+  .medal.bad i { background:var(--red); }
+  h2 { font-size:13px; margin:18px 0 8px; color:#f4f7fb; }
+</style>
+</head>
+<body>
+<h2>At medal size</h2>
+<div class="grid" id="row"></div>
+<script>
+const ink = '#2a1c08';
+const icons = {
+  stopped: '<rect x="4" y="4" width="8" height="8" rx="1.7" fill="'+ink+'"/>',
+  stopping: '<rect x="4.4" y="4.4" width="7.2" height="7.2" rx="1.35" fill="'+ink+'"/><path d="M12.8 6.1A5.4 5.4 0 0 0 9.6 2.6" fill="none" stroke="'+ink+'" stroke-width="2" stroke-linecap="round"/>',
+  paused: '<rect x="3.3" y="2.5" width="3" height="11" rx="1.15" fill="'+ink+'"/><rect x="9.7" y="2.5" width="3" height="11" rx="1.15" fill="'+ink+'"/>',
+  closing: '<path d="M3.4 3.4l9.2 9.2M12.6 3.4l-9.2 9.2" fill="none" stroke="'+ink+'" stroke-width="2.35" stroke-linecap="round"/>',
+  waiting: '<circle cx="3.3" cy="8" r="1.65" fill="'+ink+'"/><circle cx="8" cy="8" r="1.65" fill="'+ink+'"/><circle cx="12.7" cy="8" r="1.65" fill="'+ink+'"/>',
+  stale: '<rect x="6.9" y="2.1" width="2.2" height="7.4" rx="1.05" fill="'+ink+'"/><circle cx="8" cy="12.5" r="1.45" fill="'+ink+'"/>',
+  quiet: '<path fill="'+ink+'" fill-rule="evenodd" d="M9.4 1.7a6 6 0 1 0 3.6 10.6A4.9 4.9 0 0 1 9.4 1.7z"/>',
+  fill: '<rect x="1.7" y="3.1" width="2.7" height="9.8" rx="1.05" fill="'+ink+'"/><rect x="5.7" y="3.1" width="2.7" height="9.8" rx="1.05" fill="'+ink+'"/><circle cx="12.3" cy="8" r="2.35" fill="'+ink+'"/>',
+  rest: '<path d="M3.2 3.6h9.6L3.2 12.4h9.6" fill="none" stroke="'+ink+'" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/>',
+  cover: '<path fill="'+ink+'" d="M8 1.5l5.3 1.9v4.1c0 3.3-2.2 5.3-5.3 6.8-3.1-1.5-5.3-3.5-5.3-6.8V3.4z"/>',
+  trend: '<path d="M3 4.4l5 4.8 5-4.8" fill="none" stroke="'+ink+'" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 8.6l5 4.8 5-4.8" fill="none" stroke="'+ink+'" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/>',
+  cool: '<rect x="2" y="2.2" width="2.8" height="11.6" rx=".7" fill="'+ink+'"/><rect x="6.6" y="5.5" width="2.8" height="8.3" rx=".7" fill="'+ink+'"/><rect x="11.2" y="8.6" width="2.8" height="5.2" rx=".7" fill="'+ink+'"/>',
+  clock: '<path fill="'+ink+'" fill-rule="evenodd" d="M8 1.3a6.7 6.7 0 1 0 .01 13.4A6.7 6.7 0 0 0 8 1.3zm.95 3.15v3.35l2.45 1.55-.95 1.45-3.4-2.1V4.45z"/>',
+  wind: '<path fill="'+ink+'" d="M7 1.8h2v7.1h2.7L8 14.2 4.3 8.9H7z"/>',
+  warmup: '<path fill="'+ink+'" d="M2.8 11.2a5.2 5.2 0 0 1 10.4 0z"/><rect x="2" y="11.6" width="12" height="1.9" rx=".7" fill="'+ink+'"/>',
+  day: '<circle cx="8" cy="8" r="3.15" fill="'+ink+'"/><rect x="7.15" y="1.35" width="1.7" height="2.2" rx=".5" fill="'+ink+'"/><rect x="7.15" y="12.45" width="1.7" height="2.2" rx=".5" fill="'+ink+'"/><rect x="1.35" y="7.15" width="2.2" height="1.7" rx=".5" fill="'+ink+'"/><rect x="12.45" y="7.15" width="2.2" height="1.7" rx=".5" fill="'+ink+'"/>',
+  hold: '<rect x="3.3" y="7.1" width="9.4" height="6.6" rx="1.4" fill="'+ink+'"/><path fill="none" stroke="'+ink+'" stroke-width="2" stroke-linecap="round" d="M5.5 7.2V5.1a2.5 2.5 0 0 1 5 0v2.1"/>',
+  removed: '<path fill="'+ink+'" fill-rule="evenodd" d="M8 1.4a6.6 6.6 0 1 0 0 13.2A6.6 6.6 0 0 0 8 1.4zM4.3 7.05h7.4v1.9H4.3z"/>',
+  size: '<path fill="'+ink+'" d="M8 1.6A6.4 6.4 0 0 0 8 14.4z"/>',
+  building: '<rect x="2.2" y="2.3" width="11.6" height="2.5" rx=".7" fill="'+ink+'"/><rect x="3.5" y="6.7" width="9" height="2.5" rx=".7" fill="'+ink+'"/><rect x="4.8" y="11.1" width="6.4" height="2.5" rx=".7" fill="'+ink+'"/>',
+  deploying: '<path fill="'+ink+'" d="M8 1.5l4.3 4.5H9.7V14.2H6.3V6H3.7z"/>',
+  starting: '<path fill="'+ink+'" d="M4.6 2.2l8.2 5.8-8.2 5.8z"/>',
+  queued: '<rect x="2.3" y="2.2" width="11.4" height="2.35" rx=".7" fill="'+ink+'"/><rect x="2.3" y="6.8" width="11.4" height="2.35" rx=".7" fill="'+ink+'"/><rect x="2.3" y="11.4" width="7.2" height="2.35" rx=".7" fill="'+ink+'"/>',
+  mark: '<path fill="'+ink+'" d="M8 1.7l4.7 6.3L8 14.3 3.3 8z"/>'
+};
+const labels = [
+  ['stopped','Stopped'],['stopping','Stopping'],['paused','Paused'],['closing','Closing',1],
+  ['waiting','Waiting'],['stale','Stale book'],['quiet','Quiet'],['fill','Fill pause'],
+  ['rest','Rest'],['cover','Cover'],['trend','Trend cover'],['cool','Size cool'],
+  ['clock','Clock'],['wind','Wind-down'],['warmup','Warmup'],['day','Day stop'],
+  ['hold','Max hold'],['removed','Removed'],['size','size 40%'],['building','Building'],
+  ['deploying','Deploying'],['starting','Starting'],['queued','Queued'],['mark','Custom']
+];
+document.getElementById('row').innerHTML = labels.map(([k,t,bad]) =>
+  '<div class="medal'+(bad?' bad':'')+'"><i><svg viewBox="0 0 16 16">'+icons[k]+'</svg></i>'+t+'</div>'
+).join('');
+</script>
+</body>
+</html>

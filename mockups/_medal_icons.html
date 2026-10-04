@@ -1,0 +1,193 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Medal icons</title>
+<style>
+  :root { --bg:#0e1117; --surface:#161a25; --border2:#303647; --green:#26a69a; --red:#ef5350; --amber:#ffb74d; --ink:#2a1c08; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:#d1d4dc; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif; }
+  section { padding:16px 16px 8px; border-bottom:1px solid #1c2230; }
+  h2 { margin:0 0 2px; font-size:14px; color:#f4f7fb; }
+  p.note { margin:0 0 12px; color:#8b93a7; font-size:12px; max-width:760px; }
+  .row, .grid { display:flex; flex-wrap:wrap; gap:26px 12px; align-items:flex-start; padding:14px 2px 22px; }
+  .slot { position:relative; flex:0 0 auto; }
+  .pill {
+    width:228px; background:var(--surface); border:1px solid var(--border2); border-radius:10px;
+    padding:8px 10px 8px; box-shadow:inset 3px 0 0 var(--edge); text-align:left;
+  }
+  .head { display:flex; align-items:center; gap:5px; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--amber); box-shadow:0 0 6px var(--amber); flex:0 0 auto; }
+  .dot.go { background:var(--green); box-shadow:0 0 6px var(--green); }
+  .dot.bad { background:var(--red); box-shadow:0 0 6px var(--red); }
+  .sym { font-size:11px; font-weight:700; color:#f4f7fb; }
+  .acct { font-size:9px; font-weight:700; color:#ffe082; background:rgba(255,224,130,.14); border-radius:4px; padding:1px 5px; }
+  .tag { font-size:9px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; color:#b4c0d9; background:rgba(255,255,255,.07); border-radius:4px; padding:1px 5px; }
+  .ven { margin-left:auto; font-size:9px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; color:#9ecbff; background:rgba(41,98,255,.16); border-radius:4px; padding:1px 5px; }
+  .i { width:18px; height:18px; border-radius:5px; border:1px solid var(--border2); background:rgba(255,255,255,.06); color:#9aa3b8; font:italic 700 11px/16px inherit; text-align:center; position:relative; z-index:5; }
+  .k { font-size:8px; letter-spacing:.4px; text-transform:uppercase; color:#6b7385; font-weight:700; margin-top:3px; }
+  .val { font-size:16px; font-weight:700; }
+  .usd { font-size:11px; font-weight:650; opacity:.78; margin-left:4px; }
+  .lot { font-size:9px; color:#c5cedf; margin-top:2px; }
+  .bal { font-size:9px; color:#9aa3b5; margin-top:2px; }
+  .medal {
+    position:absolute; left:50%; bottom:0; transform:translate(-50%, 46%);
+    display:flex; align-items:center; gap:6px; z-index:3;
+    background:#1a160f; color:var(--amber); border:1px solid var(--amber); border-radius:999px;
+    padding:0 6px 0 1px; box-shadow:0 0 0 2px var(--bg);
+    font-size:9px; font-weight:800; letter-spacing:.1px; white-space:nowrap;
+  }
+  .medal i {
+    width:13px; height:13px; border-radius:50%; background:var(--amber);
+    display:flex; align-items:center; justify-content:center; flex:0 0 auto;
+  }
+  .medal svg { width:9px; height:9px; display:block; }
+  .medal.bad { color:var(--red); border-color:var(--red); background:#1c1214; }
+  .medal.bad i { background:var(--red); }
+</style>
+</head>
+<body>
+<section id="ctx">
+  <h2>Row pe</h2>
+  <p class="note">Live pills pe medal nahi. Status wali pill ke bottom center pe medal, i button khula.</p>
+  <div class="row" id="ctxRow"></div>
+</section>
+<section id="halt">
+  <h2>Halt</h2>
+  <p class="note">Stopped, stopping, din ka stop, max hold, aur removed.</p>
+  <div class="grid" data-group="halt"></div>
+</section>
+<section id="pause">
+  <h2>Pause</h2>
+  <p class="note">Icon mode ka hai. Seconds aur reason text ke saath chipke rehte hain.</p>
+  <div class="grid" data-group="pause"></div>
+</section>
+<section id="close">
+  <h2>Close aur cover</h2>
+  <p class="note">Closing red hai. Baaki amber medal, alag glyph.</p>
+  <div class="grid" data-group="close"></div>
+</section>
+<section id="time">
+  <h2>Time aur book</h2>
+  <p class="note">Waiting, rest, clock, open delay, stale book, quiet.</p>
+  <div class="grid" data-group="time"></div>
+</section>
+<section id="size">
+  <h2>Size aur boot</h2>
+  <p class="note">Size cool aur size %. Boot lines abhi number ki jagah likhti hain — yahan medal pe dikhayi hain.</p>
+  <div class="grid" data-group="size"></div>
+</section>
+<script>
+const INK = '#2a1c08';
+const L = 'fill="none" stroke="' + INK + '" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"';
+const F = 'fill="' + INK + '"';
+const icons = {
+  stopped: '<rect x="2.4" y="2.4" width="7.2" height="7.2" rx="1.15" ' + F + '/>',
+  stopping: '<path ' + L + ' d="M8.7 2.5a4.1 4.1 0 1 0 1.15 2.05"/><path ' + L + ' d="M8.5 1.35V3.1h1.75"/><rect x="4.2" y="4.2" width="3.6" height="3.6" rx=".55" ' + F + '/>',
+  paused: '<rect x="2.2" y="1.7" width="2.35" height="8.6" rx=".7" ' + F + '/><rect x="7.45" y="1.7" width="2.35" height="8.6" rx=".7" ' + F + '/>',
+  closing: '<path fill="none" stroke="' + INK + '" stroke-width="1.8" stroke-linecap="round" d="M2.7 2.7l6.6 6.6M9.3 2.7L2.7 9.3"/>',
+  waiting: '<path ' + L + ' d="M3.1 1.7h5.8M3.1 10.3h5.8"/><path ' + L + ' d="M3.4 2.1C3.4 4 6 4.9 6 6s-2.6 2-2.6 3.9M8.6 2.1C8.6 4 6 4.9 6 6s2.6 2 2.6 3.9"/>',
+  stale: '<path ' + L + ' d="M2 2.5h3.3V9.2H2zM6.7 2.5H10V9.2H6.7z"/><path ' + L + ' d="M1.8 10.2L10.2 1.8"/>',
+  quiet: '<path ' + F + ' d="M1.5 4.5h2L5.8 2.6v6.8L3.5 7.5h-2z"/><path ' + L + ' d="M8 4.1l2.7 3.7M10.7 4.1L8 7.8"/>',
+  fill: '<rect x="1.5" y="1.6" width="2.15" height="6.3" rx=".55" ' + F + '/><rect x="4.7" y="1.6" width="2.15" height="6.3" rx=".55" ' + F + '/><circle cx="9.35" cy="8.7" r="1.75" ' + F + '/>',
+  rest: '<path fill="none" stroke="' + INK + '" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M2.5 3.1h7L2.5 8.9h7"/>',
+  cover: '<path ' + F + ' d="M6 1.25l4.15 1.45v3.05c0 2.25-1.65 3.6-4.15 4.55C3.5 9.35 1.85 8 1.85 5.75V2.7z"/>',
+  trend: '<path ' + L + ' d="M6 1.35l4 1.4v2.9c0 2.15-1.55 3.45-4 4.35-2.45-.9-4-2.2-4-4.35V2.75z"/><path ' + L + ' d="M4.15 5.15L6 7.15l1.85-2"/>',
+  cool: '<path ' + L + ' d="M6 1.3v9.4M1.5 6h9M2.5 2.5l7 7M9.5 2.5l-7 7"/>',
+  clock: '<circle cx="6" cy="6" r="4.15" ' + L + '/><path ' + L + ' d="M6 3.2V6.15l2 1.25"/>',
+  wind: '<path ' + L + ' d="M6 1.5v6.1M3.35 5.5L6 8.25l2.65-2.75M2.3 10.25h7.4"/>',
+  delay: '<path ' + L + ' d="M1.7 7.3h8.6"/><path ' + L + ' d="M3.15 7.3a2.85 2.85 0 0 1 5.7 0"/><path ' + L + ' d="M6 2.2v1.25M3.3 3.5l.85.85M8.7 3.5l-.85.85"/>',
+  day: '<circle cx="6" cy="4.7" r="1.85" ' + F + '/><path ' + L + ' d="M6 1.15v1.15M2.55 2.55l.8.8M9.45 2.55l-.8.8M1.5 4.7h1.15M9.35 4.7H10.5"/><path fill="none" stroke="' + INK + '" stroke-width="1.7" stroke-linecap="round" d="M2.1 9.35h7.8"/>',
+  hold: '<rect x="2.7" y="5.3" width="6.6" height="4.7" rx="1" ' + L + '/><path ' + L + ' d="M4.25 5.3V3.75a1.75 1.75 0 0 1 3.5 0V5.3"/>',
+  removed: '<path ' + L + ' d="M2.3 3.3h7.4M4.55 3.3V2.25h2.9V3.3"/><path ' + L + ' d="M3.25 3.5l.55 6.15h4.4l.55-6.15"/>',
+  size: '<circle cx="6" cy="6" r="4.1" ' + L + '/><path ' + F + ' d="M6 6 L6 2.05 A3.95 3.95 0 0 1 9.55 7.35 Z"/>',
+  building: '<rect x="2" y="7.5" width="8" height="2.15" rx=".35" ' + F + '/><rect x="3.1" y="4.9" width="5.8" height="2.15" rx=".35" ' + F + '/><rect x="4.15" y="2.3" width="3.7" height="2.15" rx=".35" ' + F + '/>',
+  deploying: '<path ' + L + ' d="M6 8.7V2.3M3.55 4.55L6 2.1l2.45 2.45M2.15 10.2h7.7"/>',
+  starting: '<path ' + F + ' d="M3.3 1.7l6.2 4.3-6.2 4.3z"/>',
+  queued: '<path ' + L + ' d="M2.1 3h7.8M2.1 6h7.8M2.1 9h5.1"/>'
+};
+function svg(name) {
+  return '<svg viewBox="0 0 12 12">' + icons[name] + '</svg>';
+}
+function medal(icon, text, bad) {
+  return '<div class="medal' + (bad ? ' bad' : '') + '"><i>' + svg(icon) + '</i>' + text + '</div>';
+}
+const lots = {
+  AXSUSD: ['1 lot = 10 AXS (0 AXS filled)', 'bal ₹93,718'],
+  ENJUSD: ['1 lot = 100 ENJ (0 ENJ filled)', 'bal ₹42,670'],
+  MANAUSD: ['1 lot = 1 MANA (0 MANA filled)', 'bal ₹93,718'],
+  OILUSD: ['1 lot = 0.1 OIL (0.4 OIL filled)', 'bal ₹59,102'],
+  AINUSD: ['1 lot = 100 AIN (0 AIN filled)', 'bal ₹42,670']
+};
+function pill(o) {
+  const pack = lots[o.sym] || lots.AXSUSD;
+  if (!o.lot) o.lot = pack[0];
+  if (!o.bal) o.bal = pack[1];
+  const dot = o.go ? ' go' : (o.bad ? ' bad' : '');
+  return '<div class="slot"><div class="pill" style="--edge:' + o.edge + '">' +
+    '<div class="head"><span class="dot' + dot + '"></span><span class="sym">' + o.sym + '</span>' +
+    '<span class="acct">' + o.acct + '</span><span class="tag">' + o.strat + '</span>' +
+    '<span class="ven">DELTA</span><span class="i">i</span></div>' +
+    '<div class="k">rPnL</div><div class="val" style="color:' + (o.valCol || '#d1d4dc') + '">' + o.val +
+    '<span class="usd">' + o.usd + '</span></div>' +
+    '<div class="lot">' + o.lot + '</div><div class="bal">' + o.bal + '</div></div>' +
+    (o.icon ? medal(o.icon, o.msg, o.bad) : '') +
+    '</div>';
+}
+const base = { edge:'#e0a36a', sym:'AXSUSD', acct:'SA1', strat:'STACK', val:'₹0', usd:'$0.00', lot:'1 lot = 10 AXS (0 AXS filled)', bal:'bal ₹93,718' };
+const groups = {
+  halt: [
+    { icon:'stopped', msg:'Stopped' },
+    { icon:'stopping', msg:'Stopping', sym:'ENJUSD', edge:'#e07a90', acct:'SA2', lot:'1 lot = 100 ENJ (0 ENJ filled)', bal:'bal ₹42,670' },
+    { icon:'day', msg:'Day stop', sym:'MANAUSD', edge:'#e07a90', acct:'SA1', lot:'1 lot = 1 MANA (0 MANA filled)' },
+    { icon:'hold', msg:'Max hold', sym:'OILUSD', edge:'#4c8dff', acct:'SA3', strat:'TOUCH', lot:'1 lot = 0.1 OIL (0.4 OIL filled)', bal:'bal ₹59,102' },
+    { icon:'removed', msg:'Removed · restart ready', sym:'AINUSD', edge:'#3d7eff', acct:'SA2', strat:'TOUCH', lot:'1 lot = 100 AIN (0 AIN filled)', bal:'bal ₹42,670' }
+  ],
+  pause: [
+    { icon:'paused', msg:'Paused' },
+    { icon:'paused', msg:'Paused 18s', sym:'ENJUSD', edge:'#e07a90', acct:'SA2', lot:'1 lot = 100 ENJ (12 ENJ filled)' },
+    { icon:'fill', msg:'Fill pause', sym:'MANAUSD', edge:'#c98ad4', acct:'SA1', lot:'1 lot = 1 MANA (4 MANA filled)' },
+    { icon:'fill', msg:'Fill pause 9s · burst', sym:'OILUSD', edge:'#4c8dff', acct:'SA3', strat:'TOUCH', lot:'1 lot = 0.1 OIL (0.4 OIL filled)', bal:'bal ₹59,102' },
+    { icon:'paused', msg:'Paused · size 40%', sym:'AINUSD', edge:'#3d7eff', acct:'SA2', strat:'TOUCH', lot:'1 lot = 100 AIN (40 AIN filled)' }
+  ],
+  close: [
+    { icon:'closing', msg:'Closing', bad:true, sym:'AXSUSD' },
+    { icon:'cover', msg:'Cover', sym:'ENJUSD', edge:'#e07a90', acct:'SA2', lot:'1 lot = 100 ENJ (80 ENJ filled)' },
+    { icon:'trend', msg:'Trend cover', sym:'MANAUSD', edge:'#c98ad4', acct:'SA1' },
+    { icon:'wind', msg:'Wind-down', sym:'OILUSD', edge:'#4c8dff', acct:'SA3', strat:'TOUCH', lot:'1 lot = 0.1 OIL (1.2 OIL filled)', bal:'bal ₹59,102' },
+    { icon:'cover', msg:'Cover · size 40%', sym:'AINUSD', edge:'#3d7eff', acct:'SA2', strat:'TOUCH' }
+  ],
+  time: [
+    { icon:'waiting', msg:'Waiting' },
+    { icon:'rest', msg:'Rest', sym:'ENJUSD', edge:'#e07a90', acct:'SA2' },
+    { icon:'rest', msg:'Rest 24s', sym:'MANAUSD', edge:'#c98ad4', acct:'SA1' },
+    { icon:'clock', msg:'Clock', sym:'OILUSD', edge:'#4c8dff', acct:'SA3', strat:'TOUCH', bal:'bal ₹59,102' },
+    { icon:'delay', msg:'Open delay', sym:'AINUSD', edge:'#3d7eff', acct:'SA2', strat:'TOUCH' },
+    { icon:'stale', msg:'Stale book', sym:'AXSUSD' },
+    { icon:'quiet', msg:'Quiet', sym:'ENJUSD', edge:'#e07a90', acct:'SA2' }
+  ],
+  size: [
+    { icon:'cool', msg:'Size cool' },
+    { icon:'size', msg:'size 40%', sym:'ENJUSD', edge:'#e07a90', acct:'SA2' },
+    { icon:'building', msg:'Building', sym:'MANAUSD', edge:'#c98ad4', acct:'SA1', val:'—', usd:'', valCol:'#ffb74d' },
+    { icon:'deploying', msg:'Deploying', sym:'OILUSD', edge:'#4c8dff', acct:'SA3', strat:'TOUCH', val:'—', usd:'', valCol:'#ffb74d' },
+    { icon:'starting', msg:'Starting', sym:'AINUSD', edge:'#3d7eff', acct:'SA2', strat:'TOUCH', val:'—', usd:'', valCol:'#ffb74d' },
+    { icon:'queued', msg:'Queued', sym:'AXSUSD', val:'—', usd:'', valCol:'#ffb74d' }
+  ]
+};
+document.getElementById('ctxRow').innerHTML = [
+  pill({ edge:'#4c8dff', sym:'OILUSD', acct:'SA3', strat:'TOUCH', go:true, val:'₹0', usd:'$0.01', valCol:'#26a69a', lot:'1 lot = 0.1 OIL (0.4 OIL filled)', bal:'bal ₹59,102' }),
+  pill(Object.assign({}, base, { icon:'stopped', msg:'Stopped' })),
+  pill(Object.assign({}, base, { edge:'#e07a90', sym:'ENJUSD', acct:'SA2', lot:'1 lot = 100 ENJ (0 ENJ filled)', bal:'bal ₹42,670', icon:'paused', msg:'Paused 18s' }))
+].join('');
+Object.keys(groups).forEach(name => {
+  const host = document.querySelector('[data-group="' + name + '"]');
+  host.innerHTML = groups[name].map(item => {
+    const sym = item.sym || base.sym;
+    const pack = lots[sym] || lots.AXSUSD;
+    return pill(Object.assign({}, base, { lot: pack[0], bal: pack[1] }, item));
+  }).join('');
+});
+</script>
+</body>
+</html>
